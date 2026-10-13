@@ -266,6 +266,13 @@ async def link_existing_asset_for_preparation_api(
 async def preview_shot_video_prompt(
     shot_id: str,
     template_id: str | None = Query(None, description="指定视频提示词模板 ID；不传则使用默认模板"),
+    reference_mode: str = Query(
+        "text_only",
+        description=(
+            "参考模式：first/last/key/first_last/first_last_key/text_only。"
+            "默认 text_only 只渲染提示词本身；传真实模式时会连同该模式要求的参考帧一起渲染"
+        ),
+    ),
     db: AsyncSession = Depends(get_db),
 ) -> ApiResponse[ShotVideoPromptPreviewRead]:
     derived = await derive_video_preview(
@@ -274,7 +281,7 @@ async def preview_shot_video_prompt(
         context=await build_video_context(
             db,
             shot_id=shot_id,
-            reference_mode="text_only",
+            reference_mode=reference_mode,
             images=[],
             template_id=template_id,
         ),

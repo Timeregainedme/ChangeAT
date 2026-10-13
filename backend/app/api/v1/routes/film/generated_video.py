@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -10,6 +10,7 @@ from app.models.task_links import GenerationTaskLink
 from app.schemas.studio.shots import ShotVideoPromptPackRead
 from app.services.film.generated_video import build_run_args, preview_prompt_and_images
 from app.services.studio.shot_status import mark_shot_generating
+from app.services.studio.shot_video_readiness import get_shot_video_readiness
 from app.tasks.execute_task import enqueue_task_execution
 from app.schemas.common import ApiResponse, created_response, success_response
 
@@ -57,7 +58,27 @@ async def create_video_generation_task(
     body: VideoGenerationTaskRequest,
     db: AsyncSession = Depends(get_db),
 ) -> ApiResponse[TaskCreated]:
-    """创建视频生成任务并后台执行，结果通过 /tasks/{task_id}/result 获取。"""
+    """创建视频生成任务并后台执行，结果通过 /tasks/{task_id}/result 获取。
+
+    创建前先做一次准备度检查（评审 R-14）：参考帧缺失、时长未配、模型/供应商不可用
+    等问题若放过去，只会在 Celery 里失败，用户看到「任务创建成功但生成失败」。
+    这里前移为 409 并列出未通过项，避免制造必然失败的任务。
+    """
+
+    readiness = await get_shot_video_readiness(
+        db,
+        shot_id=body.shot_id,
+        reference_mode=body.reference_mode,
+    )
+    if not readiness.ready:
+        failing = [item for item in readiness.checks if not item.ok]
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Shot is not ready for video generation: "
+                + "; ".join(f"{item.key}: {item.message}" for item in failing)
+            ),
+        )
 
     store = SqlAlchemyTaskStore(db)
     tm = TaskManager(store=store, strategies={})

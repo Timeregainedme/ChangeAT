@@ -165,6 +165,9 @@ async def get_shot_video_readiness(
             "镜头时长已配置" if duration > 0 else "请先配置镜头时长",
         )
 
+    # 提示词检查刻意用 text_only + 空图做「维度隔离」：这里只回答「提示词能不能渲染出
+    # 内容」，参考帧缺失由 _reference_frames_ready 单独报告。若传入真实 reference_mode，
+    # build_video_context 会因缺帧抛 400，导致 prompt_ready 被误报为渲染失败。
     try:
         preview = await derive_video_preview(
             db,

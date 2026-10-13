@@ -133,12 +133,17 @@ def test_preview_video_generation_prompt_not_found_returns_api_response(
     assert response.json() == {"code": 404, "message": "Shot not found", "data": None, "meta": None}
 
 
+async def _fake_readiness_ready(*_args, **_kwargs):
+    return SimpleNamespace(ready=True, shot_id="shot-1", reference_mode="first", checks=[])
+
+
 def test_create_video_generation_task_returns_created_envelope(client: TestClient, monkeypatch) -> None:
     db = _FakeDB()
 
     async def _fake_build_run_args(*_args, **_kwargs):
         return {"prompt": "最终视频提示词", "images": ["file-1"]}
 
+    monkeypatch.setattr(route, "get_shot_video_readiness", _fake_readiness_ready)
     monkeypatch.setattr(route, "build_run_args", _fake_build_run_args)
     monkeypatch.setattr(route, "TaskManager", _FakeTaskManager)
     monkeypatch.setattr(route, "enqueue_task_execution", lambda task_id: SimpleNamespace(id=f"celery-{task_id}"))
@@ -166,6 +171,51 @@ def test_create_video_generation_task_returns_created_envelope(client: TestClien
     assert body["meta"] is None
     assert db.committed is True
     assert len(db.added) == 1
+
+
+def test_create_video_generation_task_not_ready_returns_409(client: TestClient, monkeypatch) -> None:
+    """评审 R-14：分镜未就绪时必须在建任务前拦截，而不是先 201 再在任务里失败。"""
+    db = _FakeDB()
+
+    async def _fake_readiness_not_ready(*_args, **_kwargs):
+        return SimpleNamespace(
+            ready=False,
+            shot_id="shot-1",
+            reference_mode="first",
+            checks=[
+                SimpleNamespace(key="reference_frames_ready", ok=False, message="缺少参考帧：first"),
+                SimpleNamespace(key="video_model_ready", ok=True, message="ok"),
+            ],
+        )
+
+    async def _fail_build_run_args(*_args, **_kwargs):
+        raise AssertionError("readiness 未通过时不应进入 build_run_args")
+
+    monkeypatch.setattr(route, "get_shot_video_readiness", _fake_readiness_not_ready)
+    monkeypatch.setattr(route, "build_run_args", _fail_build_run_args)
+    monkeypatch.setattr(route, "TaskManager", _FakeTaskManager)
+    app.dependency_overrides[get_db] = _override_db(db)
+    try:
+        response = client.post(
+            "/api/v1/film/tasks/video",
+            json={
+                "shot_id": "shot-1",
+                "reference_mode": "first",
+                "prompt": "生成一个节奏紧张的视频片段",
+                "images": [],
+                "ratio": "9:16",
+            },
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 409
+    body = response.json()
+    assert body["code"] == 409
+    assert "not ready" in body["message"]
+    assert "缺少参考帧" in body["message"]
+    assert db.committed is False
+    assert db.added == []
 
 
 def test_create_video_generation_task_validation_error_returns_api_response(client: TestClient) -> None:

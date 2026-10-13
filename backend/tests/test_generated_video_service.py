@@ -494,12 +494,12 @@ async def test_build_run_args_rejects_missing_ratio(monkeypatch: pytest.MonkeyPa
             )
 
         assert exc_info.value.status_code == 400
-        assert exc_info.value.detail == "ratio is required"
+        assert exc_info.value.detail.startswith("ratio is required")
     await engine.dispose()
 
 
 @pytest.mark.asyncio
-async def test_build_run_args_does_not_read_shot_override_ratio(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_build_run_args_requested_ratio_wins_over_shot_override(monkeypatch: pytest.MonkeyPatch) -> None:
     db, engine = await _build_session()
     async with db:
         await _seed_shot_graph(db)
@@ -562,4 +562,112 @@ async def test_build_run_args_accepts_supported_ratio_without_size(monkeypatch: 
         )
 
         assert run_args["input"]["ratio"] == "9:16"
+    await engine.dispose()
+
+
+async def _seed_video_model_chain(db: AsyncSession) -> None:
+    provider = Provider(id="p1", name="OpenAI", base_url="https://api.openai.com/v1", api_key="k")
+    model = Model(id="m_video", name="sora-mini", category=ModelCategoryKey.video, provider_id="p1")
+    settings = ModelSettings(id=1, default_video_model_id="m_video")
+    db.add_all([provider, model, settings])
+    await db.commit()
+
+
+@pytest.mark.asyncio
+async def test_build_run_args_inherits_shot_override_ratio_when_request_omits_ratio(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """评审 R-15：请求不带 ratio 时，应回落到 shot_details.override_video_ratio。"""
+    db, engine = await _build_session()
+    async with db:
+        await _seed_shot_graph(db)
+        await _seed_video_model_chain(db)
+        detail = await db.get(ShotDetail, "s1")
+        assert detail is not None
+        detail.override_video_ratio = "9:16"
+        await db.commit()
+
+        async def _fake_file_id_to_data_url(_db: AsyncSession, *, file_id: str) -> str:
+            return f"data:image/png;base64,{file_id}"
+
+        monkeypatch.setattr(
+            "app.services.film.generated_video.file_id_to_data_url",
+            _fake_file_id_to_data_url,
+        )
+
+        run_args = await build_run_args(
+            db,
+            shot_id="s1",
+            reference_mode="text_only",
+            prompt="最终视频提示词",
+            images=[],
+            ratio=None,
+        )
+
+        assert run_args["input"]["ratio"] == "9:16"
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_build_run_args_inherits_project_default_ratio_when_shot_has_no_override(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """评审 R-15：分镜未覆盖时，应继续回落到 projects.default_video_ratio。"""
+    db, engine = await _build_session()
+    async with db:
+        await _seed_shot_graph(db)
+        await _seed_video_model_chain(db)
+        project = await db.get(Project, "p1")
+        assert project is not None
+        project.default_video_ratio = "4:3"
+        await db.commit()
+
+        async def _fake_file_id_to_data_url(_db: AsyncSession, *, file_id: str) -> str:
+            return f"data:image/png;base64,{file_id}"
+
+        monkeypatch.setattr(
+            "app.services.film.generated_video.file_id_to_data_url",
+            _fake_file_id_to_data_url,
+        )
+
+        run_args = await build_run_args(
+            db,
+            shot_id="s1",
+            reference_mode="text_only",
+            prompt="最终视频提示词",
+            images=[],
+            ratio=None,
+        )
+
+        assert run_args["input"]["ratio"] == "4:3"
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_build_run_args_rejects_invalid_ratio_from_shot_override(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """脏数据防御：覆盖列里存了非法比例时，应 400 而不是把脏值透传给供应商。"""
+    db, engine = await _build_session()
+    async with db:
+        await _seed_shot_graph(db)
+        await _seed_video_model_chain(db)
+        detail = await db.get(ShotDetail, "s1")
+        assert detail is not None
+        detail.override_video_ratio = "not-a-ratio"
+        await db.commit()
+
+        with pytest.raises(HTTPException) as exc_info:
+            await build_run_args(
+                db,
+                shot_id="s1",
+                reference_mode="text_only",
+                prompt="最终视频提示词",
+                images=[],
+                ratio=None,
+            )
+
+        assert exc_info.value.status_code == 400
+        assert "Invalid video ratio" in exc_info.value.detail
+        assert "shot_details.override_video_ratio" in exc_info.value.detail
     await engine.dispose()
