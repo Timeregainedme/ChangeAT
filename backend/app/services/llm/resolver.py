@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.llm import Model, ModelCategoryKey, ModelSettings, Provider
 from app.services.common import entity_not_found
+from app.services.llm.provider_registry import thinking_extra_body_for_provider_name
 from app.services.llm.provider_resolver import resolve_effective_base_url
 
 
@@ -19,6 +20,8 @@ def _settings_model_id(settings_row: ModelSettings | None, category: ModelCatego
         return settings_row.default_text_model_id
     if category == ModelCategoryKey.image:
         return settings_row.default_image_model_id
+    if category == ModelCategoryKey.audio:
+        return settings_row.default_audio_model_id
     return settings_row.default_video_model_id
 
 
@@ -177,9 +180,11 @@ def _build_chat_openai_model(
     if base_url:
         kwargs.setdefault("base_url", base_url)
 
-    if not thinking:
+    # 思考开关按供应商下发（阿里百炼 enable_thinking / DeepSeek thinking），未登记供应商不下发。
+    thinking_body = thinking_extra_body_for_provider_name(provider.name, enabled=thinking)
+    if thinking_body:
         extra_body = dict(kwargs.get("extra_body") or {})
-        extra_body["enable_thinking"] = False
+        extra_body.update(thinking_body)
         kwargs["extra_body"] = extra_body
 
     return ChatOpenAI(**kwargs)

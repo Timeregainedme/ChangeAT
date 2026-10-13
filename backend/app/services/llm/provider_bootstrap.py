@@ -57,5 +57,23 @@ def bootstrap_builtin_providers() -> None:
                 supported_categories=(ModelCategoryKey.video, ModelCategoryKey.audio),
                 default_base_url="https://cp.compshare.cn",
             ),
+            # DeepSeek 官方 API：OpenAI 兼容格式，文本（含思考模式）能力。
+            # 思考开关为 extra_body={"thinking": {"type": "enabled"|"disabled"}}，
+            # 见 app/services/llm/provider_registry.py 的 thinking_extra_body 映射。
+            ProviderSpec(
+                key="deepseek",
+                display_name="DeepSeek",
+                aliases=(
+                    "deepseek",
+                    "深度求索",
+                    "deepseek.com",
+                    "api.deepseek.com",
+                    "deepseek-chat",
+                    "deepseek-flash",
+                    "deepseek-v4-pro",
+                ),
+                supported_categories=(ModelCategoryKey.text,),
+                default_base_url="https://api.deepseek.com/v1",
+            ),
         ]
     )

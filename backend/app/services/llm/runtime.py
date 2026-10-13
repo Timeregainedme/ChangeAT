@@ -9,6 +9,7 @@ from langchain_core.language_models.chat_models import BaseChatModel
 from sqlalchemy.orm import Session
 
 from app.models.llm import Model, ModelCategoryKey, ModelSettings, Provider
+from app.services.llm.provider_registry import thinking_extra_body_for_provider_name
 from app.services.llm.provider_resolver import resolve_effective_base_url
 
 
@@ -68,9 +69,11 @@ def build_default_text_llm_sync(
     if base_url:
         kwargs.setdefault("base_url", base_url)
 
-    if not thinking:
+    # 思考开关按供应商下发（阿里百炼 enable_thinking / DeepSeek thinking），未登记供应商不下发。
+    thinking_body = thinking_extra_body_for_provider_name(provider.name, enabled=thinking)
+    if thinking_body:
         extra_body = dict(kwargs.get("extra_body") or {})
-        extra_body["enable_thinking"] = False
+        extra_body.update(thinking_body)
         kwargs["extra_body"] = extra_body
 
     return ChatOpenAI(**kwargs)
