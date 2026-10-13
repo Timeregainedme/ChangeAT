@@ -20,5 +20,11 @@ class VideoGenerationTaskRequest(BaseModel):
         description="参考图 file_id 列表，数量需与 reference_mode 严格匹配",
     )
 
-    ratio: VideoRatio = Field(..., description="视频画幅比例，如 16:9 / 9:16")
+    ratio: VideoRatio | None = Field(
+        None,
+        description=(
+            "视频画幅比例，如 16:9 / 9:16；不传则继承分镜的 override_video_ratio，"
+            "再继承项目的 default_video_ratio"
+        ),
+    )
     # seconds 由 ShotDetail.duration 自动确定；请求体不再接收覆盖值。

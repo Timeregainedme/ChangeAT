@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import mimetypes
+from typing import get_args
 
 from fastapi import HTTPException
 from sqlalchemy import select
@@ -12,11 +13,11 @@ from app.core.db import async_session_maker
 from app.core.task_manager import SqlAlchemyTaskStore
 from app.core.task_manager.types import TaskStatus
 from app.core.contracts.provider import ProviderConfig
-from app.core.contracts.video_generation import VideoGenerationInput, VideoGenerationResult
+from app.core.contracts.video_generation import VideoGenerationInput, VideoGenerationResult, VideoRatio
 from app.core.tasks import VideoGenerationTask
 from app.models.llm import Model, ModelCategoryKey, ModelSettings
 from app.models.task_links import GenerationTaskLink
-from app.models.studio import FileItem, Shot, ShotDetail, ShotFrameType
+from app.models.studio import Chapter, FileItem, Project, Shot, ShotDetail, ShotFrameType
 from app.models.types import FileUsageKind
 from app.services.common import entity_not_found
 from app.services.llm.provider_resolver import resolve_provider_config_by_model
@@ -133,14 +134,64 @@ def _normalize_optional_text(value: str | None) -> str | None:
     return normalized or None
 
 
+_VALID_VIDEO_RATIOS = set(get_args(VideoRatio))
+
+
+def _validate_video_ratio(value: str, *, source: str) -> str:
+    """校验比例取值合法，避免脏数据在提交阶段才炸成 500。"""
+    if value not in _VALID_VIDEO_RATIOS:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Invalid video ratio {value!r} from {source}; "
+                f"allowed: {sorted(_VALID_VIDEO_RATIOS)}"
+            ),
+        )
+    return value
+
+
 async def resolve_effective_video_options(
+    db: AsyncSession,
+    *,
+    shot_id: str,
+    shot_detail: ShotDetail,
     requested_ratio: str | None,
 ) -> str:
-    """解析视频比例：请求参数为唯一主参数。"""
+    """解析视频比例：请求参数 → 分镜覆盖 → 项目默认。
+
+    评审 R-15：`shot_details.override_video_ratio` 与 `projects.default_video_ratio`
+    两列建了却从未被后端读取（继承逻辑只写在前端），导致同一个分镜走前端能生成、
+    直连 API 却必然 400。这里把继承链补回后端，作为唯一权威。
+    """
     req_ratio = _normalize_optional_text(requested_ratio)
-    if not req_ratio:
-        raise HTTPException(status_code=400, detail="ratio is required")
-    return req_ratio
+    if req_ratio:
+        return _validate_video_ratio(req_ratio, source="request")
+
+    override_ratio = _normalize_optional_text(shot_detail.override_video_ratio)
+    if override_ratio:
+        return _validate_video_ratio(
+            override_ratio,
+            source=f"shot_details.override_video_ratio (shot_id={shot_id})",
+        )
+
+    project_ratio: str | None = None
+    shot = await db.get(Shot, shot_id)
+    if shot is not None and shot.chapter_id:
+        chapter = await db.get(Chapter, shot.chapter_id)
+        if chapter is not None and chapter.project_id:
+            project = await db.get(Project, chapter.project_id)
+            if project is not None:
+                project_ratio = _normalize_optional_text(project.default_video_ratio)
+    if project_ratio:
+        return _validate_video_ratio(project_ratio, source="projects.default_video_ratio")
+
+    raise HTTPException(
+        status_code=400,
+        detail=(
+            "ratio is required: 请求未指定 ratio，该分镜未设置 override_video_ratio，"
+            "所属项目也未设置 default_video_ratio"
+        ),
+    )
 
 
 async def build_run_args(
@@ -155,7 +206,12 @@ async def build_run_args(
     model = await resolve_default_video_model(db)
     provider_cfg = await load_provider_config_by_model(db, model)
     shot_detail = await validate_shot_and_duration(db, shot_id)
-    resolved_ratio = await resolve_effective_video_options(requested_ratio=ratio)
+    resolved_ratio = await resolve_effective_video_options(
+        db,
+        shot_id=shot_id,
+        shot_detail=shot_detail,
+        requested_ratio=ratio,
+    )
     base = build_video_base_draft(shot_id=shot_id, prompt=prompt)
     context = await build_video_context(
         db,

@@ -8,6 +8,8 @@
 from __future__ import annotations
 
 import importlib
+import math
+import re
 from dataclasses import dataclass
 from threading import RLock
 from typing import Callable
@@ -24,6 +26,10 @@ DEFAULT_RATIO_TO_SIZE_MAPPING: dict[str, str] = {
     "9:16": "720x1280",
     "21:9": "1680x720",
 }
+DEFAULT_SIZE_TO_RATIO_MAPPING: dict[str, str] = {
+    size.lower(): ratio for ratio, size in DEFAULT_RATIO_TO_SIZE_MAPPING.items()
+}
+_SIZE_PATTERN = re.compile(r"^\s*(\d+)\s*[x×]\s*(\d+)\s*$", re.IGNORECASE)
 
 
 @dataclass(frozen=True, slots=True)
@@ -176,6 +182,35 @@ def derive_provider_size(
     cap = resolve_video_capability(provider=provider, model=model)
     mapping = cap.ratio_to_size_mapping or DEFAULT_RATIO_TO_SIZE_MAPPING
     return mapping.get(ratio)
+
+
+def infer_ratio_from_size(value: str | None) -> str | None:
+    """从「比例」或「分辨率」反推标准比例。
+
+    供应商有的接口按分辨率描述画幅（如 1920x1080、720x1280），业务层统一用比例，
+    这里做归一化：先认标准比例字符串，再按已知尺寸精确匹配，最后按宽高比约分比对
+    （`1920x1080` → gcd 120 → `16:9`）。无法识别返回 None，由调用方决定回退策略。
+    """
+    token = (value or "").strip()
+    if not token:
+        return None
+    if token in ALLOWED_RATIOS:
+        return token
+
+    lowered = token.lower()
+    known = DEFAULT_SIZE_TO_RATIO_MAPPING.get(lowered)
+    if known is not None:
+        return known
+
+    match = _SIZE_PATTERN.match(lowered)
+    if match is None:
+        return None
+    width, height = int(match.group(1)), int(match.group(2))
+    if width <= 0 or height <= 0:
+        return None
+    divisor = math.gcd(width, height)
+    reduced = f"{width // divisor}:{height // divisor}"
+    return reduced if reduced in ALLOWED_RATIOS else None
 
 
 def validate_video_options(
