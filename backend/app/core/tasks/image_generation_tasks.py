@@ -9,6 +9,7 @@ from abc import ABC, abstractmethod
 from typing import Any, AsyncIterator
 
 from app.core.integrations.openai.images import OpenAIImageApiAdapter
+from app.core.integrations.pix.images import PixImageApiAdapter
 from app.core.integrations.volcengine.images import VolcengineImageApiAdapter
 from app.core.contracts.image_generation import (
     ImageGenerationInput,
@@ -31,6 +32,7 @@ __all__ = [
     "AbstractImageGenerationTask",
     "OpenAIImageGenerationTask",
     "VolcengineImageGenerationTask",
+    "PixImageGenerationTask",
     "ImageGenerationTask",
 ]
 
@@ -143,8 +145,35 @@ class VolcengineImageGenerationTask(AbstractImageGenerationTask):
         return self._deferred
 
 
+class PixImageGenerationTask(AbstractImageGenerationTask):
+    """PIX 图片生成：异步任务型，adapter 内部完成「提交 + 轮询到终态」。"""
+
+    def __init__(
+        self,
+        *,
+        adapter: PixImageApiAdapter | None = None,
+        provider_config: ProviderConfig,
+        input_: ImageGenerationInput,
+        timeout_s: float = 60.0,
+    ) -> None:
+        super().__init__(provider_config=provider_config, input_=input_, timeout_s=timeout_s)
+        self._adapter = adapter or PixImageApiAdapter()
+        self._deferred: ImageGenerationResult | None = None
+
+    async def _create_task(self) -> None:
+        self._deferred = await self._adapter.generate(
+            cfg=self._cfg,
+            inp=self._input,
+            timeout_s=self._timeout_s,
+        )
+
+    async def _poll_and_get_result(self) -> ImageGenerationResult:
+        assert self._deferred is not None
+        return self._deferred
+
+
 class ImageGenerationTask(BaseTask):
-    """按 provider 分派到 OpenAI / 火山实现；对外构造函数与原先一致。"""
+    """按 provider 分派到 OpenAI / 火山 / PIX 实现；对外构造函数与原先一致。"""
 
     def __init__(
         self,
@@ -184,6 +213,19 @@ class ImageGenerationTask(BaseTask):
         timeout_s: float = 60.0,
     ) -> AbstractImageGenerationTask:
         return VolcengineImageGenerationTask(
+            provider_config=provider_config,
+            input_=input_,
+            timeout_s=timeout_s,
+        )
+
+    @staticmethod
+    def _build_pix_impl(
+        *,
+        provider_config: ProviderConfig,
+        input_: ImageGenerationInput,
+        timeout_s: float = 60.0,
+    ) -> AbstractImageGenerationTask:
+        return PixImageGenerationTask(
             provider_config=provider_config,
             input_=input_,
             timeout_s=timeout_s,

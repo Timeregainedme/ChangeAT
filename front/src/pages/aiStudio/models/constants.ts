@@ -5,6 +5,7 @@ export const MODEL_CATEGORIES: { key: ModelCategoryKey; label: string; color: st
   { key: 'text', label: '文本生成', color: 'blue' },
   { key: 'image', label: '图片生成', color: 'orange' },
   { key: 'video', label: '视频生成', color: 'purple' },
+  { key: 'audio', label: '音频生成', color: 'cyan' },
 ]
 
 export const categoryLabelMap = Object.fromEntries(MODEL_CATEGORIES.map((c) => [c.key, c.label]))

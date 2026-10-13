@@ -20,6 +20,10 @@ export type ModelSettingsRead = {
      */
     default_video_model_id?: (string | null);
     /**
+     * 默认音频模型 ID
+     */
+    default_audio_model_id?: (string | null);
+    /**
      * API 超时（秒）
      */
     api_timeout?: number;

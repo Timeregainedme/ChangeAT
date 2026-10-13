@@ -21,6 +21,7 @@ from app.services.script_processing_worker import (
     ScriptOptimizationTaskExecutor,
     ScriptSimplificationTaskExecutor,
 )
+from app.services.studio.audio_task_runner import run_audio_generation_task
 from app.services.studio.image_task_runner import run_image_generation_task
 from app.services.worker.task_executor import AbstractAsyncDelegatingExecutor, AbstractWorkerTaskExecutor
 
@@ -63,6 +64,14 @@ task_executor_registry.register(
     AbstractAsyncDelegatingExecutor(
         task_kind="image_generation",
         runner=run_image_generation_task,
+        timeout_seconds=1800.0,
+    ),
+)
+task_executor_registry.register(
+    "audio_generation",
+    AbstractAsyncDelegatingExecutor(
+        task_kind="audio_generation",
+        runner=run_audio_generation_task,
         timeout_seconds=1800.0,
     ),
 )

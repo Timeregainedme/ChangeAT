@@ -36,6 +36,7 @@ export default function SettingsTab() {
         default_text_model_id: settings.default_text_model_id,
         default_image_model_id: settings.default_image_model_id,
         default_video_model_id: settings.default_video_model_id,
+        default_audio_model_id: settings.default_audio_model_id,
         api_timeout: settings.api_timeout,
         log_level: settings.log_level,
       })
@@ -51,6 +52,7 @@ export default function SettingsTab() {
           default_text_model_id: values.default_text_model_id,
           default_image_model_id: values.default_image_model_id,
           default_video_model_id: values.default_video_model_id,
+          default_audio_model_id: values.default_audio_model_id,
           api_timeout: values.api_timeout,
           log_level: values.log_level,
         },
@@ -67,6 +69,7 @@ export default function SettingsTab() {
   const textModels = models.filter((m) => m.category === 'text')
   const imageModels = models.filter((m) => m.category === 'image')
   const videoModels = models.filter((m) => m.category === 'video')
+  const audioModels = models.filter((m) => m.category === 'audio')
 
   return (
     <div className="flex-1 overflow-auto p-6 bg-gray-50">
@@ -97,6 +100,13 @@ export default function SettingsTab() {
               allowClear
               placeholder="选择模型"
               options={videoModels.map((m) => ({ label: m.name, value: m.id }))}
+            />
+          </Form.Item>
+          <Form.Item name="default_audio_model_id" label="默认音频生成模型（TTS）">
+            <Select
+              allowClear
+              placeholder="选择模型"
+              options={audioModels.map((m) => ({ label: m.name, value: m.id }))}
             />
           </Form.Item>
           <Form.Item name="api_timeout" label="API 超时（秒）">

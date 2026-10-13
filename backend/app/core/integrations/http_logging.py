@@ -69,6 +69,29 @@ def safe_body_for_log_volcengine_image(body: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def safe_body_for_log_generic(body: dict[str, Any]) -> dict[str, Any]:
+    """通用脱敏：截断 prompt、把素材数组折叠为条数，避免日志刷屏。
+
+    适用于 PIX / 优云智算等结构各异的请求体（含嵌套 params）。
+    """
+    out: dict[str, Any] = {}
+    for key, value in (body or {}).items():
+        if key == "prompt" and isinstance(value, str):
+            out[key] = (value[:300] + "...(truncated)") if len(value) > 300 else value
+            continue
+        if key == "text" and isinstance(value, str):
+            out[key] = (value[:300] + "...(truncated)") if len(value) > 300 else value
+            continue
+        if key in {"images", "image", "videos", "video", "audios", "audio", "content"} and isinstance(value, list):
+            out[key] = {"count": len(value)}
+            continue
+        if isinstance(value, dict):
+            out[key] = safe_body_for_log_generic(value)
+            continue
+        out[key] = value
+    return out
+
+
 def log_image_http_request(*, provider: str, method: str, url: str, headers: dict[str, str], body_log: str) -> None:
     logger.warning(
         "image_generation_http_request provider=%s method=%s url=%s headers=%s body=%s",
@@ -94,6 +117,45 @@ def log_image_http_response(
         status_code,
         elapsed_ms,
         resp_headers,
+        (resp_text[:2000] + "...(truncated)") if len(resp_text) > 2000 else resp_text,
+    )
+
+
+def log_media_http_request(
+    *,
+    provider: str,
+    operation: str,
+    method: str,
+    url: str,
+    headers: dict[str, str],
+    body_log: str,
+) -> None:
+    """媒体类（视频/音频）请求日志；与图片日志区分 operation 便于排查。"""
+    logger.warning(
+        "media_generation_http_request provider=%s operation=%s method=%s url=%s headers=%s body=%s",
+        provider,
+        operation,
+        method,
+        url,
+        redact_headers(headers),
+        body_log,
+    )
+
+
+def log_media_http_response(
+    *,
+    provider: str,
+    operation: str,
+    status_code: int,
+    elapsed_ms: int,
+    resp_text: str,
+) -> None:
+    logger.warning(
+        "media_generation_http_response provider=%s operation=%s status=%s elapsed_ms=%s body=%s",
+        provider,
+        operation,
+        status_code,
+        elapsed_ms,
         (resp_text[:2000] + "...(truncated)") if len(resp_text) > 2000 else resp_text,
     )
 

@@ -21,6 +21,8 @@ async def _infer_file_type_from_ext(ext: str) -> FileType:
         return FileType.image
     if ext in {".mp4", ".mov", ".mkv", ".avi", ".webm"}:
         return FileType.video
+    if ext in {".wav", ".mp3", ".m4a", ".aac", ".flac", ".ogg", ".opus"}:
+        return FileType.audio
     # 默认按图片处理，调用方若有更精细需求可在外层再封装
     return FileType.image
 
@@ -44,6 +46,8 @@ async def _infer_file_type_from_content_type(content_type: str | None) -> FileTy
         return FileType.image
     if ct.startswith("video/"):
         return FileType.video
+    if ct.startswith("audio/"):
+        return FileType.audio
     return FileType.image
 
 
@@ -104,8 +108,15 @@ async def create_file_from_url_or_b64(
     _, ext = os.path.splitext(filename)
     file_type = await _infer_file_type_from_content_type(content_type)
     if not ext:
-        # 根据类型给一个默认后缀
-        ext = ".png" if file_type == FileType.image else ".mp4"
+        # 根据类型给一个默认后缀（音频接口目前只产出 WAV）
+        ext = {FileType.image: ".png", FileType.video: ".mp4", FileType.audio: ".wav"}[file_type]
+    else:
+        # URL 后缀可能与真实类型不符（如签名链接无后缀），以内容类型推断结果为准
+        inferred = file_type
+        ext_from_name = await _infer_file_type_from_ext(ext)
+        if inferred == FileType.image and ext_from_name != FileType.image:
+            file_type = ext_from_name
+            ext = {FileType.video: ".mp4", FileType.audio: ".wav"}.get(file_type, ext)
 
     display_name = name or os.path.splitext(filename)[0] or filename
 

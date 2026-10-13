@@ -35,11 +35,12 @@ class ProviderStatus(str, Enum):
 
 
 class ModelCategoryKey(str, Enum):
-    """模型类别：文本/图片/视频。"""
+    """模型类别：文本/图片/视频/音频。"""
 
     text = "text"
     image = "image"
     video = "video"
+    audio = "audio"
 
 
 class LogLevel(str, Enum):
@@ -74,6 +75,12 @@ class Provider(Base, TimestampMixin):
         nullable=True,
         default=None,
         comment="视频能力 API Base URL（可选覆盖）",
+    )
+    audio_base_url: Mapped[str | None] = mapped_column(
+        String(1024),
+        nullable=True,
+        default=None,
+        comment="音频能力 API Base URL（可选覆盖）",
     )
     api_key: Mapped[str] = mapped_column(String(4096), nullable=False, default="", comment="API Key（敏感）")
     api_secret: Mapped[str] = mapped_column(String(4096), nullable=False, default="", comment="API Secret（敏感）")
@@ -153,10 +160,17 @@ class ModelSettings(Base):
         nullable=True,
         comment="默认视频模型 ID",
     )
+    default_audio_model_id: Mapped[str | None] = mapped_column(
+        String(64),
+        ForeignKey("models.id", ondelete="SET NULL"),
+        nullable=True,
+        comment="默认音频模型 ID",
+    )
     api_timeout: Mapped[int] = mapped_column(Integer, nullable=False, default=30, comment="API 超时（秒）")
     log_level: Mapped[LogLevel] = mapped_column(String(16), nullable=False, default=LogLevel.info, comment="日志级别")
 
     default_text_model: Mapped["Model | None"] = relationship(foreign_keys=[default_text_model_id])
     default_image_model: Mapped["Model | None"] = relationship(foreign_keys=[default_image_model_id])
     default_video_model: Mapped["Model | None"] = relationship(foreign_keys=[default_video_model_id])
+    default_audio_model: Mapped["Model | None"] = relationship(foreign_keys=[default_audio_model_id])
 

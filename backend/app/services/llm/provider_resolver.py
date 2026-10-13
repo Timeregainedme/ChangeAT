@@ -98,10 +98,13 @@ def resolve_effective_base_url(
     common_base = (provider.base_url or "").strip()
     image_base = (provider.image_base_url or "").strip()
     video_base = (provider.video_base_url or "").strip()
+    audio_base = (provider.audio_base_url or "").strip()
     if category == ModelCategoryKey.image:
         return image_base or common_base or spec.default_base_url
     if category == ModelCategoryKey.video:
         return video_base or common_base or spec.default_base_url
+    if category == ModelCategoryKey.audio:
+        return audio_base or common_base or spec.default_base_url
     # text 仍使用通用 base_url；保留内置默认值兜底。
     return common_base or spec.default_base_url
 

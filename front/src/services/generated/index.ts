@@ -9,6 +9,7 @@ export type { OpenAPIConfig } from './core/OpenAPI';
 
 export type { ActionBeatPhaseRead } from './models/ActionBeatPhaseRead';
 export type { ApiResponse_AsyncTaskCreateRead_ } from './models/ApiResponse_AsyncTaskCreateRead_';
+export type { ApiResponse_AudioGenerationOptionsRead_ } from './models/ApiResponse_AudioGenerationOptionsRead_';
 export type { ApiResponse_ChapterRead_ } from './models/ApiResponse_ChapterRead_';
 export type { ApiResponse_CharacterPortraitAnalysisResult_ } from './models/ApiResponse_CharacterPortraitAnalysisResult_';
 export type { ApiResponse_CostumeInfoAnalysisResult_ } from './models/ApiResponse_CostumeInfoAnalysisResult_';
@@ -26,6 +27,7 @@ export type { ApiResponse_list_ShotCharacterLinkRead__ } from './models/ApiRespo
 export type { ApiResponse_list_ShotExtractedCandidateRead__ } from './models/ApiResponse_list_ShotExtractedCandidateRead__';
 export type { ApiResponse_list_ShotExtractedDialogueCandidateRead__ } from './models/ApiResponse_list_ShotExtractedDialogueCandidateRead__';
 export type { ApiResponse_list_ShotRuntimeSummaryRead__ } from './models/ApiResponse_list_ShotRuntimeSummaryRead__';
+export type { ApiResponse_list_VoiceItem__ } from './models/ApiResponse_list_VoiceItem__';
 export type { ApiResponse_ModelRead_ } from './models/ApiResponse_ModelRead_';
 export type { ApiResponse_ModelSettingsRead_ } from './models/ApiResponse_ModelSettingsRead_';
 export type { ApiResponse_NoneType_ } from './models/ApiResponse_NoneType_';
@@ -80,6 +82,7 @@ export type { ApiResponse_VariantAnalysisResult_ } from './models/ApiResponse_Va
 export type { ApiResponse_VideoGenerationOptionsRead_ } from './models/ApiResponse_VideoGenerationOptionsRead_';
 export type { ApiResponse_VideoPromptPreviewResponse_ } from './models/ApiResponse_VideoPromptPreviewResponse_';
 export type { AsyncTaskCreateRead } from './models/AsyncTaskCreateRead';
+export type { AudioGenerationOptionsRead } from './models/AudioGenerationOptionsRead';
 export type { Body_upload_file_api_api_v1_studio_files_upload_post } from './models/Body_upload_file_api_api_v1_studio_files_upload_post';
 export type { CameraAngle } from './models/CameraAngle';
 export type { CameraMovement } from './models/CameraMovement';
@@ -224,6 +227,7 @@ export type { ShotVideoPromptPreviewRead } from './models/ShotVideoPromptPreview
 export type { ShotVideoReadinessCheck } from './models/ShotVideoReadinessCheck';
 export type { ShotVideoReadinessRead } from './models/ShotVideoReadinessRead';
 export type { StudioAssetDraft } from './models/StudioAssetDraft';
+export type { StudioAudioTaskRequest } from './models/StudioAudioTaskRequest';
 export type { StudioCharacterDraft } from './models/StudioCharacterDraft';
 export type { StudioImageTaskRequest } from './models/StudioImageTaskRequest';
 export type { StudioScriptExtractionDraft } from './models/StudioScriptExtractionDraft';
@@ -247,12 +251,14 @@ export type { VFXType } from './models/VFXType';
 export type { VideoGenerationOptionsRead } from './models/VideoGenerationOptionsRead';
 export type { VideoGenerationTaskRequest } from './models/VideoGenerationTaskRequest';
 export type { VideoPromptPreviewResponse } from './models/VideoPromptPreviewResponse';
+export type { VoiceItem } from './models/VoiceItem';
 
 export { DefaultService } from './services/DefaultService';
 export { FilmService } from './services/FilmService';
 export { HealthService } from './services/HealthService';
 export { LlmService } from './services/LlmService';
 export { ScriptProcessingService } from './services/ScriptProcessingService';
+export { StudioAudioTasksService } from './services/StudioAudioTasksService';
 export { StudioChaptersService } from './services/StudioChaptersService';
 export { StudioEntitiesService } from './services/StudioEntitiesService';
 export { StudioFilesService } from './services/StudioFilesService';

@@ -8,6 +8,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.utils import apply_keyword_filter, apply_order, paginate
 from app.models.llm import Model, ModelCategoryKey, ModelSettings, Provider
+from app.core.integrations.audio_capabilities import (
+    DEFAULT_AUDIO_FORMATS,
+    resolve_audio_capability,
+)
 from app.core.integrations.image_capabilities import (
     DEFAULT_VIDEO_REFERENCE_RATIO_SIZE_MAP,
     resolve_image_capability,
@@ -15,6 +19,7 @@ from app.core.integrations.image_capabilities import (
 from app.core.integrations.video_capabilities import resolve_default_ratio, resolve_video_capability
 from app.schemas.common import ApiResponse, PaginatedData, paginated_response
 from app.schemas.llm import (
+    AudioGenerationOptionsRead,
     ImageGenerationOptionsRead,
     ModelCreate,
     ModelRead,
@@ -346,6 +351,42 @@ async def get_image_generation_options(
         supported_ratios=supported_ratios,
         default_resolution_profile=capability.default_resolution_profile or "standard",
         ratio_size_profiles=ratio_size_profiles,
+    )
+
+
+async def get_audio_generation_options(
+    db: AsyncSession,
+) -> AudioGenerationOptionsRead:
+    """返回当前默认音频模型对应的 TTS 参数选项。"""
+    settings = await get_or_create_settings(db)
+    model_id = settings.default_audio_model_id
+    if not model_id:
+        return AudioGenerationOptionsRead(
+            provider="",
+            model_id="",
+            model_name="",
+            supported_formats=sorted(DEFAULT_AUDIO_FORMATS),
+        )
+
+    model = await get_or_404(db, Model, model_id, detail=entity_not_found("Model"))
+    provider = await get_or_404(db, Provider, model.provider_id, detail=entity_not_found("Provider"))
+    provider_key = resolve_provider_key_from_name(provider.name)
+    capability = resolve_audio_capability(provider=provider_key, model=model.name)
+
+    return AudioGenerationOptionsRead(
+        provider=provider_key,
+        model_id=model.id,
+        model_name=model.name,
+        supported_formats=sorted(capability.supported_formats or DEFAULT_AUDIO_FORMATS),
+        supports_voice=capability.supports_voice,
+        supports_custom_voice=capability.supports_custom_voice,
+        supports_speed=capability.supports_speed,
+        min_speed=capability.min_speed,
+        max_speed=capability.max_speed,
+        supports_emotion=capability.supports_emotion,
+        max_emotion_chars=capability.max_emotion_chars,
+        supports_language=capability.supports_language,
+        max_text_chars=capability.max_text_chars,
     )
 
 

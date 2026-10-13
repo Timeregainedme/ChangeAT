@@ -24,6 +24,10 @@ export type ProviderRead = {
      */
     video_base_url?: (string | null);
     /**
+     * 音频能力 API Base URL（可选覆盖）
+     */
+    audio_base_url?: (string | null);
+    /**
      * 说明
      */
     description?: string;

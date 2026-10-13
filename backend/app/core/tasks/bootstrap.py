@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from app.core.tasks.audio_generation_tasks import AudioGenerationTask
 from app.core.tasks.image_generation_tasks import ImageGenerationTask
 from app.core.tasks.registry import register_task_adapter
 from app.core.tasks.video_generation_tasks import VideoGenerationTask
@@ -10,8 +11,12 @@ from app.core.tasks.video_generation_tasks import VideoGenerationTask
 TASK_ADAPTER_SPECS = (
     ("image_generation", "openai", ImageGenerationTask._build_openai_impl),
     ("image_generation", "volcengine", ImageGenerationTask._build_volcengine_impl),
+    ("image_generation", "pix", ImageGenerationTask._build_pix_impl),
     ("video_generation", "openai", VideoGenerationTask._build_openai_impl),
     ("video_generation", "volcengine", VideoGenerationTask._build_volcengine_impl),
+    ("video_generation", "pix", VideoGenerationTask._build_pix_impl),
+    ("video_generation", "compshare_model_api", VideoGenerationTask._build_compshare_impl),
+    ("audio_generation", "compshare_model_api", AudioGenerationTask._build_compshare_impl),
 )
 
 

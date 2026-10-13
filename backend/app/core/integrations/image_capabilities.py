@@ -1,8 +1,17 @@
-"""图片生成能力约束与参数校验辅助。"""
+"""图片生成能力约束与参数校验辅助。
+
+能力接入采用**注册表**：每个供应商提供自己的解析/注册/清空入口，
+本模块不再用 `if provider == ... else ...` 的二元分支。
+内置的 OpenAI / 火山引擎沿用各自模块，在首次使用时惰性注册；
+新增供应商只需在自己的能力模块里调用 `register_image_capability_provider`。
+"""
 
 from __future__ import annotations
 
+import importlib
 from dataclasses import dataclass
+from threading import RLock
+from typing import Callable
 
 from app.core.contracts.image_generation import ImageGenerationInput
 from app.core.contracts.provider import ProviderKey
@@ -33,6 +42,87 @@ class ImageModelCapability:
     max_n: int | None = 10
 
 
+@dataclass(frozen=True, slots=True)
+class ImageCapabilityProvider:
+    """单个供应商的图片能力接入点。"""
+
+    resolve: Callable[[str | None], ImageModelCapability]
+    register: Callable[..., None] | None = None
+    clear: Callable[[], None] | None = None
+
+
+# 新增供应商的能力模块：导入即向本注册表注册自身。
+# 保持「导入即注册」的副作用，使能力解析不依赖调用方是否显式 bootstrap。
+_EXTRA_CAPABILITY_MODULES: tuple[str, ...] = (
+    "app.core.integrations.pix.image_capabilities",
+)
+
+_PROVIDERS: dict[str, ImageCapabilityProvider] = {}
+_LOCK = RLock()
+_BUILTINS_LOADED = False
+
+
+def register_image_capability_provider(*, provider: str, spec: ImageCapabilityProvider) -> None:
+    """注册（或覆盖）某供应商的图片能力接入点。"""
+    key = (provider or "").strip().lower()
+    if not key:
+        raise ValueError("provider must not be empty")
+    with _LOCK:
+        _PROVIDERS[key] = spec
+
+
+def _load_builtin_image_capability_providers() -> None:
+    global _BUILTINS_LOADED
+    with _LOCK:
+        if _BUILTINS_LOADED:
+            return
+
+    # 惰性导入：供应商模块需要引用本模块的 ImageModelCapability，模块级导入会成环。
+    from app.core.integrations.openai.image_capabilities import (
+        clear_openai_image_capability_overrides,
+        register_openai_image_capability,
+        resolve_openai_image_capability,
+    )
+    from app.core.integrations.volcengine.image_capabilities import (
+        clear_volcengine_image_capability_overrides,
+        register_volcengine_image_capability,
+        resolve_volcengine_image_capability,
+    )
+
+    register_image_capability_provider(
+        provider="openai",
+        spec=ImageCapabilityProvider(
+            resolve=resolve_openai_image_capability,
+            register=register_openai_image_capability,
+            clear=clear_openai_image_capability_overrides,
+        ),
+    )
+    register_image_capability_provider(
+        provider="volcengine",
+        spec=ImageCapabilityProvider(
+            resolve=resolve_volcengine_image_capability,
+            register=register_volcengine_image_capability,
+            clear=clear_volcengine_image_capability_overrides,
+        ),
+    )
+
+    for module_path in _EXTRA_CAPABILITY_MODULES:
+        importlib.import_module(module_path)
+
+    with _LOCK:
+        _BUILTINS_LOADED = True
+
+
+def _provider_entry(provider: ProviderKey, *, required: bool = True) -> ImageCapabilityProvider | None:
+    _load_builtin_image_capability_providers()
+    key = (provider or "").strip().lower()
+    with _LOCK:
+        entry = _PROVIDERS.get(key)
+    if entry is None and required:
+        raise ValueError(f"No image capability registered for provider={provider!r}")
+    return entry
+
+
 def register_image_model_capability(
     *,
     provider: ProviderKey,
@@ -40,39 +130,32 @@ def register_image_model_capability(
     capability: ImageModelCapability,
 ) -> None:
     """兼容入口：注册模型能力覆盖（按前缀匹配，大小写不敏感）。"""
-    if provider == "openai":
-        from app.core.integrations.openai.image_capabilities import register_openai_image_capability
-
-        register_openai_image_capability(model_prefix=model_prefix, capability=capability)
-        return
-    from app.core.integrations.volcengine.image_capabilities import register_volcengine_image_capability
-
-    register_volcengine_image_capability(model_prefix=model_prefix, capability=capability)
+    entry = _provider_entry(provider)
+    assert entry is not None
+    if entry.register is None:
+        raise ValueError(f"provider={provider!r} does not support image capability overrides")
+    entry.register(model_prefix=model_prefix, capability=capability)
 
 
 def clear_image_model_capability_overrides(*, provider: ProviderKey | None = None) -> None:
     """兼容入口：清空能力覆盖；供测试或重置场景使用。"""
-    from app.core.integrations.openai.image_capabilities import clear_openai_image_capability_overrides
-    from app.core.integrations.volcengine.image_capabilities import clear_volcengine_image_capability_overrides
-
+    _load_builtin_image_capability_providers()
     if provider is None:
-        clear_openai_image_capability_overrides()
-        clear_volcengine_image_capability_overrides()
+        with _LOCK:
+            entries = list(_PROVIDERS.values())
+        for entry in entries:
+            if entry.clear is not None:
+                entry.clear()
         return
-    if provider == "openai":
-        clear_openai_image_capability_overrides()
-        return
-    clear_volcengine_image_capability_overrides()
+    entry = _provider_entry(provider, required=False)
+    if entry is not None and entry.clear is not None:
+        entry.clear()
 
 
 def resolve_image_capability(*, provider: ProviderKey, model: str | None) -> ImageModelCapability:
-    if provider == "openai":
-        from app.core.integrations.openai.image_capabilities import resolve_openai_image_capability
-
-        return resolve_openai_image_capability(model)
-    from app.core.integrations.volcengine.image_capabilities import resolve_volcengine_image_capability
-
-    return resolve_volcengine_image_capability(model)
+    entry = _provider_entry(provider)
+    assert entry is not None
+    return entry.resolve(model)
 
 
 def resolve_image_size(

@@ -160,6 +160,7 @@ export default function ProvidersTab() {
           base_url: values.base_url,
           image_base_url: values.image_base_url ?? null,
           video_base_url: values.video_base_url ?? null,
+          audio_base_url: values.audio_base_url ?? null,
           description: values.description ?? null,
           status: values.status ?? null,
         }
@@ -182,6 +183,7 @@ export default function ProvidersTab() {
             base_url: values.base_url,
             image_base_url: values.image_base_url ?? null,
             video_base_url: values.video_base_url ?? null,
+            audio_base_url: values.audio_base_url ?? null,
             description: values.description,
             status: values.status,
             api_key: values.api_key,
@@ -236,6 +238,7 @@ export default function ProvidersTab() {
         base_url: p.base_url,
         image_base_url: p.image_base_url ?? null,
         video_base_url: p.video_base_url ?? null,
+        audio_base_url: p.audio_base_url ?? null,
         api_key: '********',
         api_secret: '********',
         description: p.description,
@@ -682,6 +685,9 @@ export default function ProvidersTab() {
             <Input placeholder="留空则回退到文本/通用 Base URL" />
           </Form.Item>
           <Form.Item name="video_base_url" label="视频 Base URL（可选覆盖）" rules={[{ type: 'url', message: '请输入有效 URL' }]}>
+            <Input placeholder="留空则回退到文本/通用 Base URL" />
+          </Form.Item>
+          <Form.Item name="audio_base_url" label="音频 Base URL（可选覆盖）" rules={[{ type: 'url', message: '请输入有效 URL' }]}>
             <Input placeholder="留空则回退到文本/通用 Base URL" />
           </Form.Item>
           <Form.Item name="api_key" label="API Key" help={providerEditing ? '留空则不修改' : '请勿分享密钥'}>

@@ -2,6 +2,7 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
+import type { ApiResponse_AudioGenerationOptionsRead_ } from '../models/ApiResponse_AudioGenerationOptionsRead_';
 import type { ApiResponse_ImageGenerationOptionsRead_ } from '../models/ApiResponse_ImageGenerationOptionsRead_';
 import type { ApiResponse_list_ProviderSupportedRead__ } from '../models/ApiResponse_list_ProviderSupportedRead__';
 import type { ApiResponse_ModelRead_ } from '../models/ApiResponse_ModelRead_';
@@ -133,6 +134,17 @@ export class LlmService {
         return __request(OpenAPI, {
             method: 'GET',
             url: '/api/v1/llm/video-generation-options',
+        });
+    }
+    /**
+     * 获取当前默认音频模型的 TTS 参数选项
+     * @returns ApiResponse_AudioGenerationOptionsRead_ Successful Response
+     * @throws ApiError
+     */
+    public static getAudioGenerationOptionsApiV1LlmAudioGenerationOptionsGet(): CancelablePromise<ApiResponse_AudioGenerationOptionsRead_> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/v1/llm/audio-generation-options',
         });
     }
     /**

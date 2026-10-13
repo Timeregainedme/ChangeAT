@@ -12,7 +12,7 @@ export type ModelCreate = {
      */
     name: string;
     /**
-     * 模型类别：text/image/video
+     * 模型类别：text/image/video/audio
      */
     category: ModelCategoryKey;
     /**

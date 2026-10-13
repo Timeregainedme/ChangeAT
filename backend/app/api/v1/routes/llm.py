@@ -19,6 +19,7 @@ from app.schemas.llm import (
     ProviderRead,
     ProviderSupportedRead,
     VideoGenerationOptionsRead,
+    AudioGenerationOptionsRead,
     ProviderUpdate,
 )
 from app.services.llm.manage import (
@@ -31,6 +32,7 @@ from app.services.llm.manage import (
     get_provider as get_provider_service,
     get_image_generation_options as get_image_generation_options_service,
     get_video_generation_options as get_video_generation_options_service,
+    get_audio_generation_options as get_audio_generation_options_service,
     list_supported_providers as list_supported_providers_service,
     list_models_paginated,
     list_providers_paginated,
@@ -108,6 +110,18 @@ async def get_video_generation_options(
     db: AsyncSession = Depends(get_db),
 ) -> ApiResponse[VideoGenerationOptionsRead]:
     data = await get_video_generation_options_service(db)
+    return success_response(data)
+
+
+@router.get(
+    "/audio-generation-options",
+    response_model=ApiResponse[AudioGenerationOptionsRead],
+    summary="获取当前默认音频模型的 TTS 参数选项",
+)
+async def get_audio_generation_options(
+    db: AsyncSession = Depends(get_db),
+) -> ApiResponse[AudioGenerationOptionsRead]:
+    data = await get_audio_generation_options_service(db)
     return success_response(data)
 
 

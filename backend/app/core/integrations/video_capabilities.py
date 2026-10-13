@@ -1,8 +1,16 @@
-"""视频生成能力约束与参数映射辅助。"""
+"""视频生成能力约束与参数映射辅助。
+
+与 `image_capabilities` 同构：能力接入采用**注册表**，
+内置 OpenAI / 火山引擎惰性注册，新增供应商在自己的能力模块里调用
+`register_video_capability_provider` 即可。
+"""
 
 from __future__ import annotations
 
+import importlib
 from dataclasses import dataclass
+from threading import RLock
+from typing import Callable
 
 from app.core.contracts.provider import ProviderKey
 from app.core.contracts.video_generation import VideoGenerationInput, VideoRatio
@@ -31,6 +39,86 @@ class VideoModelCapability:
     max_seconds: int | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class VideoCapabilityProvider:
+    """单个供应商的视频能力接入点。"""
+
+    resolve: Callable[[str | None], VideoModelCapability]
+    register: Callable[..., None] | None = None
+    clear: Callable[[], None] | None = None
+
+
+# 新增供应商的能力模块：导入即向本注册表注册自身。
+_EXTRA_CAPABILITY_MODULES: tuple[str, ...] = (
+    "app.core.integrations.pix.video_capabilities",
+    "app.core.integrations.compshare.video_capabilities",
+)
+
+_PROVIDERS: dict[str, VideoCapabilityProvider] = {}
+_LOCK = RLock()
+_BUILTINS_LOADED = False
+
+
+def register_video_capability_provider(*, provider: str, spec: VideoCapabilityProvider) -> None:
+    """注册（或覆盖）某供应商的视频能力接入点。"""
+    key = (provider or "").strip().lower()
+    if not key:
+        raise ValueError("provider must not be empty")
+    with _LOCK:
+        _PROVIDERS[key] = spec
+
+
+def _load_builtin_video_capability_providers() -> None:
+    global _BUILTINS_LOADED
+    with _LOCK:
+        if _BUILTINS_LOADED:
+            return
+
+    from app.core.integrations.openai.video_capabilities import (
+        clear_openai_video_capability_overrides,
+        register_openai_video_capability,
+        resolve_openai_video_capability,
+    )
+    from app.core.integrations.volcengine.video_capabilities import (
+        clear_volcengine_video_capability_overrides,
+        register_volcengine_video_capability,
+        resolve_volcengine_video_capability,
+    )
+
+    register_video_capability_provider(
+        provider="openai",
+        spec=VideoCapabilityProvider(
+            resolve=resolve_openai_video_capability,
+            register=register_openai_video_capability,
+            clear=clear_openai_video_capability_overrides,
+        ),
+    )
+    register_video_capability_provider(
+        provider="volcengine",
+        spec=VideoCapabilityProvider(
+            resolve=resolve_volcengine_video_capability,
+            register=register_volcengine_video_capability,
+            clear=clear_volcengine_video_capability_overrides,
+        ),
+    )
+
+    for module_path in _EXTRA_CAPABILITY_MODULES:
+        importlib.import_module(module_path)
+
+    with _LOCK:
+        _BUILTINS_LOADED = True
+
+
+def _provider_entry(provider: ProviderKey, *, required: bool = True) -> VideoCapabilityProvider | None:
+    _load_builtin_video_capability_providers()
+    key = (provider or "").strip().lower()
+    with _LOCK:
+        entry = _PROVIDERS.get(key)
+    if entry is None and required:
+        raise ValueError(f"No video capability registered for provider={provider!r}")
+    return entry
+
+
 def register_video_model_capability(
     *,
     provider: ProviderKey,
@@ -38,39 +126,32 @@ def register_video_model_capability(
     capability: VideoModelCapability,
 ) -> None:
     """兼容入口：注册模型能力覆盖（按前缀匹配，大小写不敏感）。"""
-    if provider == "openai":
-        from app.core.integrations.openai.video_capabilities import register_openai_video_capability
-
-        register_openai_video_capability(model_prefix=model_prefix, capability=capability)
-        return
-    from app.core.integrations.volcengine.video_capabilities import register_volcengine_video_capability
-
-    register_volcengine_video_capability(model_prefix=model_prefix, capability=capability)
+    entry = _provider_entry(provider)
+    assert entry is not None
+    if entry.register is None:
+        raise ValueError(f"provider={provider!r} does not support video capability overrides")
+    entry.register(model_prefix=model_prefix, capability=capability)
 
 
 def clear_video_model_capability_overrides(*, provider: ProviderKey | None = None) -> None:
     """兼容入口：清空能力覆盖；供测试或重置场景使用。"""
-    from app.core.integrations.openai.video_capabilities import clear_openai_video_capability_overrides
-    from app.core.integrations.volcengine.video_capabilities import clear_volcengine_video_capability_overrides
-
+    _load_builtin_video_capability_providers()
     if provider is None:
-        clear_openai_video_capability_overrides()
-        clear_volcengine_video_capability_overrides()
+        with _LOCK:
+            entries = list(_PROVIDERS.values())
+        for entry in entries:
+            if entry.clear is not None:
+                entry.clear()
         return
-    if provider == "openai":
-        clear_openai_video_capability_overrides()
-        return
-    clear_volcengine_video_capability_overrides()
+    entry = _provider_entry(provider, required=False)
+    if entry is not None and entry.clear is not None:
+        entry.clear()
 
 
 def resolve_video_capability(*, provider: ProviderKey, model: str | None) -> VideoModelCapability:
-    if provider == "openai":
-        from app.core.integrations.openai.video_capabilities import resolve_openai_video_capability
-
-        return resolve_openai_video_capability(model)
-    from app.core.integrations.volcengine.video_capabilities import resolve_volcengine_video_capability
-
-    return resolve_volcengine_video_capability(model)
+    entry = _provider_entry(provider)
+    assert entry is not None
+    return entry.resolve(model)
 
 
 def resolve_effective_ratio(input_: VideoGenerationInput) -> str | None:

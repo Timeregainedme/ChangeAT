@@ -16,6 +16,7 @@ class ProviderBase(BaseModel):
     base_url: str = Field(..., description="文本/通用 API Base URL")
     image_base_url: str | None = Field(None, description="图片能力 API Base URL（可选覆盖）")
     video_base_url: str | None = Field(None, description="视频能力 API Base URL（可选覆盖）")
+    audio_base_url: str | None = Field(None, description="音频能力 API Base URL（可选覆盖）")
     description: str = Field("", description="说明")
     status: ProviderStatus = Field(
         ProviderStatus.testing,
@@ -39,6 +40,7 @@ class ProviderUpdate(BaseModel):
     base_url: str | None = Field(None, description="文本/通用 API Base URL")
     image_base_url: str | None = Field(None, description="图片能力 API Base URL（可选覆盖）")
     video_base_url: str | None = Field(None, description="视频能力 API Base URL（可选覆盖）")
+    audio_base_url: str | None = Field(None, description="音频能力 API Base URL（可选覆盖）")
     description: str | None = Field(None, description="说明")
     status: ProviderStatus | None = Field(
         None,
@@ -96,11 +98,29 @@ class ImageGenerationOptionsRead(BaseModel):
     )
 
 
+class AudioGenerationOptionsRead(BaseModel):
+    """当前默认音频模型对应的 TTS 参数选项。"""
+
+    provider: str = Field(..., description="供应商稳定键")
+    model_id: str = Field(..., description="默认音频模型 ID")
+    model_name: str = Field(..., description="默认音频模型名称")
+    supported_formats: list[str] = Field(default_factory=list, description="当前模型支持的输出格式")
+    supports_voice: bool = Field(True, description="是否支持指定音色")
+    supports_custom_voice: bool = Field(False, description="是否支持复刻音色")
+    supports_speed: bool = Field(True, description="是否支持调节语速")
+    min_speed: float = Field(0.5, description="最小语速倍率")
+    max_speed: float = Field(2.0, description="最大语速倍率")
+    supports_emotion: bool = Field(True, description="是否支持情感描述")
+    max_emotion_chars: int = Field(200, description="情感描述最大字符数")
+    supports_language: bool = Field(True, description="是否支持指定语种")
+    max_text_chars: int = Field(2000, description="待合成文本最大字符数")
+
+
 class ModelBase(BaseModel):
     """模型通用字段。"""
 
     name: str = Field(..., description="模型名称")
-    category: ModelCategoryKey = Field(..., description="模型类别：text/image/video")
+    category: ModelCategoryKey = Field(..., description="模型类别：text/image/video/audio")
     provider_id: str = Field(..., description="所属供应商 ID")
     params: dict[str, Any] = Field(default_factory=dict, description="模型参数（JSON）")
     description: str = Field("", description="说明")
@@ -137,6 +157,7 @@ class ModelSettingsBase(BaseModel):
     default_text_model_id: str | None = Field(None, description="默认文本模型 ID")
     default_image_model_id: str | None = Field(None, description="默认图片模型 ID")
     default_video_model_id: str | None = Field(None, description="默认视频模型 ID")
+    default_audio_model_id: str | None = Field(None, description="默认音频模型 ID")
     api_timeout: int = Field(30, description="API 超时（秒）")
     log_level: LogLevel = Field(LogLevel.info, description="日志级别")
 

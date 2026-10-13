@@ -137,6 +137,7 @@ class FileType(str, Enum):
 
     image = "image"
     video = "video"
+    audio = "audio"
 
 
 class FileUsageKind(str, Enum):
@@ -144,6 +145,7 @@ class FileUsageKind(str, Enum):
 
     shot_frame = "shot_frame"
     generated_video = "generated_video"
+    generated_audio = "generated_audio"
     character_image = "character_image"
     asset_image = "asset_image"
     task_link = "task_link"

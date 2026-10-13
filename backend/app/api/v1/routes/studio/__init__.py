@@ -3,6 +3,7 @@
 from fastapi import APIRouter
 
 from app.api.v1.routes.studio import (
+    audio_tasks,
     chapters,
     entities,
     files,
@@ -30,5 +31,6 @@ router.include_router(prompts.router, prefix="/prompts", tags=["studio/prompts"]
 router.include_router(files.router, prefix="/files", tags=["studio/files"])
 router.include_router(timeline.router, prefix="/timeline", tags=["studio/timeline"])
 router.include_router(image_tasks.router, prefix="/image-tasks", tags=["studio/image-tasks"])
+router.include_router(audio_tasks.router, prefix="/audio-tasks", tags=["studio/audio-tasks"])
 router.include_router(shot_character_links.router, prefix="/shot-character-links", tags=["studio/shot-character-links"])
 
