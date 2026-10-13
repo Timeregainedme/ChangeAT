@@ -13,7 +13,6 @@ from app.models.studio import (
     ShotDetail,
     ShotExtractedCandidate,
     ShotExtractedDialogueCandidate,
-    ShotFrameType,
     ShotFrameImage,
 )
 from app.models.task import GenerationTask, GenerationTaskStatus
@@ -21,20 +20,16 @@ from app.models.task_links import GenerationTaskLink
 from app.schemas.studio.shots import ShotVideoReadinessCheck, ShotVideoReadinessRead
 from app.services.common import entity_not_found
 from app.services.studio.generation.video import (
+    # 参考模式的帧要求必须与生成链路共用同一份定义：这里曾各自维护一份，
+    # 新增 "reference" 时只改了 build_context，导致准备度把 reference 判为
+    # 「未知参考模式」并让视频端点永远 409。
+    REFERENCE_MODE,
+    REQUIRED_FRAMES_BY_MODE,
     build_video_base_draft,
     build_video_context,
     derive_video_preview,
+    resolve_reference_mode_file_ids,
 )
-
-
-REQUIRED_FRAMES_BY_MODE: dict[str, tuple[ShotFrameType, ...]] = {
-    "first": (ShotFrameType.first,),
-    "last": (ShotFrameType.last,),
-    "key": (ShotFrameType.key,),
-    "first_last": (ShotFrameType.first, ShotFrameType.last),
-    "first_last_key": (ShotFrameType.first, ShotFrameType.last, ShotFrameType.key),
-    "text_only": (),
-}
 
 _ACTIVE_TASK_STATUSES = (
     GenerationTaskStatus.pending,
@@ -96,6 +91,36 @@ async def _reference_frames_ready(
     if missing:
         return _check("reference_frames_ready", False, f"缺少参考帧：{', '.join(missing)}")
     return _check("reference_frames_ready", True, "参考帧已就绪")
+
+
+async def _reference_images_ready(
+    db: AsyncSession,
+    *,
+    shot_id: str,
+    reference_mode: str,
+) -> ShotVideoReadinessCheck:
+    """参考图模式必须真的有参考图。
+
+    参考图来自 IR 的有序参考列表，而角色卡只在「本镜头剧本内容里出现该角色」
+    时才插入（见 `app/chains/prompts/ir.py::_collect_asset_references`）。所以纯
+    空镜在参考图模式下会解析出 0 张图，提交时被 `validate_images_count` 判 400。
+    那个报错发生在生成端点，用户在准备度面板上看到的却是「全部就绪」——这里把
+    它提前暴露成一条可执行的检查项。
+    """
+    if reference_mode != REFERENCE_MODE:
+        return _check("reference_images_ready", True, "当前参考模式不使用参考图")
+    try:
+        file_ids = await resolve_reference_mode_file_ids(db, shot_id=shot_id)
+    except Exception as exc:  # noqa: BLE001 - 解析失败只应是「未就绪」，不该让准备度整体 500
+        return _check("reference_images_ready", False, f"参考图解析失败：{exc}")
+    if file_ids:
+        return _check("reference_images_ready", True, f"已解析到 {len(file_ids)} 张参考图")
+    return _check(
+        "reference_images_ready",
+        False,
+        "参考图模式需要至少 1 张参考图，但本镜头没有可用参考图"
+        "（角色卡只在剧本中出现该角色时才插入，空镜请改用「仅文本」模式）",
+    )
 
 
 async def _video_model_and_provider_ready(db: AsyncSession) -> tuple[ShotVideoReadinessCheck, ShotVideoReadinessCheck]:
@@ -192,6 +217,7 @@ async def get_shot_video_readiness(
         duration_check,
         _check("prompt_ready", prompt_ok, prompt_message),
         await _reference_frames_ready(db, shot_id=shot_id, reference_mode=reference_mode),
+        await _reference_images_ready(db, shot_id=shot_id, reference_mode=reference_mode),
         model_check,
         provider_check,
         _check(

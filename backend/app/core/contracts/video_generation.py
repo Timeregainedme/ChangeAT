@@ -30,6 +30,14 @@ class VideoGenerationInput(BaseModel):
     last_frame_base64: Optional[str] = Field(None, description="尾帧图：纯 base64 或 data URL")
     key_frame_base64: Optional[str] = Field(None, description="关键帧图：纯 base64 或 data URL")
 
+    reference_images: Optional[list[str]] = Field(
+        None,
+        description=(
+            "参考图列表（纯 base64 或 data URL），顺序即提示词里 <Picture N> 的编号顺序；"
+            "参考图模式与首尾帧模式互斥"
+        ),
+    )
+
     model: Optional[str] = Field(None, description="视频模型名称（可选，供应商透传）")
     ratio: VideoRatio = Field(..., description="视频宽高比，业务层唯一主参数")
     seconds: Optional[int] = Field(None, description="时长（秒）（可选，供应商透传）")
@@ -40,6 +48,13 @@ class VideoGenerationInput(BaseModel):
         description="随机种子，-1 或 [0, 2^32-1]，供应商/模型可能有差异",
     )
     watermark: Optional[bool] = Field(None, description="是否包含水印，供应商/模型可能有差异")
+    # 平台自带的提示词优化（可选开关，默认关闭：由 Jellyfish 自己控制提示词内容）。
+    use_context_ir: Optional[bool] = Field(
+        None, description="是否使用供应商平台自带的提示词优化，默认关闭"
+    )
+    skill_id: Optional[str] = Field(
+        None, description="平台提示词优化所用的 skill 标识，仅在 use_context_ir 开启时生效"
+    )
 
     @model_validator(mode="after")
     def require_prompt_or_any_reference(self) -> "VideoGenerationInput":
@@ -49,6 +64,7 @@ class VideoGenerationInput(BaseModel):
                 _strip_optional_b64(self.first_frame_base64),
                 _strip_optional_b64(self.last_frame_base64),
                 _strip_optional_b64(self.key_frame_base64),
+                any(_strip_optional_b64(item) for item in (self.reference_images or [])),
             ]
         )
         if not has_prompt and not has_ref:

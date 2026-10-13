@@ -107,6 +107,10 @@ from app.services.studio.shot_video_prompt_pack import build_shot_video_prompt_p
 from app.services.studio.shot_runtime_summary import list_shot_runtime_summary_by_chapter
 from app.services.studio.shot_preparation_state import build_shot_preparation_state, link_existing_asset_for_preparation
 from app.services.studio.shot_video_readiness import get_shot_video_readiness
+from app.services.studio.shot_video_versions import (
+    adopt_shot_video_version,
+    list_shot_video_versions,
+)
 from app.services.studio.shot_status import (
     mark_shot_generating,
     recompute_shot_status,
@@ -184,6 +188,8 @@ __all__ = [
     "list_shot_linked_assets_paginated",
     "get_shot_assets_overview",
     "get_shot_video_readiness",
+    "list_shot_video_versions",
+    "adopt_shot_video_version",
     "list_shots_paginated",
     "link_shot_extracted_candidate",
     "link_shot_extracted_candidate_by_name",

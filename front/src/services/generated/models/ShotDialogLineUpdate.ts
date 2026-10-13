@@ -7,6 +7,7 @@ export type ShotDialogLineUpdate = {
     index?: (number | null);
     text?: (string | null);
     line_mode?: (DialogueLineMode | null);
+    emotion?: (string | null);
     speaker_character_id?: (string | null);
     target_character_id?: (string | null);
     speaker_name?: (string | null);

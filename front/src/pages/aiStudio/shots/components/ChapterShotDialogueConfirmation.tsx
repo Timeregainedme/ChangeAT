@@ -24,9 +24,11 @@ type ChapterShotDialogueConfirmationProps = {
   onIgnoreAll: () => void
   onDeleteSavedDialogLine: (lineId: number) => void
   onUpdateSavedDialogText: (lineId: number, text: string) => void
+  onUpdateSavedDialogEmotion: (lineId: number, emotion: string) => void
   onAddExtractedDialogLine: (line: ShotExtractedDialogueCandidateRead) => void
   onIgnoreExtractedDialogLine: (line: ShotExtractedDialogueCandidateRead) => void
   onUpdateExtractedDialogText: (candidateId: number, text: string) => void
+  onUpdateExtractedDialogEmotion: (candidateId: number, emotion: string) => void
 }
 
 export function ChapterShotDialogueConfirmation({
@@ -41,9 +43,11 @@ export function ChapterShotDialogueConfirmation({
   onIgnoreAll,
   onDeleteSavedDialogLine,
   onUpdateSavedDialogText,
+  onUpdateSavedDialogEmotion,
   onAddExtractedDialogLine,
   onIgnoreExtractedDialogLine,
   onUpdateExtractedDialogText,
+  onUpdateExtractedDialogEmotion,
 }: ChapterShotDialogueConfirmationProps) {
   const pendingCount = extractedDialogLines.length
   const dialogueStatus = (() => {
@@ -156,6 +160,13 @@ export function ChapterShotDialogueConfirmation({
                     autoSize={{ minRows: 1, maxRows: 4 }}
                     placeholder="对白内容"
                   />
+                  <Input
+                    className="w-28 shrink-0"
+                    size="small"
+                    value={l.emotion ?? ''}
+                    onChange={(e) => onUpdateSavedDialogEmotion(l.id, e.target.value)}
+                    placeholder="情绪/语气"
+                  />
                 </div>
               ))}
           </div>
@@ -193,6 +204,13 @@ export function ChapterShotDialogueConfirmation({
                   onChange={(e) => onUpdateExtractedDialogText(l.id, e.target.value)}
                   autoSize={{ minRows: 1, maxRows: 4 }}
                   placeholder="对白内容"
+                />
+                <Input
+                  className="w-28 shrink-0"
+                  size="small"
+                  value={l.emotion ?? ''}
+                  onChange={(e) => onUpdateExtractedDialogEmotion(l.id, e.target.value)}
+                  placeholder="情绪/语气"
                 />
               </div>
             ))}

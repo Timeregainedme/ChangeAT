@@ -22,6 +22,10 @@ export type ShotVideoPromptPackRead = {
      */
     script_excerpt?: string;
     /**
+     * 分镜整体描述（用于提示词补充）
+     */
+    shot_description?: string;
+    /**
      * 动作/场景要点
      */
     action_beats?: Array<string>;

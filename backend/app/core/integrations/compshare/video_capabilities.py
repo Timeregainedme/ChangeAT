@@ -33,6 +33,44 @@ _COMPSHARE_DEFAULT = VideoModelCapability(
     max_seconds=30,
 )
 
+# H3 参考素材硬约束：参考图 ≤9、参考视频 ≤3、参考音频 ≤3、总数 ≤12；
+# 参考音频不能单独使用；首尾帧素材不能与参考素材混用。
+H3_MAX_REFERENCE_IMAGES = 9
+H3_MAX_REFERENCE_VIDEOS = 3
+H3_MAX_REFERENCE_AUDIOS = 3
+H3_MAX_REFERENCE_TOTAL = 12
+# 官方 MAX_PROMPT_CHARS。
+H3_MAX_PROMPT_CHARS = 7000
+
+
+def _has_payload(value: str | None) -> bool:
+    return bool(value and value.strip())
+
+
+def validate_h3_reference_material(input_: VideoGenerationInput) -> None:
+    """校验 H3 素材硬约束：首尾帧与参考素材互斥、参考图数量上限、提示词长度上限。"""
+    references = [item for item in (input_.reference_images or []) if _has_payload(item)]
+    frames = [
+        item
+        for item in (
+            input_.first_frame_base64,
+            input_.last_frame_base64,
+            input_.key_frame_base64,
+        )
+        if _has_payload(item)
+    ]
+    if references and frames:
+        raise ValueError("MiniMax H3 的首尾帧素材不能与参考图片、参考视频或参考音频混用")
+    if len(references) > H3_MAX_REFERENCE_IMAGES:
+        raise ValueError(
+            f"MiniMax H3 参考图片最多 {H3_MAX_REFERENCE_IMAGES} 张，当前 {len(references)} 张"
+        )
+    prompt_chars = len((input_.prompt or "").strip())
+    if prompt_chars > H3_MAX_PROMPT_CHARS:
+        raise ValueError(
+            f"MiniMax H3 提示词最多 {H3_MAX_PROMPT_CHARS} 字符，当前 {prompt_chars} 字符"
+        )
+
 _STORE: PrefixCapabilityStore[VideoModelCapability] = PrefixCapabilityStore(
     provider="compshare_model_api",
     default=_COMPSHARE_DEFAULT,
@@ -58,6 +96,7 @@ def validate_compshare_video_options(input_: VideoGenerationInput) -> None:
     from app.core.integrations.video_capabilities import validate_video_options
 
     assert isinstance(input_, VideoGenerationInput)
+    validate_h3_reference_material(input_)
     validate_video_options(provider="compshare_model_api", model=input_.model, input_=input_)
 
 

@@ -4,6 +4,7 @@ from typing import Any
 
 from fastapi import HTTPException, status
 
+from app.chains.prompts.style_pack import negative_image_prompt, style_pack_line
 from app.models.studio import (
     Actor,
     ActorImage,
@@ -81,6 +82,9 @@ async def _build_asset_prompt(
             "view_angle": map_view_angle_for_prompt(image_row.view_angle),
             "quality_level": image_row.quality_level,
             "format": image_row.format,
+            # C2：项目级风格包一处配置、全局注入
+            "style_pack": style_pack_line(visual_style=visual_style, style=style),
+            "negative_prompt": negative_image_prompt(visual_style=visual_style, style=style),
         },
         fallback_prompt=description,
         not_found_msg=f"{relation_type}.description is empty",
@@ -218,7 +222,7 @@ async def build_character_image_base_draft(
     image_row = await validate_character_image(db, character_id=character_id, image_id=image_id)
     prompt = await build_prompt_with_template(
         db,
-        category=PromptCategory.combined,
+        category=PromptCategory.character_image_front,
         variables={
             "name": character.name,
             "description": character.description,
@@ -227,6 +231,13 @@ async def build_character_image_base_draft(
             "view_angle": map_view_angle_for_prompt(image_row.view_angle),
             "quality_level": image_row.quality_level,
             "format": image_row.format,
+            # C2：项目级风格包一处配置、全局注入
+            "style_pack": style_pack_line(
+                visual_style=character.visual_style, style=character.style
+            ),
+            "negative_prompt": negative_image_prompt(
+                visual_style=character.visual_style, style=character.style
+            ),
         },
         fallback_prompt=character.description,
         not_found_msg="Character.description is empty",

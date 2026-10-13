@@ -25,6 +25,7 @@ from app.core.integrations.compshare.video_capabilities import (
     DEFAULT_COMPSHARE_VIDEO_DURATION_S,
     DEFAULT_COMPSHARE_VIDEO_RESOLUTION,
     validate_compshare_video_options,
+    validate_h3_reference_material,
 )
 from app.core.integrations.http_logging import (
     log_media_http_request,
@@ -121,38 +122,56 @@ class CompshareVideoApiAdapter:
 def build_compshare_video_body(input_: VideoGenerationInput) -> dict[str, Any]:
     """按参考实现的 content[] 协议构造请求体。
 
-    首尾帧用 Data URL 提交（平台对图片支持 Data URL，上限 30 MiB）；
+    两种互斥的素材模式：
+    - 首尾帧模式：用 role=first_frame/last_frame 提交（平台对图片支持 Data URL，上限 30 MiB）；
+    - 参考图模式：每张图一个 role=reference_image，**顺序即提示词里 <Picture N> 的编号顺序**。
+
     参考视频/参考音频只接受公网 HTTP(S)，Jellyfish 暂不产生这两类素材。
     """
+    validate_h3_reference_material(input_)
+
     content: list[dict[str, Any]] = []
 
     prompt = (input_.prompt or "").strip()
     if prompt:
         content.append({"type": "text", "text": prompt})
 
-    first = _strip_optional_b64(input_.first_frame_base64)
-    last = _strip_optional_b64(input_.last_frame_base64)
-    key = _strip_optional_b64(input_.key_frame_base64)
-    # 只给关键帧时按首帧处理（平台省略 role 也是首帧）。
-    if not first and not last and key:
-        first = key
+    references = [
+        item.strip() for item in (input_.reference_images or []) if item and item.strip()
+    ]
+    if references:
+        for item in references:
+            content.append(
+                {
+                    "type": "image_url",
+                    "image_url": {"url": to_image_data_url(item)},
+                    "role": "reference_image",
+                }
+            )
+    else:
+        first = _strip_optional_b64(input_.first_frame_base64)
+        last = _strip_optional_b64(input_.last_frame_base64)
+        key = _strip_optional_b64(input_.key_frame_base64)
+        # 只给关键帧时按首帧处理（平台省略 role 也是首帧）。
+        if not first and not last and key:
+            first = key
 
-    if first:
-        content.append(
-            {
-                "type": "image_url",
-                "image_url": {"url": to_image_data_url(first)},
-                "role": "first_frame",
-            }
-        )
-    if last:
-        content.append(
-            {
-                "type": "image_url",
-                "image_url": {"url": to_image_data_url(last)},
-                "role": "last_frame",
-            }
-        )
+        if first:
+            content.append(
+                {
+                    "type": "image_url",
+                    "image_url": {"url": to_image_data_url(first)},
+                    "role": "first_frame",
+                }
+            )
+        if last:
+            content.append(
+                {
+                    "type": "image_url",
+                    "image_url": {"url": to_image_data_url(last)},
+                    "role": "last_frame",
+                }
+            )
 
     body: dict[str, Any] = {
         "model": input_.model,
@@ -164,6 +183,11 @@ def build_compshare_video_body(input_: VideoGenerationInput) -> dict[str, Any]:
         body["ratio"] = input_.ratio
     if input_.watermark is not None:
         body["aigc_watermark"] = bool(input_.watermark)
+    # A5：平台自带的提示词优化，默认关闭（提示词内容由 Jellyfish 自己控制）。
+    if input_.use_context_ir:
+        body["use_context_ir"] = True
+        if input_.skill_id:
+            body["skill_id"] = input_.skill_id
     return body
 
 

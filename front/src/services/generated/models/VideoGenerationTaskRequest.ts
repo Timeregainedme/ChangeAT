@@ -11,20 +11,28 @@ export type VideoGenerationTaskRequest = {
      */
     shot_id: string;
     /**
-     * 参考模式：first | last | key | first_last | first_last_key | text_only
+     * 参考模式：first | last | key | first_last | first_last_key | text_only | reference；reference 为参考图模式（不使用分镜帧，参考图取自有序 IR 参考列表）
      */
-    reference_mode: 'first' | 'last' | 'key' | 'first_last' | 'first_last_key' | 'text_only';
+    reference_mode: 'first' | 'last' | 'key' | 'first_last' | 'first_last_key' | 'text_only' | 'reference';
     /**
-     * 视频提示词（text_only 必填）
+     * 视频提示词（text_only / reference 必填）
      */
     prompt?: (string | null);
     /**
-     * 参考图 file_id 列表，数量需与 reference_mode 严格匹配
+     * 参考图 file_id 列表；帧模式数量需与 reference_mode 严格匹配，reference 模式由服务端按 IR 参考列表覆盖
      */
     images?: Array<string>;
     /**
      * 视频画幅比例，如 16:9 / 9:16；不传则继承分镜的 override_video_ratio，再继承项目的 default_video_ratio
      */
     ratio?: ('16:9' | '4:3' | '1:1' | '3:4' | '9:16' | '21:9' | null);
+    /**
+     * 是否使用供应商平台自带的提示词优化，默认关闭
+     */
+    use_context_ir?: boolean;
+    /**
+     * 平台提示词优化所用的 skill 标识，仅在 use_context_ir=true 时生效
+     */
+    skill_id?: (string | null);
 };
 

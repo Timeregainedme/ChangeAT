@@ -450,6 +450,7 @@ async def build_shot_video_prompt_pack(
         shot_id=shot.id,
         title=shot.title or "",
         script_excerpt=shot.script_excerpt or "",
+        shot_description=str(getattr(detail, "description", "") or ""),
         action_beats=action_beats,
         action_beat_phases=[
             ActionBeatPhaseRead(text=item.text, phase=item.phase)

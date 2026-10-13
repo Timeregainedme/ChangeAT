@@ -25,6 +25,10 @@ export type ShotDialogLineRead = {
      */
     line_mode?: DialogueLineMode;
     /**
+     * 情绪/语气（如：愤怒、平静、哽咽），配音时自动作为 TTS 情绪下发
+     */
+    emotion?: (string | null);
+    /**
      * 说话角色 ID
      */
     speaker_character_id?: (string | null);

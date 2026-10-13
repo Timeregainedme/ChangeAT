@@ -432,6 +432,99 @@ async def test_shot_video_readiness_reports_missing_reference_frame() -> None:
     await engine.dispose()
 
 
+def test_readiness_shares_frame_requirements_with_generation() -> None:
+    """准备度与生成链路必须共用同一份帧要求定义。
+
+    历史缺陷：`shot_video_readiness` 自己抄了一份 `REQUIRED_FRAMES_BY_MODE`，
+    新增 "reference" 时只改了 `build_context`，于是准备度把 reference 判为
+    「未知参考模式」→ 视频端点对参考图模式永远返回 409。
+    """
+    from app.services.studio import shot_video_readiness
+    from app.services.studio.generation.video.build_context import (
+        REQUIRED_FRAMES_BY_MODE as GENERATION_FRAME_REQUIREMENTS,
+    )
+
+    assert shot_video_readiness.REQUIRED_FRAMES_BY_MODE is GENERATION_FRAME_REQUIREMENTS
+    assert "reference" in GENERATION_FRAME_REQUIREMENTS
+
+
+@pytest.mark.asyncio
+async def test_shot_video_readiness_accepts_reference_mode() -> None:
+    """参考图模式不使用分镜帧，准备度必须判定为已就绪而不是「未知参考模式」。"""
+    db, engine = await _build_session()
+    async with db:
+        await _seed_shot_graph(db)
+        shot = await db.get(Shot, "s1")
+        assert shot is not None
+        shot.last_extracted_at = datetime.now(timezone.utc)
+        provider = Provider(id="p1", name="OpenAI", base_url="https://api.openai.com/v1", api_key="k")
+        model = Model(id="m_video", name="sora-mini", category=ModelCategoryKey.video, provider_id="p1")
+        settings = ModelSettings(id=1, default_video_model_id="m_video")
+        db.add_all([provider, model, settings])
+        await db.flush()
+
+        readiness = await get_shot_video_readiness(db, shot_id="s1", reference_mode="reference")
+
+        checks = {item.key: item for item in readiness.checks}
+        assert checks["reference_frames_ready"].ok is True
+        assert checks["reference_frames_ready"].message == "当前参考模式不需要参考帧"
+        # 参考图模式真正的门槛是「有没有参考图」，而不是分镜帧。
+        assert "reference_images_ready" in checks
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_shot_video_readiness_flags_reference_mode_without_reference_images() -> None:
+    """空镜在参考图模式下必须在准备度就报出来，而不是等提交后收到 400。
+
+    参考图来自 IR 的有序参考列表，角色卡只在剧本里出现该角色时才插入；纯空镜
+    解析出 0 张参考图，`validate_images_count` 会判 400。历史行为是准备度说
+    「全部就绪」、生成端点却报错，用户拿不到可执行的下一步。
+    """
+    db, engine = await _build_session()
+    async with db:
+        await _seed_shot_graph(db)
+        shot = await db.get(Shot, "s1")
+        assert shot is not None
+        shot.last_extracted_at = datetime.now(timezone.utc)
+        provider = Provider(id="p1", name="OpenAI", base_url="https://api.openai.com/v1", api_key="k")
+        model = Model(id="m_video", name="sora-mini", category=ModelCategoryKey.video, provider_id="p1")
+        settings = ModelSettings(id=1, default_video_model_id="m_video")
+        db.add_all([provider, model, settings])
+        await db.flush()
+
+        readiness = await get_shot_video_readiness(db, shot_id="s1", reference_mode="reference")
+
+        checks = {item.key: item for item in readiness.checks}
+        assert checks["reference_images_ready"].ok is False
+        assert "仅文本" in checks["reference_images_ready"].message
+        assert readiness.ready is False
+    await engine.dispose()
+
+
+def test_validate_images_count_reference_mode_messages_are_actionable() -> None:
+    """参考图模式缺图的 400 必须说清原因和下一步，而不是只报数字。"""
+    from app.services.studio.generation.video.build_context import (
+        REFERENCE_MAX_IMAGES,
+        validate_images_count,
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        validate_images_count("reference", [])
+    assert exc_info.value.status_code == 400
+    assert "至少 1 张参考图" in str(exc_info.value.detail)
+    assert "text_only" in str(exc_info.value.detail)
+
+    with pytest.raises(HTTPException) as exc_info:
+        validate_images_count("reference", ["f1"] * (REFERENCE_MAX_IMAGES + 1))
+    assert exc_info.value.status_code == 400
+    assert str(REFERENCE_MAX_IMAGES) in str(exc_info.value.detail)
+
+    # 边界内不抛。
+    validate_images_count("reference", ["f1"])
+    validate_images_count("reference", ["f1"] * REFERENCE_MAX_IMAGES)
+
+
 @pytest.mark.asyncio
 async def test_build_run_args_uses_request_ratio_as_final_value(monkeypatch: pytest.MonkeyPatch) -> None:
     db, engine = await _build_session()

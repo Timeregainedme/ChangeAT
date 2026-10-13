@@ -107,6 +107,7 @@ class ShotExtractedDialogueCandidateAcceptRequest(BaseModel):
     index: int | None = Field(None, description="写入对白行时使用的排序；为空则使用候选排序")
     text: str | None = Field(None, description="接受时可覆盖对白文本")
     line_mode: DialogueLineMode | None = Field(None, description="接受时可覆盖对白模式")
+    emotion: str | None = Field(None, description="接受时可覆盖情绪/语气；为空则沿用候选上的情绪")
     speaker_name: str | None = Field(None, description="接受时可覆盖说话角色名称")
     target_name: str | None = Field(None, description="接受时可覆盖听者角色名称")
 
@@ -119,6 +120,7 @@ class ShotExtractedDialogueCandidateRead(BaseModel):
     index: int = Field(..., description="镜头内对白候选排序")
     text: str = Field(..., description="提取出的对白文本")
     line_mode: DialogueLineMode = Field(..., description="对白模式")
+    emotion: str | None = Field(None, description="情绪/语气（来自脚本提取），确认后带入台词行")
     speaker_name: str | None = Field(None, description="说话角色名称")
     target_name: str | None = Field(None, description="听者角色名称")
     candidate_status: ShotDialogueCandidateStatus = Field(..., description="对白候选确认状态")
@@ -192,6 +194,10 @@ class ShotDialogLineBase(BaseModel):
     index: int = Field(0, description="行号（镜头内排序）")
     text: str = Field(..., description="台词内容")
     line_mode: DialogueLineMode = Field(DialogueLineMode.dialogue, description="对白模式")
+    emotion: str | None = Field(
+        None,
+        description="情绪/语气（如：愤怒、平静、哽咽），配音时自动作为 TTS 情绪下发",
+    )
     speaker_character_id: str | None = Field(None, description="说话角色 ID")
     target_character_id: str | None = Field(None, description="听者角色 ID")
     speaker_name: str | None = Field(None, description="说话角色名称（用于回填关联；可空）")
@@ -207,6 +213,7 @@ class ShotDialogLineCreate(BaseModel):
     index: int = 0
     text: str
     line_mode: DialogueLineMode = DialogueLineMode.dialogue
+    emotion: str | None = None
     speaker_character_id: str | None = None
     target_character_id: str | None = None
     speaker_name: str | None = None
@@ -218,6 +225,7 @@ class ShotDialogLineUpdate(BaseModel):
     index: int | None = None
     text: str | None = None
     line_mode: DialogueLineMode | None = None
+    emotion: str | None = None
     speaker_character_id: str | None = None
     target_character_id: str | None = None
     speaker_name: str | None = None
@@ -478,6 +486,7 @@ class ShotVideoPromptPackRead(BaseModel):
     shot_id: str = Field(..., description="镜头 ID")
     title: str = Field("", description="镜头标题")
     script_excerpt: str = Field("", description="剧本摘录")
+    shot_description: str = Field("", description="分镜整体描述（用于提示词补充）")
     action_beats: list[str] = Field(default_factory=list, description="动作/场景要点")
     action_beat_phases: list[ActionBeatPhaseRead] = Field(default_factory=list, description="动作拍点的阶段推断结果")
     previous_shot_summary: str = Field("", description="上一镜头摘要，用于提示词连续性约束")
@@ -523,6 +532,30 @@ class ShotVideoReadinessRead(BaseModel):
     reference_mode: str = Field(..., description="参考模式")
     ready: bool = Field(..., description="是否满足当前 reference_mode 下的视频生成条件")
     checks: list[ShotVideoReadinessCheck] = Field(default_factory=list, description="准备度检查项")
+
+
+class ShotVideoVersionRead(BaseModel):
+    """镜头视频生成的一个版本（一次抽卡尝试）。
+
+    版本列表按创建时间倒序返回，`is_current` 标记当前采用的版本；
+    历史版本一律保留，可随时切回。
+    """
+
+    task_id: str = Field(..., description="视频生成任务 ID")
+    file_id: str | None = Field(None, description="该版本产出的视频文件 ID（files.id）")
+    status: str = Field(..., description="任务状态：pending/running/succeeded/failed/cancelled")
+    is_current: bool = Field(False, description="是否为当前采用的版本")
+    ratio: str | None = Field(None, description="该版本使用的画幅")
+    seconds: float | None = Field(None, description="该版本时长（秒）")
+    prompt: str | None = Field(None, description="该版本实际提交给模型的提示词")
+    error: str | None = Field(None, description="失败原因（仅失败版本有值）")
+    created_at: datetime | None = Field(None, description="创建时间")
+
+
+class ShotVideoVersionAdoptRequest(BaseModel):
+    """切换镜头当前采用的视频版本。"""
+
+    file_id: str = Field(..., description="要采用的视频文件 ID（files.id），必须属于该镜头的历史版本")
 
 
 class ShotRuntimeSummaryRead(BaseModel):

@@ -56,6 +56,7 @@ import {
   PlusOutlined,
   UserOutlined,
   DownloadOutlined,
+  ReloadOutlined,
 } from '@ant-design/icons'
 import { useLocation, useParams, Link } from 'react-router-dom'
 import {
@@ -98,6 +99,7 @@ import type {
   ProjectSceneLinkRead,
   ShotStatus,
   ShotVideoPromptPackRead,
+  ShotVideoVersionRead,
 } from '../../../services/generated'
 import { listTaskLinksNormalized } from '../../../services/filmTaskLinks'
 import { buildFileDownloadUrl, resolveAssetUrl } from '../assets/utils'
@@ -137,7 +139,14 @@ type FramePromptDerived = {
   images: string[]
   mappings: ShotFramePromptMappingRead[]
 }
-type VideoReferenceMode = 'first' | 'last' | 'key' | 'first_last' | 'first_last_key' | 'text_only'
+type VideoReferenceMode =
+  | 'reference'
+  | 'first'
+  | 'last'
+  | 'key'
+  | 'first_last'
+  | 'first_last_key'
+  | 'text_only'
 type VideoPromptDerived = {
   prompt: string
   images: string[]
@@ -1084,7 +1093,7 @@ const ChapterStudio: React.FC = () => {
           try {
             const res = await StudioShotsService.getShotVideoReadinessApiApiV1StudioShotsShotIdVideoReadinessGet({
               shotId: shot.id,
-              referenceMode: 'text_only',
+              referenceMode: 'reference',
             })
             return {
               shot,
@@ -2712,6 +2721,7 @@ const ChapterStudio: React.FC = () => {
                 onPatchShotDetail={patchShotDetailLocal}
                 onPatchShotDetailImmediate={patchShotDetailImmediate}
                 onSelectPreviewVideo={setPreviewVideoFileId}
+                onRefreshShots={loadShots}
                 onRefreshShotFrameImages={refreshShotFrameImages}
                 onClose={() => setPrefs((p) => ({ ...p, inspectorOpen: false }))}
               />
@@ -2786,6 +2796,7 @@ const ChapterStudio: React.FC = () => {
                     onPatchShotDetail={patchShotDetailLocal}
                     onPatchShotDetailImmediate={patchShotDetailImmediate}
                     onSelectPreviewVideo={setPreviewVideoFileId}
+                onRefreshShots={loadShots}
                     onRefreshShotFrameImages={refreshShotFrameImages}
                     onClose={() => setPrefs((p) => ({ ...p, inspectorOpen: false }))}
                   />
@@ -2839,7 +2850,7 @@ const ChapterStudio: React.FC = () => {
           ) : (
             <div className="space-y-3 max-h-[65vh] overflow-y-auto pr-1">
               <div className="text-xs text-gray-500">
-                当前按 <Tag className="!mx-1">text_only</Tag> 参考模式检查这批分镜是否具备视频生成条件。
+                当前按 <Tag className="!mx-1">reference</Tag> 参考图模式检查这批分镜是否具备视频生成条件。
               </div>
               {batchVideoReadinessItems.map(({ shot, readiness, error }) => {
                 const failedChecks = (readiness?.checks ?? []).filter((item) => !item.ok)
@@ -2933,6 +2944,8 @@ function Inspector(props: {
   onSelectPreviewVideo: (fileId: string) => void
   /** 下拉展开时拉取最新分镜帧图，用于「参考」关键帧类型选项动态更新 */
   onRefreshShotFrameImages?: () => Promise<void>
+  /** 切换视频版本后刷新分镜列表，让 selectedShot.generated_video_file_id 同步 */
+  onRefreshShots?: () => Promise<void>
 }) {
   const {
     projectId,
@@ -2971,10 +2984,15 @@ function Inspector(props: {
     onPatchShotDetailImmediate,
     onSelectPreviewVideo,
     onRefreshShotFrameImages,
+    onRefreshShots,
   } = props
   const currentChapterId = chapterId ?? null
   const [imageVersion, setImageVersion] = useState('v1')
-  const [refImageType, setRefImageType] = useState<string | undefined>(undefined)
+  // 默认走参考图模式：分镜视频统一用角色卡/场景等资产作参考图，而不是首尾帧。
+  const [refImageType, setRefImageType] = useState<string | undefined>('reference')
+  // A5：平台自带的提示词优化，默认关闭（提示词内容由 Jellyfish 自己控制）。
+  const [platformPromptOptimize, setPlatformPromptOptimize] = useState(false)
+  const [platformPromptSkillId, setPlatformPromptSkillId] = useState('')
   const [refFrameTypeSelectLoading, setRefFrameTypeSelectLoading] = useState(false)
   const [useBoneDepth, setUseBoneDepth] = useState(false)
   const [audioMode, setAudioMode] = useState<'none' | 'prompt' | 'upload'>('none')
@@ -3054,7 +3072,7 @@ function Inspector(props: {
     { taskId: string | null }
   >({
     initialBase: { prompt: '' },
-    initialContext: { referenceMode: 'text_only', images: [] },
+    initialContext: { referenceMode: 'reference', images: [] },
     derive: async ({ base, context }) => {
       if (!selectedShot?.id) {
         throw new Error('shot is required')
@@ -3094,7 +3112,17 @@ function Inspector(props: {
           prompt: (derived.prompt || '').trim(),
           images: derived.images,
           ratio,
+          // A5：平台自带提示词优化，默认关闭。
+          use_context_ir: platformPromptOptimize,
+          skill_id: platformPromptOptimize ? platformPromptSkillId.trim() || null : null,
         } as any,
+      })
+      // 记住这次尝试的快照，「重新抽卡」按同一提示词再抽一张。
+      setLastVideoSubmit({
+        prompt: (derived.prompt || '').trim(),
+        referenceMode: context.referenceMode,
+        images: derived.images,
+        ratio,
       })
       return {
         taskId: created.data?.task_id ?? null,
@@ -3128,7 +3156,17 @@ function Inspector(props: {
   const [promptSettledTask, setPromptSettledTask] = useState<RelationTaskState | null>(null)
   const [frameImageTask, setFrameImageTask] = useState<RelationTaskState | null>(null)
   const [frameImageSettledTask, setFrameImageSettledTask] = useState<RelationTaskState | null>(null)
-  const [generatedVideos, setGeneratedVideos] = useState<Array<{ linkId: number; fileId: string; url: string }>>([])
+  // 抽卡历史：每次视频生成任务就是一个版本，历史一律保留、可切回。
+  const [videoVersions, setVideoVersions] = useState<ShotVideoVersionRead[]>([])
+  const [videoVersionsLoading, setVideoVersionsLoading] = useState(false)
+  const [adoptingVideoFileId, setAdoptingVideoFileId] = useState<string | null>(null)
+  // 最近一次成功提交的视频尝试快照：重新抽卡时按同一提示词/参考/画幅再抽一张。
+  const [lastVideoSubmit, setLastVideoSubmit] = useState<{
+    prompt: string
+    referenceMode: VideoReferenceMode
+    images: string[]
+    ratio: string
+  } | null>(null)
   const [videoReadiness, setVideoReadiness] = useState<ShotVideoReadinessRead | null>(null)
   const [videoReadinessLoading, setVideoReadinessLoading] = useState(false)
   const [keyframeCards, setKeyframeCards] = useState<Record<PromptFrameType, KeyframeCardState>>({
@@ -3282,52 +3320,90 @@ function Inspector(props: {
     frameImages.map((x) => `${x.id}:${x.file_id ?? ''}`).join('|'),
   ])
 
+  const refreshVideoVersions = useCallback(async (shotId: string) => {
+    setVideoVersionsLoading(true)
+    try {
+      const res = await StudioShotsService.listShotVideoVersionsApiApiV1StudioShotsShotIdVideoVersionsGet({ shotId })
+      const rows = ((res as { data?: ShotVideoVersionRead[] } | undefined)?.data ?? []) as ShotVideoVersionRead[]
+      setVideoVersions(rows)
+    } catch {
+      setVideoVersions([])
+    } finally {
+      setVideoVersionsLoading(false)
+    }
+  }, [])
+
   useEffect(() => {
     if (!selectedShot?.id) {
-      setGeneratedVideos([])
+      setVideoVersions([])
       return
     }
-    let canceled = false
-    void (async () => {
-      try {
-        const links = await listTaskLinksNormalized({
-          resourceType: 'video',
-          relationType: 'video',
-          relationEntityId: selectedShot.id,
-          order: 'updated_at',
-          isDesc: true,
-          page: 1,
-          pageSize: 100,
-        })
-        if (canceled) return
-        const seen = new Set<string>()
-        const list = links
-          .filter((l) => Boolean(l.file_id))
-          .map((l) => ({
-            linkId: l.id,
-            fileId: String(l.file_id),
-            url: buildFileDownloadUrl(String(l.file_id)) ?? '',
-          }))
-          .filter((v) => Boolean(v.url))
-          .filter((v) => {
-            if (seen.has(v.fileId)) return false
-            seen.add(v.fileId)
-            return true
-          })
-        const currentId = selectedShot.generated_video_file_id?.trim() || ''
-        if (currentId && !list.some((x) => x.fileId === currentId)) {
-          const currentUrl = buildFileDownloadUrl(currentId) ?? ''
-          if (currentUrl) list.unshift({ linkId: -1, fileId: currentId, url: currentUrl })
-        }
-        setGeneratedVideos(list)
-      } catch {
-        if (!canceled) setGeneratedVideos([])
-      }
-    })()
-    return () => {
-      canceled = true
+    void refreshVideoVersions(selectedShot.id)
+  }, [selectedShot?.id, selectedShot?.generated_video_file_id, videoTaskStatus, videoTaskPolling, refreshVideoVersions])
+
+  const adoptVideoVersion = async (fileId: string) => {
+    if (!selectedShot?.id) {
+      message.warning('请先选择一个分镜')
+      return
     }
-  }, [selectedShot?.id, selectedShot?.generated_video_file_id, videoTaskStatus, videoTaskPolling])
+    setAdoptingVideoFileId(fileId)
+    try {
+      await StudioShotsService.adoptShotVideoVersionApiApiV1StudioShotsShotIdVideoVersionsAdoptPost({
+        shotId: selectedShot.id,
+        requestBody: { file_id: fileId },
+      })
+      onSelectPreviewVideo(fileId)
+      message.success('已切换当前视频版本')
+      await refreshVideoVersions(selectedShot.id)
+      if (onRefreshShots) await onRefreshShots()
+    } catch {
+      message.error('切换视频版本失败')
+    } finally {
+      setAdoptingVideoFileId(null)
+    }
+  }
+
+  /** 重新抽卡：沿用最近一次成功尝试的提示词/参考/画幅，只换一次采样结果。 */
+  const redrawVideo = async () => {
+    if (!selectedShot?.id) {
+      message.warning('请先选择一个分镜')
+      return
+    }
+    const snapshot = lastVideoSubmit
+    if (!snapshot) {
+      message.warning('请先生成一次视频，之后即可按同一提示词重新抽卡')
+      return
+    }
+    setVideoPromptPreviewSubmitting(true)
+    try {
+      const created = await FilmService.createVideoGenerationTaskApiV1FilmTasksVideoPost({
+        requestBody: {
+          shot_id: selectedShot.id,
+          reference_mode: snapshot.referenceMode,
+          prompt: snapshot.prompt,
+          images: snapshot.images,
+          ratio: snapshot.ratio,
+          use_context_ir: platformPromptOptimize,
+          skill_id: platformPromptOptimize ? platformPromptSkillId.trim() || null : null,
+        } as any,
+      })
+      const taskId = created.data?.task_id
+      if (!taskId) {
+        message.error('视频生成任务创建失败：缺少任务 ID')
+        return
+      }
+      setVideoTaskId(taskId)
+      setVideoTaskStatus('pending')
+      setVideoTaskPolling(true)
+      setVideoTask({ taskId, status: 'pending', progress: 0, cancelRequested: false })
+      setVideoSettledTask(null)
+      message.success('已发起重新抽卡')
+    } catch {
+      message.error('发起视频生成失败')
+    } finally {
+      setVideoPromptPreviewSubmitting(false)
+    }
+  }
 
   useEffect(() => {
     setOpsTitleDraft(selectedShot?.title ?? '')
@@ -4214,7 +4290,11 @@ function Inspector(props: {
 
   const refFrameTypeOptions = useMemo(() => {
     const kinds = new Set((frameImages ?? []).map((x) => x.frame_type))
-    const opts: Array<{ value: string; label: string }> = []
+    // 参考图模式是默认项：不依赖分镜帧，参考图顺序由服务端按 IR 参考列表决定，
+    // 比例与上传顺序都由服务端保证，因此始终可选。
+    const opts: Array<{ value: string; label: string }> = [
+      { value: 'reference', label: '参考图模式（推荐）' },
+    ]
     if (kinds.has('first')) opts.push({ value: 'first', label: '首帧' })
     if (kinds.has('last')) opts.push({ value: 'last', label: '尾帧' })
     if (kinds.has('first') && kinds.has('last')) opts.push({ value: 'first_last', label: '首尾帧' })
@@ -4226,6 +4306,11 @@ function Inspector(props: {
     const allowed = new Set(refFrameTypeOptions.map((x) => x.value))
     setRefImageType((prev) => (prev && allowed.has(prev) ? prev : undefined))
   }, [refFrameTypeOptions])
+
+  // 参考图模式必须有参考图：空镜（角色卡不会插入）解析出 0 张参考图，提交会被后端判 400。
+  // 准备度没结论时不拦，明确报「没有可用参考图」时才回落到仅文本，避免默认值把用户带进死路。
+  const referenceImagesCheck = videoReadiness?.checks?.find((item) => item.key === 'reference_images_ready')
+  const referenceModeUsable = !referenceImagesCheck || referenceImagesCheck.ok
 
   const buildVideoRefSelection = () => {
     const first = frameImages.find((x) => x.frame_type === 'first')?.file_id ?? null
@@ -4242,7 +4327,9 @@ function Inspector(props: {
     if (s === 'key') return { referenceMode: 'key' as const, images: key ? [key] : [] }
     if (s === 'first') return { referenceMode: 'first' as const, images: first ? [first] : [] }
     if (s === 'last') return { referenceMode: 'last' as const, images: last ? [last] : [] }
-    return { referenceMode: 'text_only' as const, images: [] }
+    // 参考图模式：参考图由服务端按 IR 的有序参考列表决定，这里不提交 images。
+    if (!referenceModeUsable) return { referenceMode: 'text_only' as const, images: [] }
+    return { referenceMode: 'reference' as const, images: [] }
   }
 
   const openVideoPromptPreview = async () => {
@@ -5484,6 +5571,35 @@ function Inspector(props: {
                       loading={refFrameTypeSelectLoading}
                       onDropdownVisibleChange={handleRefFrameTypeDropdownVisibleChange}
                     />
+                    {!referenceModeUsable ? (
+                      <div className="text-xs text-orange-500 mt-1">
+                        本镜头没有可用参考图（角色卡只在剧本中出现该角色时才插入），已自动改用「仅文本」生成
+                      </div>
+                    ) : null}
+                  </div>
+
+                  <div className="cs-group">
+                    <div className="cs-group-title">
+                      <ToolOutlined /> 平台提示词优化
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm text-gray-500">
+                        交给供应商平台优化提示词（默认关闭）
+                      </span>
+                      <Switch
+                        checked={platformPromptOptimize}
+                        onChange={setPlatformPromptOptimize}
+                      />
+                    </div>
+                    {platformPromptOptimize && (
+                      <Input
+                        size="small"
+                        className="mt-2"
+                        placeholder="skill_id（可选，平台提示词技能标识）"
+                        value={platformPromptSkillId}
+                        onChange={(e) => setPlatformPromptSkillId(e.target.value)}
+                      />
+                    )}
                   </div>
 
                   {showGenRefParams && (
@@ -5517,43 +5633,94 @@ function Inspector(props: {
                       <Button type="primary" icon={<VideoCameraOutlined />} loading={videoPromptPreviewSubmitting || videoTaskPolling} onClick={() => void openVideoPromptPreview()}>
                         生成视频
                       </Button>
+                      <Tooltip title={lastVideoSubmit ? '按上一条提示词再抽一张，旧版本会保留' : '先生成一次视频后即可重新抽卡'}>
+                        <Button
+                          icon={<ReloadOutlined />}
+                          disabled={!lastVideoSubmit || videoTaskPolling || videoPromptPreviewSubmitting}
+                          onClick={() => void redrawVideo()}
+                        >
+                          重新抽卡
+                        </Button>
+                      </Tooltip>
                       {videoTaskStatus ? <span className="text-xs text-gray-500">任务状态：{videoTaskStatus}</span> : null}
                     </Space>
                   </div>
 
                   <div className="cs-group">
                     <div className="cs-group-title">
-                      <VideoCameraOutlined /> 已生成视频
+                      <VideoCameraOutlined /> 视频版本（抽卡历史）
                     </div>
-                    {generatedVideos.length === 0 ? (
-                      <div className="text-xs text-gray-400">当前分镜暂无已生成视频</div>
+                    {videoVersionsLoading && videoVersions.length === 0 ? (
+                      <div className="text-xs text-gray-400">版本加载中…</div>
+                    ) : videoVersions.length === 0 ? (
+                      <div className="text-xs text-gray-400">当前分镜暂无视频版本，生成一次后这里会保留每次抽卡结果</div>
                     ) : (
                       <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
-                        {generatedVideos.map((item, idx) => (
-                          <div key={`${item.linkId}-${item.fileId}`} className="border rounded p-2">
-                            <video
-                              src={item.url}
-                              className="w-full h-20 rounded object-cover bg-black"
-                              preload="metadata"
-                              muted
-                              onClick={() => onSelectPreviewVideo(item.fileId)}
-                              style={{ cursor: 'pointer' }}
-                            />
-                            <div className="mt-2 flex items-center justify-between gap-2">
-                              <span className="text-xs text-gray-500">视频 {idx + 1}</span>
-                              <Tooltip title="下载视频">
+                        {videoVersions.map((version, idx) => {
+                          const url = buildFileDownloadUrl(version.file_id) ?? ''
+                          const isCurrent = Boolean(version.is_current)
+                          const playable = Boolean(version.file_id) && version.status === 'succeeded'
+                          return (
+                            <div
+                              key={version.task_id}
+                              className={`border rounded p-2 ${isCurrent ? 'border-blue-500' : ''}`}
+                            >
+                              {playable ? (
+                                <video
+                                  src={url}
+                                  className="w-full h-20 rounded object-cover bg-black"
+                                  preload="metadata"
+                                  muted
+                                  onClick={() => onSelectPreviewVideo(version.file_id as string)}
+                                  style={{ cursor: 'pointer' }}
+                                />
+                              ) : (
+                                <div className="w-full h-20 rounded bg-gray-100 flex items-center justify-center text-xs text-gray-500 px-2 text-center">
+                                  {version.status === 'failed' ? '生成失败' : `任务状态：${version.status}`}
+                                </div>
+                              )}
+                              <div className="mt-2 flex items-center justify-between gap-2">
+                                <span className="text-xs text-gray-500">
+                                  第 {videoVersions.length - idx} 次
+                                  {version.ratio ? ` · ${version.ratio}` : ''}
+                                  {version.seconds ? ` · ${version.seconds}s` : ''}
+                                </span>
+                                {isCurrent ? <Tag color="blue">当前</Tag> : null}
+                              </div>
+                              {version.prompt ? (
+                                <Tooltip title={version.prompt}>
+                                  <div className="text-xs text-gray-400 truncate">{version.prompt}</div>
+                                </Tooltip>
+                              ) : null}
+                              {version.error ? (
+                                <Tooltip title={version.error}>
+                                  <div className="text-xs text-red-500 truncate">{version.error}</div>
+                                </Tooltip>
+                              ) : null}
+                              <div className="mt-2 flex items-center gap-2">
                                 <Button
                                   size="small"
-                                  icon={<DownloadOutlined />}
-                                  onClick={() => {
-                                    if (!item.url) return
-                                    window.open(item.url, '_blank', 'noopener,noreferrer')
-                                  }}
-                                />
-                              </Tooltip>
+                                  disabled={isCurrent || !playable}
+                                  loading={adoptingVideoFileId === version.file_id}
+                                  onClick={() => void adoptVideoVersion(version.file_id as string)}
+                                >
+                                  {isCurrent ? '当前使用' : '采用'}
+                                </Button>
+                                <Tooltip title="下载视频">
+                                  <Button
+                                    size="small"
+                                    icon={<DownloadOutlined />}
+                                    disabled={!playable}
+                                    onClick={() => {
+                                      if (!url) return
+                                      window.open(url, '_blank', 'noopener,noreferrer')
+                                    }}
+                                  />
+                                </Tooltip>
+                              </div>
                             </div>
-                          </div>
-                        ))}
+                          )
+                        })}
                       </div>
                     )}
                   </div>

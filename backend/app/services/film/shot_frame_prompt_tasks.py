@@ -12,6 +12,7 @@ from app.chains.agents import (
     ShotKeyFramePromptAgent,
     ShotLastFramePromptAgent,
 )
+from app.chains.agents.shot_frame_prompt_agents import FRAME_CATEGORY_BY_TYPE
 from app.core.db import async_session_maker
 from app.core.task_manager import SqlAlchemyTaskStore
 from app.core.task_manager.types import TaskStatus
@@ -28,9 +29,11 @@ from app.models.studio import (
     ShotCharacterLink,
     ShotDetail,
 )
+from app.models.types import PromptCategory
 from app.services.llm.runtime import build_default_text_llm_sync
 from app.services.common import entity_not_found, invalid_choice
 from app.services.studio.action_beats import infer_action_beat_sequence, pick_action_beat_for_frame
+from app.services.studio.image_tasks import resolve_prompt_template
 from app.services.studio.shot_status import recompute_shot_status
 from app.services.worker.async_task_support import cancel_if_requested_async
 from app.services.worker.task_logging import log_task_event, log_task_failure
@@ -49,6 +52,29 @@ def relation_type_for_frame(frame_type: str) -> str:
     if frame_type == "last":
         return "shot_last_frame_prompt"
     return "shot_key_frame_prompt"
+
+
+async def resolve_frame_template_override(
+    db: AsyncSession,
+    *,
+    frame_type: str,
+) -> str | None:
+    """读取后台（`prompt_templates`）配置的帧提示词模板内容（B1）。
+
+    没有配置、内容为空或查库异常时返回 None，由 Agent 回退到内置模板，
+    保证后台没配模板时链路照常可跑。
+    """
+    category = FRAME_CATEGORY_BY_TYPE.get(str(frame_type or "").strip().lower())
+    if not category:
+        return None
+    try:
+        template = await resolve_prompt_template(db, category=PromptCategory(category))
+    except Exception:
+        return None
+    content = getattr(template, "content", None)
+    if isinstance(content, str) and content.strip():
+        return content
+    return None
 
 
 def _enum_value(value: object | None) -> str:
@@ -791,14 +817,18 @@ async def run_shot_frame_prompt_task(
             frame_type = str(run_args.get("frame_type") or "")
             shot_id = str(run_args.get("shot_id") or "")
             input_dict = dict(run_args.get("input") or {})
+            # B1：帧提示词模板可在后台编辑，配了就覆盖内置模板。
+            frame_template_override = await resolve_frame_template_override(
+                session, frame_type=frame_type
+            )
             llm = await session.run_sync(lambda sync_db: build_default_text_llm_sync(sync_db, thinking=False))
 
             if frame_type == "first":
-                agent = ShotFirstFramePromptAgent(llm)
+                agent = ShotFirstFramePromptAgent(llm, frame_template=frame_template_override)
             elif frame_type == "last":
-                agent = ShotLastFramePromptAgent(llm)
+                agent = ShotLastFramePromptAgent(llm, frame_template=frame_template_override)
             else:
-                agent = ShotKeyFramePromptAgent(llm)
+                agent = ShotKeyFramePromptAgent(llm, frame_template=frame_template_override)
             input_dict.setdefault("retry_guidance", "")
             result = await agent.aextract(**input_dict)
             quality_issues = _validate_generated_prompt(result.prompt, input_dict)

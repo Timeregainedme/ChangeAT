@@ -321,6 +321,11 @@ class ShotDialogLine(Base,TimestampMixin):
         default=DialogueLineMode.dialogue,
         comment="对白模式（DIALOGUE/VOICE_OVER/OFF_SCREEN/PHONE；对齐 schemas.DIALOGUE_LINE_MODE_ZH）",
     )
+    emotion: Mapped[str | None] = mapped_column(
+        String(64),
+        nullable=True,
+        comment="情绪/语气（如：愤怒、平静、哽咽），配音时作为 TTS emotion_description 下发",
+    )
     speaker_character_id: Mapped[str | None] = mapped_column(
         String(64),
         ForeignKey("characters.id", ondelete="SET NULL"),
@@ -495,6 +500,11 @@ class ShotExtractedDialogueCandidate(Base, TimestampMixin):
         nullable=False,
         default=DialogueLineMode.dialogue,
         comment="对白模式（DIALOGUE/VOICE_OVER/OFF_SCREEN/PHONE）",
+    )
+    emotion: Mapped[str | None] = mapped_column(
+        String(64),
+        nullable=True,
+        comment="情绪/语气（来自脚本提取的 DialogLine.emotion），确认后带入 shot_dialog_lines",
     )
     speaker_name: Mapped[str | None] = mapped_column(
         String(255),

@@ -184,7 +184,7 @@ async def test_run_shot_frame_prompt_task_persists_debug_context(monkeypatch, tm
         await db.commit()
 
     class _FakeAgent:
-        def __init__(self, _llm) -> None:
+        def __init__(self, _llm, **_kwargs) -> None:
             pass
 
         async def aextract(self, **_kwargs):
@@ -274,7 +274,7 @@ async def test_run_shot_frame_prompt_task_retries_when_result_contains_mapping_t
     class _FakeAgent:
         calls: list[dict] = []
 
-        def __init__(self, _llm) -> None:
+        def __init__(self, _llm, **_kwargs) -> None:
             pass
 
         async def aextract(self, **kwargs):

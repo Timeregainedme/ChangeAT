@@ -23,10 +23,12 @@ from app.services.common import entity_not_found
 from app.services.llm.provider_resolver import resolve_provider_config_by_model
 from app.services.studio.file_usages import sync_usage_from_shot_context
 from app.services.studio.generation.video import (
+    REFERENCE_MODE,
     REQUIRED_FRAMES_BY_MODE,
     build_video_base_draft,
     build_video_context,
     build_video_submission_payload,
+    resolve_reference_mode_file_ids,
     validate_images_count,
 )
 from app.services.studio.shot_status import recompute_shot_status
@@ -202,6 +204,8 @@ async def build_run_args(
     prompt: str | None,
     images: list[str],
     ratio: str | None,
+    use_context_ir: bool = False,
+    skill_id: str | None = None,
 ) -> dict:
     model = await resolve_default_video_model(db)
     provider_cfg = await load_provider_config_by_model(db, model)
@@ -213,11 +217,26 @@ async def build_run_args(
         requested_ratio=ratio,
     )
     base = build_video_base_draft(shot_id=shot_id, prompt=prompt)
+
+    # 参考图模式：客户端不传 images 时由服务端按 IR 的有序参考列表补全，
+    # 保证上传的第 N 张图与提示词里的 <Picture N> 一一对应。
+    if reference_mode == REFERENCE_MODE and not [
+        item for item in (images or []) if str(item).strip()
+    ]:
+        images = await resolve_reference_mode_file_ids(
+            db,
+            shot_id=shot_id,
+            ratio=resolved_ratio,
+        )
+
     context = await build_video_context(
         db,
         shot_id=shot_id,
         reference_mode=reference_mode,
         images=images,
+        provider=provider_cfg.provider,
+        model=model.name,
+        ratio=resolved_ratio,
     )
     submission = await build_video_submission_payload(db, base=base, context=context)
     validate_images_count(reference_mode, submission.images)
@@ -226,16 +245,27 @@ async def build_run_args(
     if not final_prompt:
         raise HTTPException(status_code=400, detail="prompt is required")
 
-    required_frames = tuple(ShotFrameType(item) for item in REQUIRED_FRAMES_BY_MODE[reference_mode])
-    frame_data_urls = [await file_id_to_data_url(db, file_id=file_id) for file_id in submission.images]
-    frame_map = {ft: frame_data_urls[i] for i, ft in enumerate(required_frames)}
-
-    run_args = {
-        "shot_id": shot_id,
-        "provider": provider_cfg.provider,
-        "api_key": provider_cfg.api_key,
-        "base_url": provider_cfg.base_url,
-        "input": {
+    if reference_mode == REFERENCE_MODE:
+        # 参考图模式：上传顺序即 IR 参考列表顺序，与提示词里的 <Picture N> 一一对应。
+        input_payload: dict = {
+            "prompt": final_prompt,
+            "reference_images": [
+                await file_id_to_data_url(db, file_id=file_id)
+                for file_id in submission.images
+            ],
+            "model": model.name,
+            "ratio": resolved_ratio,
+            "seconds": shot_detail.duration,
+        }
+    else:
+        required_frames = tuple(
+            ShotFrameType(item) for item in REQUIRED_FRAMES_BY_MODE[reference_mode]
+        )
+        frame_data_urls = [
+            await file_id_to_data_url(db, file_id=file_id) for file_id in submission.images
+        ]
+        frame_map = {ft: frame_data_urls[i] for i, ft in enumerate(required_frames)}
+        input_payload = {
             "prompt": final_prompt,
             "first_frame_base64": frame_map.get(ShotFrameType.first),
             "last_frame_base64": frame_map.get(ShotFrameType.last),
@@ -243,7 +273,20 @@ async def build_run_args(
             "model": model.name,
             "ratio": resolved_ratio,
             "seconds": shot_detail.duration,
-        },
+        }
+
+    # A5：平台自带的提示词优化，默认关闭（提示词内容由 Jellyfish 自己控制）。
+    if use_context_ir:
+        input_payload["use_context_ir"] = True
+        if skill_id:
+            input_payload["skill_id"] = skill_id
+
+    run_args = {
+        "shot_id": shot_id,
+        "provider": provider_cfg.provider,
+        "api_key": provider_cfg.api_key,
+        "base_url": provider_cfg.base_url,
+        "input": input_payload,
     }
     prompt_preview_payload = submission.extra.get("prompt_preview")
     if isinstance(prompt_preview_payload, dict):

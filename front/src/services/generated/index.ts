@@ -27,6 +27,7 @@ export type { ApiResponse_list_ShotCharacterLinkRead__ } from './models/ApiRespo
 export type { ApiResponse_list_ShotExtractedCandidateRead__ } from './models/ApiResponse_list_ShotExtractedCandidateRead__';
 export type { ApiResponse_list_ShotExtractedDialogueCandidateRead__ } from './models/ApiResponse_list_ShotExtractedDialogueCandidateRead__';
 export type { ApiResponse_list_ShotRuntimeSummaryRead__ } from './models/ApiResponse_list_ShotRuntimeSummaryRead__';
+export type { ApiResponse_list_ShotVideoVersionRead__ } from './models/ApiResponse_list_ShotVideoVersionRead__';
 export type { ApiResponse_list_VoiceItem__ } from './models/ApiResponse_list_VoiceItem__';
 export type { ApiResponse_ModelRead_ } from './models/ApiResponse_ModelRead_';
 export type { ApiResponse_ModelSettingsRead_ } from './models/ApiResponse_ModelSettingsRead_';
@@ -229,6 +230,8 @@ export type { ShotVideoPromptPackRead } from './models/ShotVideoPromptPackRead';
 export type { ShotVideoPromptPreviewRead } from './models/ShotVideoPromptPreviewRead';
 export type { ShotVideoReadinessCheck } from './models/ShotVideoReadinessCheck';
 export type { ShotVideoReadinessRead } from './models/ShotVideoReadinessRead';
+export type { ShotVideoVersionAdoptRequest } from './models/ShotVideoVersionAdoptRequest';
+export type { ShotVideoVersionRead } from './models/ShotVideoVersionRead';
 export type { StudioAssetDraft } from './models/StudioAssetDraft';
 export type { StudioAudioTaskRequest } from './models/StudioAudioTaskRequest';
 export type { StudioCharacterDraft } from './models/StudioCharacterDraft';

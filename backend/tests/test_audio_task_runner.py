@@ -75,6 +75,7 @@ def _line(
     text: str = "你好，我叫林晚。",
     speaker: str | None = "char-1",
     shot_detail_id: str = "shot-1",
+    emotion: str = "愤怒",
 ) -> ShotDialogLine:
     return ShotDialogLine(
         id=line_id,
@@ -82,6 +83,7 @@ def _line(
         index=0,
         text=text,
         speaker_character_id=speaker,
+        emotion=emotion,
     )
 
 
@@ -133,7 +135,7 @@ async def test_resolve_audio_target_dialog_line_is_authoritative() -> None:
     line = _line(line_id=7, text="台词内容", speaker="char-9", shot_detail_id="shot-3")
     db = _FakeAudioDB(dialog_lines={7: line})
 
-    text, shot_id, relation_type, relation_entity_id, speaker = await _resolve_audio_target(
+    text, shot_id, relation_type, relation_entity_id, speaker, emotion = await _resolve_audio_target(
         db,
         text=None,
         dialog_line_id=7,
@@ -146,6 +148,8 @@ async def test_resolve_audio_target_dialog_line_is_authoritative() -> None:
     assert text == "台词内容"
     assert shot_id == "shot-3"
     assert speaker == "char-9"
+    # F：台词行的 emotion 自动带给 TTS
+    assert emotion == "愤怒"
     # 即使调用方给了 standalone/stale，也必须被台词行覆盖，避免挂错目标。
     assert relation_type == "dialog_line"
     assert relation_entity_id == "7"
@@ -174,7 +178,7 @@ async def test_resolve_audio_target_dialog_line_not_found_raises_404() -> None:
 async def test_resolve_audio_target_defaults_to_shot_then_standalone() -> None:
     db = _FakeAudioDB()
 
-    _, shot_id, relation_type, relation_entity_id, _ = await _resolve_audio_target(
+    _, shot_id, relation_type, relation_entity_id, _, _ = await _resolve_audio_target(
         db,
         text="  你好  ",
         dialog_line_id=None,
@@ -185,7 +189,7 @@ async def test_resolve_audio_target_defaults_to_shot_then_standalone() -> None:
     )
     assert (relation_type, relation_entity_id, shot_id) == ("shot", "shot-1", "shot-1")
 
-    _, shot_id, relation_type, relation_entity_id, _ = await _resolve_audio_target(
+    _, shot_id, relation_type, relation_entity_id, _, _ = await _resolve_audio_target(
         db,
         text="你好",
         dialog_line_id=None,

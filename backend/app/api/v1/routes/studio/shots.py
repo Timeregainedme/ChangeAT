@@ -52,6 +52,8 @@ from app.services.studio import (
     list_shot_extracted_candidates,
     list_shot_extracted_dialogue_candidates,
     get_shot_video_readiness,
+    adopt_shot_video_version,
+    list_shot_video_versions,
     list_shot_runtime_summary_by_chapter,
     set_skip_extraction,
 )
@@ -95,6 +97,8 @@ from app.schemas.studio.shots import (
     ShotPreparationStateRead,
     ShotSkipExtractionUpdate,
     ShotVideoReadinessRead,
+    ShotVideoVersionAdoptRequest,
+    ShotVideoVersionRead,
     ShotVideoPromptPreviewRead,
 )
 
@@ -300,6 +304,37 @@ async def get_shot_video_readiness_api(
     db: AsyncSession = Depends(get_db),
 ) -> ApiResponse[ShotVideoReadinessRead]:
     data = await get_shot_video_readiness(db, shot_id=shot_id, reference_mode=reference_mode)
+    return success_response(data)
+
+
+@router.get(
+    "/{shot_id}/video-versions",
+    response_model=ApiResponse[list[ShotVideoVersionRead]],
+    summary="获取镜头视频版本（抽卡历史）",
+)
+async def list_shot_video_versions_api(
+    shot_id: str,
+    db: AsyncSession = Depends(get_db),
+) -> ApiResponse[list[ShotVideoVersionRead]]:
+    """按创建时间倒序返回该镜头的全部视频版本，历史版本一律保留。"""
+    data = await list_shot_video_versions(db, shot_id=shot_id)
+    return success_response(data)
+
+
+@router.post(
+    "/{shot_id}/video-versions/adopt",
+    response_model=ApiResponse[ShotRead],
+    summary="切换镜头当前采用的视频版本",
+)
+async def adopt_shot_video_version_api(
+    shot_id: str,
+    body: ShotVideoVersionAdoptRequest,
+    db: AsyncSession = Depends(get_db),
+) -> ApiResponse[ShotRead]:
+    """把镜头当前采用的视频切到指定历史版本；不删除任何旧版本文件。"""
+    shot = await adopt_shot_video_version(db, shot_id=shot_id, file_id=body.file_id)
+    await db.commit()
+    data = await build_shot_read(db, shot=shot)
     return success_response(data)
 
 

@@ -14,7 +14,13 @@ REQUIRED_FRAMES_BY_MODE: dict[str, tuple[ShotFrameType, ...]] = {
     "first_last": (ShotFrameType.first, ShotFrameType.last),
     "first_last_key": (ShotFrameType.first, ShotFrameType.last, ShotFrameType.key),
     "text_only": (),
+    # 参考图模式：帧不参与，参考图由 IR 的有序参考列表决定（见 derive_preview）。
+    "reference": (),
 }
+
+REFERENCE_MODE = "reference"
+# H3 参考图上限（与 compshare_video_capabilities.H3_MAX_REFERENCE_IMAGES 保持一致）。
+REFERENCE_MAX_IMAGES = 9
 
 
 def required_image_count(reference_mode: str) -> int:
@@ -22,8 +28,27 @@ def required_image_count(reference_mode: str) -> int:
 
 
 def validate_images_count(reference_mode: str, images: list[str]) -> None:
-    expected = required_image_count(reference_mode)
     actual = len(images or [])
+    if reference_mode == REFERENCE_MODE:
+        if actual == 0:
+            # 参考图来自 IR 的有序参考列表；空镜（角色已关联但剧本里没出现）会解析出 0 张。
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "reference_mode=reference 需要至少 1 张参考图，但本镜头没有可用参考图。"
+                    "角色卡只在剧本中出现该角色时才会插入；空镜请改用 text_only。"
+                ),
+            )
+        if actual > REFERENCE_MAX_IMAGES:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"reference_mode={reference_mode} 最多支持 {REFERENCE_MAX_IMAGES} 张参考图，"
+                    f"当前 {actual} 张"
+                ),
+            )
+        return
+    expected = required_image_count(reference_mode)
     if actual != expected:
         raise HTTPException(
             status_code=400,
@@ -39,6 +64,11 @@ async def resolve_video_reference_images(
     images: list[str] | None = None,
 ) -> list[str]:
     normalized = [str(item).strip() for item in (images or []) if str(item).strip()]
+    if reference_mode == REFERENCE_MODE:
+        # 参考图模式不使用分镜帧；真实参考图由 IR 的有序参考列表提供。
+        if normalized:
+            validate_images_count(reference_mode, normalized)
+        return normalized
     if normalized:
         validate_images_count(reference_mode, normalized)
         return normalized
@@ -80,6 +110,11 @@ class VideoGenerationContext(GenerationContext):
     reference_mode: str
     images: list[str]
     template_id: str | None = None
+    # 目标视频供应商与模型：渲染器按它选择提示词方言（H3 走官方六段，其它走通用模板）。
+    provider: str = ""
+    model: str = ""
+    # 生效后的视频比例（竖屏短剧通常是 9:16），用于提示词里的构图描述。
+    ratio: str = ""
 
 
 async def build_video_context(
@@ -89,6 +124,9 @@ async def build_video_context(
     reference_mode: str,
     images: list[str] | None,
     template_id: str | None = None,
+    provider: str = "",
+    model: str = "",
+    ratio: str = "",
 ) -> VideoGenerationContext:
     resolved_images = await resolve_video_reference_images(
         db,
@@ -101,5 +139,8 @@ async def build_video_context(
         reference_mode=reference_mode,
         images=resolved_images,
         template_id=template_id,
+        provider=provider,
+        model=model,
+        ratio=ratio,
     )
 

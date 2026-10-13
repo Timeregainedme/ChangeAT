@@ -195,13 +195,82 @@ SHOT_FIRST_FRAME_PROMPT = PromptTemplate(input_variables=_SHOT_FRAME_INPUT_VARS,
 SHOT_LAST_FRAME_PROMPT = PromptTemplate(input_variables=_SHOT_FRAME_INPUT_VARS, template=_LAST_FRAME_TEMPLATE)
 SHOT_KEY_FRAME_PROMPT = PromptTemplate(input_variables=_SHOT_FRAME_INPUT_VARS, template=_KEY_FRAME_TEMPLATE)
 
+# 帧类型 -> 数据库提示词模板类别（B1：帧提示词模板开放到后台可编辑）
+FRAME_CATEGORY_BY_TYPE: dict[str, str] = {
+    "first": "frame_head_prompt",
+    "last": "frame_tail_prompt",
+    "key": "frame_key_prompt",
+}
 
-class ShotFirstFramePromptAgent(AgentBase[ShotFramePromptResult]):
+_FRAME_NAME_BY_TYPE: dict[str, str] = {
+    "first": "首帧",
+    "last": "尾帧",
+    "key": "关键帧",
+}
+
+_BUILTIN_FRAME_PROMPTS: dict[str, PromptTemplate] = {
+    "首帧": SHOT_FIRST_FRAME_PROMPT,
+    "尾帧": SHOT_LAST_FRAME_PROMPT,
+    "关键帧": SHOT_KEY_FRAME_PROMPT,
+}
+
+
+def normalize_frame_type(frame_type: str) -> str:
+    """把外部传入的 frame_type 归一化为 first / last / key。"""
+    key = str(frame_type or "").strip().lower()
+    return key if key in _FRAME_NAME_BY_TYPE else "key"
+
+
+def build_frame_prompt_template(
+    frame_type: str,
+    *,
+    override: str | None = None,
+) -> PromptTemplate:
+    """构造帧提示词模板。
+
+    优先使用后台（`prompt_templates` 表）配置的模板内容，为空或模板不合法时回退内置模板，
+    保证链路永远可跑。`override` 由任务侧按 `FRAME_CATEGORY_BY_TYPE` 查库后注入。
+    """
+    frame_name = _FRAME_NAME_BY_TYPE[normalize_frame_type(frame_type)]
+    text = (override or "").strip()
+    if text:
+        try:
+            template = PromptTemplate(input_variables=_SHOT_FRAME_INPUT_VARS, template=text)
+            # 后台模板只允许使用帧链路的既有变量，否则渲染时必然 KeyError，直接回退内置。
+            unknown = [name for name in template.input_variables if name not in _SHOT_FRAME_INPUT_VARS]
+            if not unknown:
+                return template
+        except Exception:  # 模板语法不合法：回退内置，不让整条链路失败
+            return _BUILTIN_FRAME_PROMPTS[frame_name]
+    return _BUILTIN_FRAME_PROMPTS[frame_name]
+
+
+class _FramePromptTemplateMixin:
+    """让帧提示词模板可被后台配置覆盖（B1）。"""
+
+    _frame_type: str = "key"
+
+    def __init__(
+        self,
+        *args: Any,
+        frame_template: str | None = None,
+        **kwargs: Any,
+    ) -> None:
+        super().__init__(*args, **kwargs)
+        self._frame_template_override = frame_template
+
+    @property
+    def prompt_template(self) -> PromptTemplate:
+        return build_frame_prompt_template(
+            self._frame_type,
+            override=self._frame_template_override,
+        )
+
+
+class ShotFirstFramePromptAgent(_FramePromptTemplateMixin, AgentBase[ShotFramePromptResult]):
     """镜头首帧提示词生成 Agent，输出可写入 ShotDetail.first_frame_prompt。"""
 
-    @property
-    def prompt_template(self) -> PromptTemplate:
-        return SHOT_FIRST_FRAME_PROMPT
+    _frame_type = "first"
 
     @property
     def output_model(self) -> type[ShotFramePromptResult]:
@@ -228,12 +297,10 @@ class ShotFirstFramePromptAgent(AgentBase[ShotFramePromptResult]):
         return self.format_output(raw)
 
 
-class ShotLastFramePromptAgent(AgentBase[ShotFramePromptResult]):
+class ShotLastFramePromptAgent(_FramePromptTemplateMixin, AgentBase[ShotFramePromptResult]):
     """镜头尾帧提示词生成 Agent，输出可写入 ShotDetail.last_frame_prompt。"""
 
-    @property
-    def prompt_template(self) -> PromptTemplate:
-        return SHOT_LAST_FRAME_PROMPT
+    _frame_type = "last"
 
     @property
     def output_model(self) -> type[ShotFramePromptResult]:
@@ -260,12 +327,10 @@ class ShotLastFramePromptAgent(AgentBase[ShotFramePromptResult]):
         return self.format_output(raw)
 
 
-class ShotKeyFramePromptAgent(AgentBase[ShotFramePromptResult]):
+class ShotKeyFramePromptAgent(_FramePromptTemplateMixin, AgentBase[ShotFramePromptResult]):
     """镜头关键帧提示词生成 Agent，输出可写入 ShotDetail.key_frame_prompt。"""
 
-    @property
-    def prompt_template(self) -> PromptTemplate:
-        return SHOT_KEY_FRAME_PROMPT
+    _frame_type = "key"
 
     @property
     def output_model(self) -> type[ShotFramePromptResult]:

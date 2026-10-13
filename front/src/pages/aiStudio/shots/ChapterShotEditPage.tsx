@@ -495,6 +495,16 @@ export function ChapterShotEditPage() {
     [scheduleSaveDialogLine],
   )
 
+  // 情绪/语气会作为 TTS 的 emotion_description 下发，因此改动必须落库。
+  const updateSavedDialogEmotion = useCallback(
+    (lineId: number, emotion: string) => {
+      const next = emotion.trim() || null
+      setSavedDialogLines((prev) => prev.map((l) => (l.id === lineId ? { ...l, emotion: next } : l)))
+      scheduleSaveDialogLine(lineId, { emotion: next })
+    },
+    [scheduleSaveDialogLine],
+  )
+
   const deleteSavedDialogLine = useCallback(
     async (lineId: number) => {
       if (dialogDeletingIds[lineId]) return
@@ -519,6 +529,13 @@ export function ChapterShotEditPage() {
     setExtractedDialogLines((prev) => prev.map((l) => (l.id === candidateId ? { ...l, text } : l)))
   }, [])
 
+  // 候选情绪只改本地状态：接受时随 AcceptRequest 一起提交，无需单独落库。
+  const updateExtractedDialogEmotion = useCallback((candidateId: number, emotion: string) => {
+    setExtractedDialogLines((prev) =>
+      prev.map((l) => (l.id === candidateId ? { ...l, emotion: emotion || null } : l)),
+    )
+  }, [])
+
   const acceptExtractedDialogLine = useCallback(
     async (line: ShotExtractedDialogueCandidateRead, options?: { silent?: boolean }): Promise<ShotPreparationStateRead | null> => {
       const text = (line.text ?? '').trim()
@@ -534,6 +551,8 @@ export function ChapterShotEditPage() {
           line_mode: line.line_mode,
           speaker_name: line.speaker_name ?? null,
           target_name: line.target_name ?? null,
+          // 情绪/语气随候选一起接受，配音时作为 TTS 情绪下发。
+          emotion: line.emotion ?? null,
         },
       })
       return res.data?.state ?? null
@@ -1464,9 +1483,11 @@ export function ChapterShotEditPage() {
             onIgnoreAll={() => void ignoreAllExtractedDialogLines()}
             onDeleteSavedDialogLine={(lineId) => void deleteSavedDialogLine(lineId)}
             onUpdateSavedDialogText={updateSavedDialogText}
+            onUpdateSavedDialogEmotion={updateSavedDialogEmotion}
             onAddExtractedDialogLine={(line) => void addExtractedDialogLine(line)}
             onIgnoreExtractedDialogLine={(line) => void ignoreExtractedDialogLine(line)}
             onUpdateExtractedDialogText={updateExtractedDialogText}
+            onUpdateExtractedDialogEmotion={updateExtractedDialogEmotion}
           />
         </div>
       ),

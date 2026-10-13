@@ -8,6 +8,7 @@ export type ShotDialogLineCreate = {
     index?: number;
     text: string;
     line_mode?: DialogueLineMode;
+    emotion?: (string | null);
     speaker_character_id?: (string | null);
     target_character_id?: (string | null);
     speaker_name?: (string | null);

@@ -57,6 +57,18 @@ def _dialogue_line_mode(value: Any) -> DialogueLineMode:
     return DialogueLineMode(str(value or DialogueLineMode.dialogue.value))
 
 
+def _clean_emotion(value: Any) -> str | None:
+    """情绪/语气归一化（提示词改造第 2 档 F 项）。
+
+    LLM 可能给出 None / 空串 / 纯空白；数据库列是 varchar(64)，超长要在这里截断，
+    否则严格模式下 MySQL 会直接报错，把整条提取结果打回。
+    """
+    text = str(value or "").strip()
+    if not text:
+        return None
+    return text[:64]
+
+
 def _build_candidates_from_shot_draft(shot_draft: Any) -> list[dict[str, Any]]:
     candidates: list[dict[str, Any]] = []
     for item in list(getattr(shot_draft, "dialogue_lines", []) or []):
@@ -68,6 +80,7 @@ def _build_candidates_from_shot_draft(shot_draft: Any) -> list[dict[str, Any]]:
                 "index": int(getattr(item, "index", 0) or 0),
                 "text": text,
                 "line_mode": _dialogue_line_mode(getattr(item, "line_mode", DialogueLineMode.dialogue)),
+                "emotion": _clean_emotion(getattr(item, "emotion", None)),
                 "speaker_name": getattr(item, "speaker_name", None),
                 "target_name": getattr(item, "target_name", None),
                 "payload": {},
@@ -170,6 +183,7 @@ async def replace_for_shot(
             index=int(item.get("index") or 0),
             text=text,
             line_mode=_dialogue_line_mode(item.get("line_mode")),
+            emotion=_clean_emotion(item.get("emotion")),
             speaker_name=speaker_name,
             target_name=target_name,
             candidate_status=(
@@ -233,6 +247,7 @@ def replace_for_shot_sync(
             index=int(item.get("index") or 0),
             text=text,
             line_mode=_dialogue_line_mode(item.get("line_mode")),
+            emotion=_clean_emotion(item.get("emotion")),
             speaker_name=speaker_name,
             target_name=target_name,
             candidate_status=(
@@ -292,6 +307,11 @@ async def mark_accepted(
         index=line_index,
         text=(body.text if body.text is not None else row.text),
         line_mode=(body.line_mode if body.line_mode is not None else row.line_mode),
+        emotion=(
+            _clean_emotion(body.emotion)
+            if body.emotion is not None
+            else _clean_emotion(row.emotion)
+        ),
         speaker_name=(body.speaker_name if body.speaker_name is not None else row.speaker_name),
         target_name=(body.target_name if body.target_name is not None else row.target_name),
     )

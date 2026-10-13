@@ -5,6 +5,7 @@
 import type { ApiResponse_list_ShotExtractedCandidateRead__ } from '../models/ApiResponse_list_ShotExtractedCandidateRead__';
 import type { ApiResponse_list_ShotExtractedDialogueCandidateRead__ } from '../models/ApiResponse_list_ShotExtractedDialogueCandidateRead__';
 import type { ApiResponse_list_ShotRuntimeSummaryRead__ } from '../models/ApiResponse_list_ShotRuntimeSummaryRead__';
+import type { ApiResponse_list_ShotVideoVersionRead__ } from '../models/ApiResponse_list_ShotVideoVersionRead__';
 import type { ApiResponse_NoneType_ } from '../models/ApiResponse_NoneType_';
 import type { ApiResponse_PaginatedData_ShotLinkedAssetItem__ } from '../models/ApiResponse_PaginatedData_ShotLinkedAssetItem__';
 import type { ApiResponse_PaginatedData_ShotRead__ } from '../models/ApiResponse_PaginatedData_ShotRead__';
@@ -21,6 +22,7 @@ import type { ShotExtractedDialogueCandidateAcceptRequest } from '../models/Shot
 import type { ShotPreparationLinkRequest } from '../models/ShotPreparationLinkRequest';
 import type { ShotSkipExtractionUpdate } from '../models/ShotSkipExtractionUpdate';
 import type { ShotUpdate } from '../models/ShotUpdate';
+import type { ShotVideoVersionAdoptRequest } from '../models/ShotVideoVersionAdoptRequest';
 import type { CancelablePromise } from '../core/CancelablePromise';
 import { OpenAPI } from '../core/OpenAPI';
 import { request as __request } from '../core/request';
@@ -300,6 +302,54 @@ export class StudioShotsService {
             query: {
                 'reference_mode': referenceMode,
             },
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * 获取镜头视频版本（抽卡历史）
+     * 按创建时间倒序返回该镜头的全部视频版本，历史版本一律保留。
+     * @returns ApiResponse_list_ShotVideoVersionRead__ Successful Response
+     * @throws ApiError
+     */
+    public static listShotVideoVersionsApiApiV1StudioShotsShotIdVideoVersionsGet({
+        shotId,
+    }: {
+        shotId: string,
+    }): CancelablePromise<ApiResponse_list_ShotVideoVersionRead__> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/v1/studio/shots/{shot_id}/video-versions',
+            path: {
+                'shot_id': shotId,
+            },
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * 切换镜头当前采用的视频版本
+     * 把镜头当前采用的视频切到指定历史版本；不删除任何旧版本文件。
+     * @returns ApiResponse_ShotRead_ Successful Response
+     * @throws ApiError
+     */
+    public static adoptShotVideoVersionApiApiV1StudioShotsShotIdVideoVersionsAdoptPost({
+        shotId,
+        requestBody,
+    }: {
+        shotId: string,
+        requestBody: ShotVideoVersionAdoptRequest,
+    }): CancelablePromise<ApiResponse_ShotRead_> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/v1/studio/shots/{shot_id}/video-versions/adopt',
+            path: {
+                'shot_id': shotId,
+            },
+            body: requestBody,
+            mediaType: 'application/json',
             errors: {
                 422: `Validation Error`,
             },

@@ -26,6 +26,10 @@ export type ShotExtractedDialogueCandidateRead = {
      */
     line_mode: DialogueLineMode;
     /**
+     * 情绪/语气（来自脚本提取），确认后带入台词行
+     */
+    emotion?: (string | null);
+    /**
      * 说话角色名称
      */
     speaker_name?: (string | null);

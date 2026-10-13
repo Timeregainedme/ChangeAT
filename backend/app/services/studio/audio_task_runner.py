@@ -128,12 +128,16 @@ async def _resolve_audio_target(
     relation_type: str,
     relation_entity_id: str,
     speaker_character_id: str | None,
-) -> tuple[str, str | None, str, str, str | None]:
-    """推导本次配音的文本、挂载目标与说话角色。
+) -> tuple[str, str | None, str, str, str | None, str | None]:
+    """推导本次配音的文本、挂载目标、说话角色与情绪。
 
-    传 `dialog_line_id` 时可只给台词行 ID：文本、说话角色、关联目标全部自动带出，
+    传 `dialog_line_id` 时可只给台词行 ID：文本、说话角色、关联目标、情绪全部自动带出，
     避免前端为每句台词重复提交一遍台词内容。
+
+    返回的最后一个值是台词行上的 `emotion`（自然语言情绪/语气，F：接 TTS），
+    没有台词行或台词行未填情绪时为 None。
     """
+    line_emotion: str | None = None
     if dialog_line_id is not None:
         line = await db.get(ShotDialogLine, dialog_line_id)
         if line is None:
@@ -144,6 +148,8 @@ async def _resolve_audio_target(
             speaker_character_id = line.speaker_character_id
         if not shot_id:
             shot_id = line.shot_detail_id
+        # F：台词行的情绪自动带给 TTS，避免每句都要前端再传一遍。
+        line_emotion = (getattr(line, "emotion", "") or "").strip() or None
         # 传了 dialog_line_id 就以台词行为挂载目标，避免与默认的 standalone 冲突。
         relation_type = "dialog_line"
         relation_entity_id = str(line.id)
@@ -163,7 +169,7 @@ async def _resolve_audio_target(
             status_code=422,
             detail=f"relation_entity_id is required when relation_type={relation_type!r}",
         )
-    return resolved_text, shot_id, relation_type, relation_entity_id, speaker_character_id
+    return resolved_text, shot_id, relation_type, relation_entity_id, speaker_character_id, line_emotion
 
 
 async def _resolve_audio_voice(
@@ -281,6 +287,7 @@ async def create_audio_task_and_link(
         resolved_relation_type,
         resolved_relation_entity_id,
         resolved_speaker,
+        resolved_emotion,
     ) = await _resolve_audio_target(
         db,
         text=text,
@@ -290,6 +297,9 @@ async def create_audio_task_and_link(
         relation_entity_id=relation_entity_id,
         speaker_character_id=speaker_character_id,
     )
+
+    # F：显式传入的 emotion 优先；没传则用台词行上的 emotion。
+    emotion = (emotion or "").strip() or resolved_emotion
 
     model = await resolve_audio_model(db, model_id)
     provider_cfg = await load_audio_provider_config(db, model.provider_id)

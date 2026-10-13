@@ -17,6 +17,10 @@ export type ShotExtractedDialogueCandidateAcceptRequest = {
      */
     line_mode?: (DialogueLineMode | null);
     /**
+     * 接受时可覆盖情绪/语气；为空则沿用候选上的情绪
+     */
+    emotion?: (string | null);
+    /**
      * 接受时可覆盖说话角色名称
      */
     speaker_name?: (string | null);
