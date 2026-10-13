@@ -3290,6 +3290,10 @@ function Inspector(props: {
       return
     }
     let canceled = false
+    // 先清掉上一个分镜的结论：否则切换分镜后、新结果回来之前，界面会拿着
+    // 别的分镜的 reference_images_ready 去决定参考图模式，可能把有参考图的
+    // 镜头误判成空镜（静默降级），或反过来放过空镜。
+    setVideoReadiness(null)
     setVideoReadinessLoading(true)
     void (async () => {
       try {
@@ -5630,7 +5634,7 @@ function Inspector(props: {
                       <ThunderboltOutlined /> 生成
                     </div>
                     <Space wrap>
-                      <Button type="primary" icon={<VideoCameraOutlined />} loading={videoPromptPreviewSubmitting || videoTaskPolling} onClick={() => void openVideoPromptPreview()}>
+                      <Button type="primary" icon={<VideoCameraOutlined />} loading={videoPromptPreviewSubmitting || videoTaskPolling} disabled={videoReadinessLoading} onClick={() => void openVideoPromptPreview()}>
                         生成视频
                       </Button>
                       <Tooltip title={lastVideoSubmit ? '按上一条提示词再抽一张，旧版本会保留' : '先生成一次视频后即可重新抽卡'}>
