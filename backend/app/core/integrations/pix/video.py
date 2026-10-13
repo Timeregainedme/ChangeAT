@@ -7,6 +7,10 @@ from typing import Any
 
 from app.core.contracts.provider import ProviderConfig
 from app.core.contracts.video_generation import VideoGenerationInput, _strip_optional_b64
+from app.core.integrations.http_logging import (
+    log_media_http_request,
+    log_media_http_response,
+)
 from app.core.integrations.pix import DEFAULT_PIX_BASE_URL
 from app.core.integrations.pix.client import (
     DEFAULT_PIX_SUBMIT_TIMEOUT_S,
