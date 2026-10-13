@@ -32,6 +32,13 @@ class StoredFileInfo:
 
 
 def _build_s3_client():
+    """构建 boto3 S3 客户端。
+
+    寻址风格由 settings.s3_addressing_style 控制：
+    - "virtual"（默认）：`<bucket>.<endpoint>` 虚拟主机式，AWS 常用；
+    - "path"：`<endpoint>/<bucket>` 路径式，自建 S3 兼容服务（RustFS/MinIO）必需，
+      因为容器内置 DNS 无法解析 `<bucket>.<service>` 这类名字。
+    """
     if not settings.s3_bucket_name:
         raise RuntimeError("S3 未配置：请在配置中设置 s3_bucket_name 等必要字段")
 
@@ -41,7 +48,7 @@ def _build_s3_client():
         region_name=settings.s3_region_name,
         aws_access_key_id=settings.s3_access_key_id,
         aws_secret_access_key=settings.s3_secret_access_key,
-        config=BotoConfig(s3={"addressing_style": "virtual"}),
+        config=BotoConfig(s3={"addressing_style": settings.s3_addressing_style}),
     )
     return client
 

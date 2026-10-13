@@ -22,3 +22,8 @@ htmlcov/
 .jellyfish.db
 jellyfish.db
 .env
+
+# 本机 Docker 环境（匿名凭据助手 / buildx 缓存 / 含绝对路径的脚本），仅本机使用
+.docker/
+bin/
+scripts/dockerenv.sh

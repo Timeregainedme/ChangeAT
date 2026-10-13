@@ -61,6 +61,10 @@ class Settings(BaseSettings):
     s3_base_path: str = ""
     # 可选：对外访问基址（CDN 或自定义域名），为空则使用 S3 自带 URL 或预签名 URL
     s3_public_base_url: str | None = None
+    # 可选：S3 寻址风格，"virtual"（默认，AWS 常用）或 "path"。
+    # 自建 S3 兼容服务（RustFS / MinIO 等）通常需要 "path"，
+    # 因为 Docker 内置 DNS 无法解析 `<bucket>.<service>` 这类虚拟主机名。
+    s3_addressing_style: str = "virtual"
 
     def model_post_init(self, __context: object) -> None:
         if not self.celery_broker_url or not str(self.celery_broker_url).strip():
