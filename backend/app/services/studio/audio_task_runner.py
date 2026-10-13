@@ -7,18 +7,21 @@ from __future__ import annotations
 project_id 则额外登记 FileUsage（usage_kind=generated_audio）。
 """
 
+from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.contracts.audio_generation import AudioGenerationInput, AudioGenerationResult
 from app.core.contracts.provider import ProviderConfig
 from app.core.db import async_session_maker
+from app.core.integrations.audio_capabilities import resolve_audio_capability, validate_audio_options
 from app.core.task_manager import DeliveryMode, SqlAlchemyTaskStore, TaskManager
 from app.core.task_manager.types import TaskStatus
 from app.core.tasks import AudioGenerationTask
-from app.models.studio import FileItem
+from app.models.studio import Character, FileItem, Shot, ShotDialogLine
 from app.models.task_links import GenerationTaskLink
 from app.models.types import FileUsageKind
+from app.services.common.errors import entity_not_found
 from app.services.studio.audio_tasks import load_audio_provider_config, resolve_audio_model
 from app.services.studio.file_usages import upsert_file_usage
 from app.services.studio.image_task_runner import _CreateOnlyTask
@@ -31,6 +34,31 @@ __all__ = [
     "persist_generated_audio",
     "run_audio_generation_task",
 ]
+
+
+async def _attach_audio_to_target(
+    session: AsyncSession,
+    *,
+    relation_type: str,
+    relation_entity_id: str,
+    file_id: str,
+) -> None:
+    """把生成音频挂载到分镜或台词行（视频侧对称字段是 shots.generated_video_file_id）。"""
+    if not relation_entity_id:
+        return
+    if relation_type == "shot":
+        shot = await session.get(Shot, relation_entity_id)
+        if shot is not None:
+            shot.generated_audio_file_id = file_id
+        return
+    if relation_type == "dialog_line":
+        try:
+            line_id = int(relation_entity_id)
+        except (TypeError, ValueError):
+            return
+        line = await session.get(ShotDialogLine, line_id)
+        if line is not None:
+            line.generated_audio_file_id = file_id
 
 
 async def persist_generated_audio(
@@ -70,6 +98,13 @@ async def persist_generated_audio(
     if link_row is not None:
         link_row.file_id = file_obj.id
 
+    await _attach_audio_to_target(
+        session,
+        relation_type=relation_type,
+        relation_entity_id=relation_entity_id,
+        file_id=file_obj.id,
+    )
+
     if project_id:
         await upsert_file_usage(
             session,
@@ -84,12 +119,139 @@ async def persist_generated_audio(
     return file_obj
 
 
+async def _resolve_audio_target(
+    db: AsyncSession,
+    *,
+    text: str | None,
+    dialog_line_id: int | None,
+    shot_id: str | None,
+    relation_type: str,
+    relation_entity_id: str,
+    speaker_character_id: str | None,
+) -> tuple[str, str | None, str, str, str | None]:
+    """推导本次配音的文本、挂载目标与说话角色。
+
+    传 `dialog_line_id` 时可只给台词行 ID：文本、说话角色、关联目标全部自动带出，
+    避免前端为每句台词重复提交一遍台词内容。
+    """
+    if dialog_line_id is not None:
+        line = await db.get(ShotDialogLine, dialog_line_id)
+        if line is None:
+            raise HTTPException(status_code=404, detail=entity_not_found("ShotDialogLine"))
+        if not text:
+            text = line.text
+        if speaker_character_id is None:
+            speaker_character_id = line.speaker_character_id
+        if not shot_id:
+            shot_id = line.shot_detail_id
+        # 传了 dialog_line_id 就以台词行为挂载目标，避免与默认的 standalone 冲突。
+        relation_type = "dialog_line"
+        relation_entity_id = str(line.id)
+    elif not relation_type:
+        relation_type = "shot" if shot_id else "standalone"
+    if relation_type == "shot" and not relation_entity_id and shot_id:
+        relation_entity_id = shot_id
+
+    resolved_text = (text or "").strip()
+    if not resolved_text:
+        raise HTTPException(
+            status_code=422,
+            detail="text is required：请提供 text，或提供 dialog_line_id 以复用台词文本",
+        )
+    if relation_type in {"shot", "dialog_line"} and not relation_entity_id:
+        raise HTTPException(
+            status_code=422,
+            detail=f"relation_entity_id is required when relation_type={relation_type!r}",
+        )
+    return resolved_text, shot_id, relation_type, relation_entity_id, speaker_character_id
+
+
+async def _resolve_audio_voice(
+    db: AsyncSession,
+    *,
+    voice: str | None,
+    voice_source: str | None,
+    speaker_character_id: str | None,
+) -> tuple[str | None, str | None]:
+    """音色解析：显式 voice 优先，其次回落说话角色配置的默认音色（评审 R-08）。"""
+    resolved_voice = (voice or "").strip() or None
+    resolved_source = (voice_source or "").strip() or None
+    if resolved_voice or not speaker_character_id:
+        return resolved_voice, resolved_source
+
+    character = await db.get(Character, speaker_character_id)
+    if character is None:
+        return None, resolved_source
+    character_voice = (character.voice_id or "").strip() or None
+    if character_voice:
+        resolved_voice = character_voice
+        if not resolved_source:
+            resolved_source = (character.voice_source or "").strip() or None
+    return resolved_voice, resolved_source
+
+
+def _validate_audio_request(
+    *,
+    provider: str,
+    model_name: str,
+    text: str,
+    voice: str | None,
+    voice_source: str | None,
+    language: str | None,
+    speed: float | None,
+    emotion: str | None,
+    audio_format: str | None,
+) -> None:
+    """请求期音频参数校验（评审 R-20）。
+
+    此前这些约束只在 Celery 任务里由适配层校验，导致接口先返回 201、任务随后必然
+    失败，用户看到的是「创建成功但生成失败」。这里前移为 422，并给出可操作文案。
+    """
+    capability = resolve_audio_capability(provider=provider, model=model_name)
+    label = f"provider={provider} model={model_name}"
+
+    # 先校验纯输入约束（文本长度 / 语速区间 / 情感长度 / 格式），再校验音色要求。
+    # 顺序很重要：若先报「voice is required」，用户就看不到真正的问题（例如文本超长、语速越界）。
+    try:
+        validate_audio_options(
+            provider=provider,
+            model=model_name,
+            input_=AudioGenerationInput(
+                text=text,
+                model=model_name,
+                voice=voice,
+                voice_source=voice_source,
+                language=language,
+                speed=speed,
+                emotion=emotion,
+                format=audio_format or "wav",
+            ),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    if not voice and capability.supports_voice:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"voice is required for {label}：请显式传入 voice，"
+                "或先为说话角色配置 characters.voice_id"
+                "（可用 GET /studio/audio-tasks/voices 查询可用音色）"
+            ),
+        )
+    if voice_source == "custom" and not capability.supports_custom_voice:
+        raise HTTPException(
+            status_code=422,
+            detail=f"voice_source=custom is not supported by {label}",
+        )
+
+
 async def create_audio_task_and_link(
     *,
     db: AsyncSession,
     model_id: str | None,
-    text: str,
-    relation_type: str = "standalone",
+    text: str | None = None,
+    relation_type: str = "",
     relation_entity_id: str = "",
     voice: str | None = None,
     voice_source: str | None = None,
@@ -100,13 +262,65 @@ async def create_audio_task_and_link(
     project_id: str | None = None,
     chapter_id: str | None = None,
     shot_id: str | None = None,
+    dialog_line_id: int | None = None,
+    speaker_character_id: str | None = None,
 ) -> str:
-    """创建音频生成任务，并建立任务关联。"""
-    store = SqlAlchemyTaskStore(db)
-    tm = TaskManager(store=store, strategies={})
+    """创建音频生成任务，并建立任务关联。
+
+    挂载粒度：
+    - `dialog_line_id`：台词行级配音，产物回填 `shot_dialog_lines.generated_audio_file_id`
+      （一个分镜多句台词、每句一个音色，各自独立）；
+    - `shot_id`：分镜级配音，产物回填 `shots.generated_audio_file_id`；
+    - 都不传：standalone，仅落库为文件，不挂载到分镜。
+
+    音色解析顺序：显式 `voice` → 说话角色的 `characters.voice_id` → 报错（422）。
+    """
+    (
+        resolved_text,
+        resolved_shot_id,
+        resolved_relation_type,
+        resolved_relation_entity_id,
+        resolved_speaker,
+    ) = await _resolve_audio_target(
+        db,
+        text=text,
+        dialog_line_id=dialog_line_id,
+        shot_id=shot_id,
+        relation_type=relation_type,
+        relation_entity_id=relation_entity_id,
+        speaker_character_id=speaker_character_id,
+    )
 
     model = await resolve_audio_model(db, model_id)
     provider_cfg = await load_audio_provider_config(db, model.provider_id)
+
+    resolved_voice, resolved_voice_source = await _resolve_audio_voice(
+        db,
+        voice=voice,
+        voice_source=voice_source,
+        speaker_character_id=resolved_speaker,
+    )
+    _validate_audio_request(
+        provider=provider_cfg.provider,
+        model_name=model.name,
+        text=resolved_text,
+        voice=resolved_voice,
+        voice_source=resolved_voice_source,
+        language=language,
+        speed=speed,
+        emotion=emotion,
+        audio_format=audio_format,
+    )
+
+    text = resolved_text
+    voice = resolved_voice
+    voice_source = resolved_voice_source
+    shot_id = resolved_shot_id
+    relation_type = resolved_relation_type
+    relation_entity_id = resolved_relation_entity_id
+
+    store = SqlAlchemyTaskStore(db)
+    tm = TaskManager(store=store, strategies={})
 
     input_payload: dict = {
         "text": text,

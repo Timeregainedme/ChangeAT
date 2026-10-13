@@ -24,11 +24,29 @@ COMPTSHARE_PROVIDER_KEY = "compshare_model_api"
 
 
 class StudioAudioTaskRequest(BaseModel):
-    """Studio 专用音频任务请求体：可选模型 ID，不传则用默认音频模型；供应商由模型反查。"""
+    """Studio 专用音频任务请求体：可选模型 ID，不传则用默认音频模型；供应商由模型反查。
+
+    两种用法：
+    - 传 `text`（可配 `voice`）生成一段独立音频；
+    - 传 `dialog_line_id` 为某句台词配音：文本、说话角色、挂载目标自动带出，
+      音色取该角色的默认音色，产物直接挂到这句台词上（一个分镜多句台词互不覆盖）。
+    """
 
     model_id: str | None = Field(None, description="音频模型 ID；不传则使用默认音频模型")
-    text: str = Field(..., min_length=1, description="待合成文本")
-    voice: str | None = Field(None, description="音色 ID；不传则由供应商使用默认音色")
+    text: str | None = Field(
+        None,
+        min_length=1,
+        description="待合成文本；传 dialog_line_id 时可省略（自动复用台词文本）",
+    )
+    dialog_line_id: int | None = Field(
+        None,
+        description="台词行 ID：按该行台词配音，文本/说话角色/挂载目标自动带出",
+    )
+    speaker_character_id: str | None = Field(
+        None,
+        description="说话角色 ID：用于解析角色默认音色，不传则从台词行带出",
+    )
+    voice: str | None = Field(None, description="音色 ID；不传则取说话角色配置的默认音色")
     voice_source: AudioVoiceSource | None = Field(
         None,
         description="音色来源：preset=预置音色、custom=复刻音色；不传则按模型名推断",
@@ -37,7 +55,11 @@ class StudioAudioTaskRequest(BaseModel):
     speed: float | None = Field(None, ge=0.0, description="语速倍率，仅大于 0 时下发")
     emotion: str | None = Field(None, max_length=200, description="情感描述文本")
     format: AudioFormat = Field("wav", description="输出音频格式")
-    relation_type: str = Field("standalone", max_length=32, description="业务关联类型")
+    relation_type: str = Field(
+        "",
+        max_length=32,
+        description="业务关联类型：留空则由服务端推导（shot/dialog_line/standalone）",
+    )
     relation_entity_id: str = Field("", max_length=64, description="业务关联实体 ID")
     project_id: str | None = Field(None, description="可选：归属项目 ID，用于登记文件使用位置")
     chapter_id: str | None = Field(None, description="可选：归属章节 ID")
@@ -60,12 +82,17 @@ async def create_speech_task(
     body: StudioAudioTaskRequest,
     db: AsyncSession = Depends(get_db),
 ) -> ApiResponse[TaskCreated]:
-    """创建语音合成任务（异步轮询）。"""
+    """创建语音合成任务（异步轮询）。
+
+    参数在请求期即按供应商能力校验（评审 R-20），非法参数返回 422 而不是先建任务再失败。
+    """
     task_id = await _create_audio_task_and_link_service(
         db=db,
         model_id=body.model_id,
         text=body.text,
-        relation_type=body.relation_type or "standalone",
+        dialog_line_id=body.dialog_line_id,
+        speaker_character_id=body.speaker_character_id,
+        relation_type=body.relation_type,
         relation_entity_id=body.relation_entity_id or "",
         voice=body.voice,
         voice_source=body.voice_source,
