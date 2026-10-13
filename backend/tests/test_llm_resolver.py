@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from app.core.db import Base
 from app.models.llm import Model, ModelCategoryKey, ModelSettings, Provider
 from app.services.llm import (
+    bootstrap_builtin_providers,
     build_default_text_llm,
     build_chat_model_from_provider,
     get_default_model_by_category,
@@ -169,8 +170,9 @@ async def test_build_chat_model_from_provider_builds_chatopenai_with_model_param
     await engine.dispose()
 
 
-@pytest.mark.asyncio
-async def test_build_default_text_llm_supports_thinking_toggle(monkeypatch: pytest.MonkeyPatch) -> None:
+def _install_fake_chat_openai(monkeypatch: pytest.MonkeyPatch) -> type:
+    """把 langchain_openai 换成记录 kwargs 的假实现，并返回该假类。"""
+
     class FakeChatOpenAI:
         def __init__(self, **kwargs):  # noqa: ANN003, ANN204
             self.kwargs = kwargs
@@ -178,6 +180,45 @@ async def test_build_default_text_llm_supports_thinking_toggle(monkeypatch: pyte
     fake_module = types.ModuleType("langchain_openai")
     fake_module.ChatOpenAI = FakeChatOpenAI
     monkeypatch.setitem(sys.modules, "langchain_openai", fake_module)
+    return FakeChatOpenAI
+
+
+async def _seed_default_text_model(db: AsyncSession, *, provider_name: str) -> None:
+    provider = Provider(
+        id="p1",
+        name=provider_name,
+        base_url="https://api.example.com/v1",
+        api_key="k",
+    )
+    model = Model(
+        id="m_text",
+        name="gpt-4o-mini",
+        category=ModelCategoryKey.text,
+        provider_id="p1",
+        params={"temperature": 0.2},
+    )
+    settings = ModelSettings(id=1, default_text_model_id="m_text")
+    db.add_all([provider, model, settings])
+    await db.commit()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("provider_name", "enabled_body", "disabled_body"),
+    [
+        ("DeepSeek", {"thinking": {"type": "enabled"}}, {"thinking": {"type": "disabled"}}),
+        ("阿里百炼", {"enable_thinking": True}, {"enable_thinking": False}),
+    ],
+)
+async def test_build_default_text_llm_sends_provider_specific_thinking_toggle(
+    monkeypatch: pytest.MonkeyPatch,
+    provider_name: str,
+    enabled_body: dict,
+    disabled_body: dict,
+) -> None:
+    """思考开关按供应商下发：DeepSeek 用 thinking.type，阿里百炼用 enable_thinking。"""
+    bootstrap_builtin_providers()
+    fake_cls = _install_fake_chat_openai(monkeypatch)
 
     engine = create_async_engine("sqlite+aiosqlite:///:memory:", future=True)
     session_local = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
@@ -185,25 +226,40 @@ async def test_build_default_text_llm_supports_thinking_toggle(monkeypatch: pyte
         await conn.run_sync(Base.metadata.create_all)
 
     async with session_local() as db:
-        provider = Provider(id="p1", name="OpenAI", base_url="https://api.openai.com/v1", api_key="k")
-        model = Model(
-            id="m_text",
-            name="gpt-4o-mini",
-            category=ModelCategoryKey.text,
-            provider_id="p1",
-            params={"temperature": 0.2},
-        )
-        settings = ModelSettings(id=1, default_text_model_id="m_text")
-        db.add_all([provider, model, settings])
-        await db.commit()
+        await _seed_default_text_model(db, provider_name=provider_name)
 
         thinking_llm = await build_default_text_llm(db, thinking=True)
         nothinking_llm = await build_default_text_llm(db, thinking=False)
 
-        assert isinstance(thinking_llm, FakeChatOpenAI)
+        assert isinstance(thinking_llm, fake_cls)
+        assert thinking_llm.kwargs["extra_body"] == enabled_body
+        assert isinstance(nothinking_llm, fake_cls)
+        assert nothinking_llm.kwargs["extra_body"] == disabled_body
+
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_build_default_text_llm_omits_thinking_body_for_unregistered_provider(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """未登记思考开关的供应商（如 OpenAI）不下发 extra_body，避免塞入对方不认识的字段。"""
+    bootstrap_builtin_providers()
+    _install_fake_chat_openai(monkeypatch)
+
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:", future=True)
+    session_local = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+    async with session_local() as db:
+        await _seed_default_text_model(db, provider_name="OpenAI")
+
+        thinking_llm = await build_default_text_llm(db, thinking=True)
+        nothinking_llm = await build_default_text_llm(db, thinking=False)
+
         assert "extra_body" not in thinking_llm.kwargs
-        assert isinstance(nothinking_llm, FakeChatOpenAI)
-        assert nothinking_llm.kwargs["extra_body"]["enable_thinking"] is False
+        assert "extra_body" not in nothinking_llm.kwargs
 
     await engine.dispose()
 

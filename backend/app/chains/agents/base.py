@@ -133,6 +133,13 @@ def _load_json_like(text: str) -> Any:
 class AgentBase(ABC, Generic[T]):
     """通用 Agent 基类：子类固化 prompt_template 与 output_model。"""
 
+    # 思考开关是「声明式」的：真正下发由模型构造方按供应商决定
+    # （app/services/llm/resolver.py 的 _build_chat_openai_model → provider_registry.thinking_extra_body，
+    # 阿里百炼下发 enable_thinking、DeepSeek 下发 thinking.type，未登记供应商不下发）。
+    # 因此宿主必须按本属性选择模型的构造方式：enable_thinking=True 用 get_llm / thinking=True，
+    # enable_thinking=False 用 get_nothinking_llm / thinking=False（见 script_processing.py:150 等处）。
+    # 注意：这里**不能**再 bind 硬编码的 extra_body={"enable_thinking": ...}——
+    # 该字段是百炼专有，会把 DeepSeek 的 thinking 字段覆盖掉，且 bind 的返回值此前被丢弃（无效代码）。
     enable_thinking: bool = True
 
     def __init__(
@@ -143,7 +150,6 @@ class AgentBase(ABC, Generic[T]):
         agent_kwargs: dict[str, Any] | None = None,
     ) -> None:
         self._model = model
-        self._model.bind(extra_body={"enable_thinking": self.enable_thinking})
         self._structured_output_method = structured_output_method
         self._agent_kwargs = dict(agent_kwargs or {})
         self._structured_chain: Runnable | None = None
