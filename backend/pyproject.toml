@@ -50,8 +50,11 @@ dev = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# 默认排除 integration：这些用例会访问真实外部服务（真实 LLM），CI 与本地默认跑不到。
+# 需要时显式指定：cd backend && uv run pytest tests -m integration -q
+addopts = "-m 'not integration'"
 markers = [
-    "integration: mark test as integration (e.g. real LLM); run with -m integration when OPENAI_API_KEY is set",
+    "integration: 会访问真实外部服务（如真实 LLM）；默认被 addopts 排除，用 -m integration 显式运行",
 ]
 
 [tool.basedpyright]

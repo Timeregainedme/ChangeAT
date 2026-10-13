@@ -1,0 +1,80 @@
+# 质量门禁：后端 pytest + 前端 tsc，在 PR / Merge queue 上运行。
+#
+# 背景（R-27）：此前唯一碰后端的工作流是 backend-pylint.yml，只跑 pylint；
+# 没有任何工作流执行 pytest，也没有前端类型检查，导致「任何测试通过的说法都不成立」。
+#
+# 合并前置（GitHub 需在仓库设置中启用）：
+#   Settings → Rules / Branch protection → Require status checks to pass
+#   勾选「Quality Gates / backend-pytest」与「Quality Gates / front-typecheck」。
+#
+# 与本地命令一致：
+#   cd backend && uv run pytest tests -q
+#   cd front   && pnpm run typecheck
+name: Quality Gates
+
+on:
+  pull_request:
+    paths:
+      - "backend/**"
+      - "front/**"
+      - ".github/workflows/quality-gates.yml"
+  merge_group:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: quality-gates-${{ github.workflow }}-${{ github.event.pull_request.number || github.event.merge_group.head_sha || github.sha }}
+  cancel-in-progress: true
+
+jobs:
+  backend-pytest:
+    name: backend-pytest
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          python-version-file: backend/.python-version
+
+      - name: Sync dependencies (dev)
+        run: uv sync --group dev
+
+      - name: Run pytest (collection error 视为失败)
+        run: uv run pytest tests -q
+
+  front-typecheck:
+    name: front-typecheck
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: front
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.9
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: pnpm
+          cache-dependency-path: front/pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck (tsc --noEmit)
+        run: pnpm run typecheck
