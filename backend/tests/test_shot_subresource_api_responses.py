@@ -29,6 +29,20 @@ from app.models.studio import (
 )
 
 
+class _EmptyScalars:
+    """空结果集替身：``scalars().first()`` 恒为 None。"""
+
+    def first(self) -> None:
+        return None
+
+
+class _EmptyExecuteResult:
+    """空查询结果替身：供假 DB 的 ``execute`` 返回。"""
+
+    def scalars(self) -> _EmptyScalars:
+        return _EmptyScalars()
+
+
 class _FakeShotSubresourceDB:
     """最小 DB 替身：仅覆盖镜头子资源接口测试所需行为。"""
 
@@ -104,6 +118,10 @@ class _FakeShotSubresourceDB:
             self.frame_images.pop(obj.id, None)
             return
         raise TypeError(f"Unsupported object type: {type(obj)!r}")
+
+    async def execute(self, *_args, **_kwargs):  # noqa: ANN001
+        """返回空结果集：替身未维护「提取候选」表，故无候选需要回退。"""
+        return _EmptyExecuteResult()
 
 
 def _override_db(db: _FakeShotSubresourceDB):
