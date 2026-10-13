@@ -23,8 +23,8 @@ export type VideoGenerationTaskRequest = {
      */
     images?: Array<string>;
     /**
-     * 视频画幅比例，如 16:9 / 9:16
+     * 视频画幅比例，如 16:9 / 9:16；不传则继承分镜的 override_video_ratio，再继承项目的 default_video_ratio
      */
-    ratio: '16:9' | '4:3' | '1:1' | '3:4' | '9:16' | '21:9';
+    ratio?: ('16:9' | '4:3' | '1:1' | '3:4' | '9:16' | '21:9' | null);
 };
 

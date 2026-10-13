@@ -12,5 +12,6 @@ export type ShotDialogLineCreate = {
     target_character_id?: (string | null);
     speaker_name?: (string | null);
     target_name?: (string | null);
+    generated_audio_file_id?: (string | null);
 };
 

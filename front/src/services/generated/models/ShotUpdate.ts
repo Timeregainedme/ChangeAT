@@ -12,5 +12,6 @@ export type ShotUpdate = {
     skip_extraction?: (boolean | null);
     script_excerpt?: (string | null);
     generated_video_file_id?: (string | null);
+    generated_audio_file_id?: (string | null);
 };
 

@@ -42,6 +42,10 @@ export type ShotRead = {
      */
     generated_video_file_id?: (string | null);
     /**
+     * 分镜级已生成音频关联的文件 ID（files.id，type=audio）
+     */
+    generated_audio_file_id?: (string | null);
+    /**
      * 最近一次完成信息提取的时间
      */
     last_extracted_at?: (string | null);

@@ -47,6 +47,10 @@ export class FilmService {
     /**
      * 视频生成（任务版）
      * 创建视频生成任务并后台执行，结果通过 /tasks/{task_id}/result 获取。
+     *
+     * 创建前先做一次准备度检查（评审 R-14）：参考帧缺失、时长未配、模型/供应商不可用
+     * 等问题若放过去，只会在 Celery 里失败，用户看到「任务创建成功但生成失败」。
+     * 这里前移为 409 并列出未通过项，避免制造必然失败的任务。
      * @returns ApiResponse_TaskCreated_ Successful Response
      * @throws ApiError
      */

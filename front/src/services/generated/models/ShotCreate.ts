@@ -40,5 +40,9 @@ export type ShotCreate = {
      * 已生成视频关联的文件 ID（files.id，type=video）
      */
     generated_video_file_id?: (string | null);
+    /**
+     * 分镜级已生成音频关联的文件 ID（files.id，type=audio）
+     */
+    generated_audio_file_id?: (string | null);
 };
 

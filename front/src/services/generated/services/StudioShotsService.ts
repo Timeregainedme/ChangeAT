@@ -249,12 +249,17 @@ export class StudioShotsService {
     public static previewShotVideoPromptApiV1StudioShotsShotIdVideoPromptPreviewGet({
         shotId,
         templateId,
+        referenceMode = 'text_only',
     }: {
         shotId: string,
         /**
          * 指定视频提示词模板 ID；不传则使用默认模板
          */
         templateId?: (string | null),
+        /**
+         * 参考模式：first/last/key/first_last/first_last_key/text_only。默认 text_only 只渲染提示词本身；传真实模式时会连同该模式要求的参考帧一起渲染
+         */
+        referenceMode?: string,
     }): CancelablePromise<ApiResponse_ShotVideoPromptPreviewRead_> {
         return __request(OpenAPI, {
             method: 'GET',
@@ -264,6 +269,7 @@ export class StudioShotsService {
             },
             query: {
                 'template_id': templateId,
+                'reference_mode': referenceMode,
             },
             errors: {
                 422: `Validation Error`,

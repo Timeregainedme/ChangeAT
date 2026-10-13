@@ -4,6 +4,7 @@
 /* eslint-disable */
 import type { ApiResponse_NoneType_ } from '../models/ApiResponse_NoneType_';
 import type { ApiResponse_PaginatedData_ProjectRead__ } from '../models/ApiResponse_PaginatedData_ProjectRead__';
+import type { ApiResponse_ProjectProductionReadinessRead_ } from '../models/ApiResponse_ProjectProductionReadinessRead_';
 import type { ApiResponse_ProjectRead_ } from '../models/ApiResponse_ProjectRead_';
 import type { ApiResponse_ProjectStyleOptionsRead_ } from '../models/ApiResponse_ProjectStyleOptionsRead_';
 import type { ProjectCreate } from '../models/ProjectCreate';
@@ -144,6 +145,30 @@ export class StudioProjectsService {
         return __request(OpenAPI, {
             method: 'DELETE',
             url: '/api/v1/studio/projects/{project_id}',
+            path: {
+                'project_id': projectId,
+            },
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * 项目开工预检
+     * 开工前一次性检查：默认模型与 API Key、比例、每角色音色、分镜参考图、提取确认。
+     *
+     * 只读聚合，不修改任何状态；返回 `ready=false` 时逐项给出缺失原因。
+     * @returns ApiResponse_ProjectProductionReadinessRead_ Successful Response
+     * @throws ApiError
+     */
+    public static getProjectProductionReadinessApiApiV1StudioProjectsProjectIdProductionReadinessGet({
+        projectId,
+    }: {
+        projectId: string,
+    }): CancelablePromise<ApiResponse_ProjectProductionReadinessRead_> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/v1/studio/projects/{project_id}/production-readiness',
             path: {
                 'project_id': projectId,
             },

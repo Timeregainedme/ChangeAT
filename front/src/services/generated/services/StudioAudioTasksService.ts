@@ -12,6 +12,8 @@ export class StudioAudioTasksService {
     /**
      * Create Speech Task
      * 创建语音合成任务（异步轮询）。
+     *
+     * 参数在请求期即按供应商能力校验（评审 R-20），非法参数返回 422 而不是先建任务再失败。
      * @returns ApiResponse_TaskCreated_ Successful Response
      * @throws ApiError
      */

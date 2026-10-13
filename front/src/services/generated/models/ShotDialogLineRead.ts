@@ -40,5 +40,9 @@ export type ShotDialogLineRead = {
      * 听者角色名称（用于回填关联；可空）
      */
     target_name?: (string | null);
+    /**
+     * 该台词行已生成音频关联的文件 ID（files.id，type=audio）
+     */
+    generated_audio_file_id?: (string | null);
 };
 
