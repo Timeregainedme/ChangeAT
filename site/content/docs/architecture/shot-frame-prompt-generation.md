@@ -6,6 +6,8 @@ weight: 9
 
 > 本文属于“当前架构”文档，描述当前已经生效的基础提示词生成规则。
 
+> **说明（模板已外移）**：本文描述的是提示词**内容规则**。这些规则的载体已经迁移到数据库 `prompt_templates` 表，由 `backend/scripts/gen_prompt_templates_sql.py` 生成迁移 `backend/sql/012-rewrite-prompt-templates.sql` 落库。项目级风格包与统一负面提示词的注入方式见[提示词模板与风格包](/docs/architecture/prompt-templates/)；视频提示词的 IR 与渲染器见[视频提示词链路与参考图](/docs/architecture/video-prompt-pipeline/)。
+
 ## 核心结论
 
 镜头首帧、关键帧、尾帧的 AI 生成结果，当前统一定义为：
