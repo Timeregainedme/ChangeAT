@@ -240,6 +240,17 @@ class Character(Base, TimestampMixin):
         index=True,
         comment="服装 ID（可空）；应用层需保证与角色同项目或全局",
     )
+    voice_id: Mapped[str | None] = mapped_column(
+        String(64),
+        nullable=True,
+        index=True,
+        comment="角色默认音色 ID（供应商侧 voice_id；为空表示未指定，TTS 时须显式传音色）",
+    )
+    voice_source: Mapped[str | None] = mapped_column(
+        String(32),
+        nullable=True,
+        comment="角色默认音色来源（preset 预设音色 / custom 自定义音色；为空时按模型名推断）",
+    )
 
     project: Mapped["Project"] = relationship(back_populates="characters")
     actor: Mapped["Actor"] = relationship(back_populates="characters")

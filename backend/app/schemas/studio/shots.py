@@ -35,6 +35,10 @@ class ShotBase(BaseModel):
         None,
         description="已生成视频关联的文件 ID（files.id，type=video）",
     )
+    generated_audio_file_id: str | None = Field(
+        None,
+        description="分镜级已生成音频关联的文件 ID（files.id，type=audio）",
+    )
 
 
 class ShotExtractionSummaryRead(BaseModel):
@@ -66,6 +70,7 @@ class ShotUpdate(BaseModel):
     skip_extraction: bool | None = None
     script_excerpt: str | None = None
     generated_video_file_id: str | None = None
+    generated_audio_file_id: str | None = None
 
 
 class ShotRead(ShotBase):
@@ -191,6 +196,10 @@ class ShotDialogLineBase(BaseModel):
     target_character_id: str | None = Field(None, description="听者角色 ID")
     speaker_name: str | None = Field(None, description="说话角色名称（用于回填关联；可空）")
     target_name: str | None = Field(None, description="听者角色名称（用于回填关联；可空）")
+    generated_audio_file_id: str | None = Field(
+        None,
+        description="该台词行已生成音频关联的文件 ID（files.id，type=audio）",
+    )
 
 
 class ShotDialogLineCreate(BaseModel):
@@ -202,6 +211,7 @@ class ShotDialogLineCreate(BaseModel):
     target_character_id: str | None = None
     speaker_name: str | None = None
     target_name: str | None = None
+    generated_audio_file_id: str | None = None
 
 
 class ShotDialogLineUpdate(BaseModel):
@@ -212,6 +222,7 @@ class ShotDialogLineUpdate(BaseModel):
     target_character_id: str | None = None
     speaker_name: str | None = None
     target_name: str | None = None
+    generated_audio_file_id: str | None = None
 
 
 class ShotDialogLineRead(ShotDialogLineBase):

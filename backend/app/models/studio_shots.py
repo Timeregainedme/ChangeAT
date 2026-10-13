@@ -68,9 +68,20 @@ class Shot(Base,TimestampMixin):
         comment="已生成视频关联的文件 ID（FileItem，type=video）",
     )
 
+    generated_audio_file_id: Mapped[str | None] = mapped_column(
+        String(64),
+        ForeignKey("files.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+        comment="分镜级已生成音频关联的文件 ID（FileItem，type=audio）",
+    )
+
     chapter: Mapped["Chapter"] = relationship(back_populates="shots")
     generated_video_file: Mapped["FileItem | None"] = relationship(
         foreign_keys=[generated_video_file_id]
+    )
+    generated_audio_file: Mapped["FileItem | None"] = relationship(
+        foreign_keys=[generated_audio_file_id]
     )
     detail: Mapped["ShotDetail"] = relationship(
         back_populates="shot",
@@ -337,10 +348,20 @@ class ShotDialogLine(Base,TimestampMixin):
         index=True,
         comment="听者角色名称（用于从提取结果回填角色关联；可空）",
     )
+    generated_audio_file_id: Mapped[str | None] = mapped_column(
+        String(64),
+        ForeignKey("files.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+        comment="该台词行已生成音频关联的文件 ID（FileItem，type=audio）",
+    )
 
     shot_detail: Mapped["ShotDetail"] = relationship(back_populates="dialog_lines")
     speaker_character: Mapped["Character | None"] = relationship(foreign_keys=[speaker_character_id])
     target_character: Mapped["Character | None"] = relationship(foreign_keys=[target_character_id])
+    generated_audio_file: Mapped["FileItem | None"] = relationship(
+        foreign_keys=[generated_audio_file_id]
+    )
 
     __table_args__ = (
         UniqueConstraint("shot_detail_id", "index", name="uq_shot_dialog_lines_shot_index"),

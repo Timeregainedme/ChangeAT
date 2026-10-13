@@ -6,6 +6,7 @@ from typing import Self
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from app.core.contracts.audio_generation import AudioVoiceSource
 from app.models.studio import ProjectStyle, ProjectVisualStyle
 
 
@@ -68,6 +69,14 @@ class CharacterBase(BaseModel):
     visual_style: ProjectVisualStyle = Field(ProjectVisualStyle.live_action, description="画面表现形式（现实/动漫等）")
     actor_id: str | None = Field(None, description="演员 ID（可空；用于仅导入角色文案但不关联演员时）")
     costume_id: str | None = Field(None, description="服装 ID（可空）")
+    voice_id: str | None = Field(
+        None,
+        description="角色默认音色 ID（供应商侧 voice_id）；配置后 TTS 未显式传音色时自动使用",
+    )
+    voice_source: AudioVoiceSource | None = Field(
+        None,
+        description="角色默认音色来源：preset 预设音色 / custom 自定义音色；为空时按模型名推断",
+    )
 
 
 class CharacterCreate(CharacterBase):
@@ -100,6 +109,8 @@ class CharacterUpdate(BaseModel):
     visual_style: ProjectVisualStyle | None = None
     actor_id: str | None = None
     costume_id: str | None = None
+    voice_id: str | None = None
+    voice_source: AudioVoiceSource | None = None
 
 
 class CharacterRead(CharacterBase):
