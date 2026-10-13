@@ -52,6 +52,22 @@ async def validation_exception_handler(request: Request, exc: Exception) -> JSON
     return JSONResponse(status_code=422, content=body)
 
 
+async def value_error_handler(request: Request, exc: Exception) -> JSONResponse:
+    """ValueError 统一为 { code, message, data: null }。
+
+    服务层约定（`app.services.common.errors.entity_not_found`）：
+    - 消息以 ` not found` 结尾的 ValueError 表示实体不存在 → 404；
+    - 其余 ValueError 表示请求参数/状态非法（如 "ratio is required"）→ 400。
+
+    此前未注册 ValueError handler，此类异常会落到通用 Exception handler 变成
+    500 Internal server error，使「缺项」被误报为服务端故障（评审 R-10）。
+    """
+    message = _error_message(str(exc))
+    code = 404 if message.endswith(" not found") else 400
+    body = ApiResponse[None](code=code, message=message, data=None, meta=None).model_dump()
+    return JSONResponse(status_code=code, content=body)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """应用生命周期：启动时初始化，关闭时清理。"""
@@ -73,6 +89,7 @@ app = FastAPI(
 # 统一错误响应格式：{ code, message, data: null }
 app.add_exception_handler(RequestValidationError, validation_exception_handler)
 app.add_exception_handler(HTTPException, http_exception_handler)
+app.add_exception_handler(ValueError, value_error_handler)
 app.add_exception_handler(Exception, http_exception_handler)
 
 app.add_middleware(
