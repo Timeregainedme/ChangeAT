@@ -98,3 +98,22 @@ class ProjectStyleOptionsRead(BaseModel):
         default_factory=dict,
         description="各视觉风格默认视频风格",
     )
+
+
+class ProjectProductionReadinessCheck(BaseModel):
+    """开工预检单项结果。"""
+
+    key: str = Field(..., description="检查项标识")
+    label: str = Field("", description="检查项名称")
+    ok: bool = Field(..., description="该项是否通过")
+    message: str = Field("", description="结果说明；未通过时给出可执行的修复指引")
+    detail: dict[str, Any] = Field(default_factory=dict, description="该项补充数据")
+
+
+class ProjectProductionReadinessRead(BaseModel):
+    """项目开工预检报告（只读聚合，不修改任何状态）。"""
+
+    project_id: str = Field(..., description="项目 ID")
+    ready: bool = Field(..., description="是否全部通过，可以开工")
+    checks: list[ProjectProductionReadinessCheck] = Field(default_factory=list, description="检查项明细")
+    stats: dict[str, Any] = Field(default_factory=dict, description="项目当前规模统计")

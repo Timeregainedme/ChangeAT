@@ -23,11 +23,13 @@ from app.services.common import (
 )
 from app.schemas.studio.projects import (
     ProjectCreate,
+    ProjectProductionReadinessRead,
     ProjectRead,
     ProjectStyleOptionsRead,
     ProjectUpdate,
     StyleOption,
 )
+from app.services.studio.project_production_readiness import get_project_production_readiness
 
 router = APIRouter()
 
@@ -135,6 +137,23 @@ async def get_project(
 ) -> ApiResponse[ProjectRead]:
     obj = await get_or_404(db, Project, project_id, detail=entity_not_found("Project"))
     return success_response(ProjectRead.model_validate(obj))
+
+
+@router.get(
+    "/{project_id}/production-readiness",
+    response_model=ApiResponse[ProjectProductionReadinessRead],
+    summary="项目开工预检",
+)
+async def get_project_production_readiness_api(
+    project_id: str,
+    db: AsyncSession = Depends(get_db),
+) -> ApiResponse[ProjectProductionReadinessRead]:
+    """开工前一次性检查：默认模型与 API Key、比例、每角色音色、分镜参考图、提取确认。
+
+    只读聚合，不修改任何状态；返回 `ready=false` 时逐项给出缺失原因。
+    """
+    data = await get_project_production_readiness(db, project_id=project_id)
+    return success_response(data)
 
 
 @router.patch(
