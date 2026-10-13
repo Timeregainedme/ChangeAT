@@ -341,7 +341,11 @@ async def run_image_generation_task(
             await task.run()
             result = await task.get_result()
             if result is None:
-                raise RuntimeError("Image generation task returned no result")
+                status_dict = await task.status()
+                detailed_error = ""
+                if isinstance(status_dict, dict):
+                    detailed_error = str(status_dict.get("error") or "")
+                raise RuntimeError(detailed_error or "Image generation task returned no result")
             if await cancel_if_requested_async(store=store, task_id=task_id, session=session):
                 log_task_event("image_generation", task_id, "cancelled", stage="after_execute")
                 return
