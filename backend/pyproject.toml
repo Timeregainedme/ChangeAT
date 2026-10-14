@@ -95,6 +95,8 @@ disable = [
     "too-many-branches",
     "too-many-statements",
     "too-many-lines",
+    # 校验函数普遍采用「卫语句 + 提前返回」风格，默认阈值 6 过严
+    "too-many-return-statements",
     "broad-exception-caught",
     "logging-fstring-interpolation",
     "raise-missing-from",

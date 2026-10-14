@@ -11,7 +11,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import time
-from typing import Any, BinaryIO
+from typing import Any
 
 from app.core.contracts.provider import ProviderConfig
 from app.core.integrations.http_logging import (
