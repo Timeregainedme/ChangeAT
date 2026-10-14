@@ -30,10 +30,13 @@ SCRIPT_OPTIMIZER_PROMPT = PromptTemplate(
 
 
 class ScriptOptimizerAgent(AgentBase[ScriptOptimizationResult]):
+
     """剧本优化 Agent：输入一致性检查输出 + 原文，输出优化后的剧本。"""
 
-    @property
-    def system_prompt(self) -> str:
+    # 注册表键：发布后的模板提示词覆盖代码默认（见 prompt_registry.py）
+    agent_key = 'script_optimize'
+
+    def _default_system_prompt(self) -> str:
         return _SCRIPT_OPTIMIZER_SYSTEM_PROMPT
 
     @property

@@ -26,10 +26,13 @@ CONSISTENCY_CHECKER_PROMPT = PromptTemplate(
 
 
 class ConsistencyCheckerAgent(AgentBase[ScriptConsistencyCheckResult]):
+
     """一致性检查（角色混淆）：输入原文，检测同一角色身份/行为混淆并给出修改建议。"""
 
-    @property
-    def system_prompt(self) -> str:
+    # 注册表键：发布后的模板提示词覆盖代码默认（见 prompt_registry.py）
+    agent_key = 'consistency_check'
+
+    def _default_system_prompt(self) -> str:
         return _CONSISTENCY_CHECKER_SYSTEM_PROMPT
 
     @property

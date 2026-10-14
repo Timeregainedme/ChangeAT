@@ -40,6 +40,10 @@ export type PromptTemplateRead = {
      */
     is_system: boolean;
     /**
+     * 发布时间（非空 = 已发布到运行时）
+     */
+    published_at?: (string | null);
+    /**
      * 创建时间
      */
     created_at: string;

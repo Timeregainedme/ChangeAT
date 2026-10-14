@@ -165,4 +165,48 @@ export class StudioPromptsService {
             },
         });
     }
+    /**
+     * 发布 Agent 提示词：覆盖运行时代码默认，下一次任务生效
+     * 发布 agent 模板：写 published_at 并更新本进程缓存（跨进程由 worker 任务前刷新）。
+     * @returns ApiResponse_PromptTemplateRead_ Successful Response
+     * @throws ApiError
+     */
+    public static publishPromptTemplateApiV1StudioPromptsTemplateIdPublishPost({
+        templateId,
+    }: {
+        templateId: string,
+    }): CancelablePromise<ApiResponse_PromptTemplateRead_> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/v1/studio/prompts/{template_id}/publish',
+            path: {
+                'template_id': templateId,
+            },
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * 恢复 Agent 提示词为代码内置默认
+     * 恢复默认：清 published_at 并移除缓存，运行时回落代码内置提示词。
+     * @returns ApiResponse_PromptTemplateRead_ Successful Response
+     * @throws ApiError
+     */
+    public static resetPromptTemplateApiV1StudioPromptsTemplateIdResetPost({
+        templateId,
+    }: {
+        templateId: string,
+    }): CancelablePromise<ApiResponse_PromptTemplateRead_> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/v1/studio/prompts/{template_id}/reset',
+            path: {
+                'template_id': templateId,
+            },
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
 }

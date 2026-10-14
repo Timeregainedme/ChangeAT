@@ -28,12 +28,15 @@ SCRIPT_DIVIDER_PROMPT = PromptTemplate(
 
 
 class ScriptDividerAgent(AgentBase[ScriptDivisionResult]):
+
     """剧本自动分镜：输入完整剧本文本，输出分镜列表。"""
+
+    # 注册表键：发布后的模板提示词覆盖代码默认（见 prompt_registry.py）
+    agent_key = 'script_division'
 
     enable_thinking: bool = False
 
-    @property
-    def system_prompt(self) -> str:
+    def _default_system_prompt(self) -> str:
         return _SCRIPT_DIVIDER_SYSTEM_PROMPT
 
     @property

@@ -27,6 +27,18 @@ const fallbackCategoryLabels: Record<string, string> = {
   costume_image_front: '服装正面',
   costume_image_other: '服装其他',
   combined: '综合提示词',
+  agent_script_division: '分镜拆解提示词',
+  agent_element_extract: '要素提取提示词',
+  agent_character_portrait: '角色画像提示词',
+  agent_scene_info: '场景信息提示词',
+  agent_prop_info: '道具信息提示词',
+  agent_costume_info: '服装信息提示词',
+  agent_consistency_check: '一致性检查提示词',
+  agent_entity_merge: '实体合并提示词',
+  agent_script_optimize: '剧本优化提示词',
+  agent_script_simplify: '剧本简化提示词',
+  agent_variant_analyze: '变体分析提示词',
+  agent_h3_video: 'H3 视频提示词',
 }
 
 const PAGE_SIZE = 10
@@ -53,6 +65,18 @@ const defaultPromptCategories: PromptCategory[] = [
   'costume_image_front',
   'costume_image_other',
   'combined',
+  'agent_script_division',
+  'agent_element_extract',
+  'agent_character_portrait',
+  'agent_scene_info',
+  'agent_prop_info',
+  'agent_costume_info',
+  'agent_consistency_check',
+  'agent_entity_merge',
+  'agent_script_optimize',
+  'agent_script_simplify',
+  'agent_variant_analyze',
+  'agent_h3_video',
 ]
 
 type CreatePromptForm = {
@@ -76,6 +100,7 @@ const groupOrder = [
   'prop',
   'costume',
   'combined',
+  'agent',
   'other',
 ] as const
 
@@ -89,6 +114,7 @@ const groupTitles: Record<(typeof groupOrder)[number], string> = {
   prop: '道具',
   costume: '服装',
   combined: '综合提示词',
+  agent: 'Agent 提示词',
   other: '其他',
 }
 
@@ -102,6 +128,7 @@ function getGroupKey(category: string): (typeof groupOrder)[number] {
   if (category.startsWith('prop_image_')) return 'prop'
   if (category.startsWith('costume_image_')) return 'costume'
   if (category === 'combined') return 'combined'
+  if (category.startsWith('agent_')) return 'agent'
   return 'other'
 }
 
@@ -346,6 +373,50 @@ const PromptTemplateManager: FC = () => {
     })
   }
 
+  const isAgentCategory = (category: string) => category.startsWith('agent_')
+
+  const handlePublishTemplate = async (template: PromptTemplateRead) => {
+    try {
+      const res = await StudioPromptsService.publishPromptTemplateApiV1StudioPromptsTemplateIdPublishPost({
+        templateId: template.id,
+      })
+      if (!res.data) {
+        message.error('发布失败')
+        return
+      }
+      message.success('已发布生效：下一次生成任务使用该提示词')
+      setSelected(res.data)
+      setTemplates((prev) => prev.map((item) => (item.id === res.data!.id ? res.data! : item)))
+    } catch {
+      message.error('发布失败')
+    }
+  }
+
+  const handleResetTemplate = async (template: PromptTemplateRead) => {
+    Modal.confirm({
+      title: '恢复默认提示词',
+      content: `确定将「${template.name}」恢复为代码内置默认吗？`,
+      okText: '恢复默认',
+      cancelText: '取消',
+      onOk: async () => {
+        try {
+          const res = await StudioPromptsService.resetPromptTemplateApiV1StudioPromptsTemplateIdResetPost({
+            templateId: template.id,
+          })
+          if (!res.data) {
+            message.error('恢复失败')
+            return
+          }
+          message.success('已恢复为代码内置默认提示词')
+          setSelected(res.data)
+          setTemplates((prev) => prev.map((item) => (item.id === res.data!.id ? res.data! : item)))
+        } catch {
+          message.error('恢复默认失败')
+        }
+      },
+    })
+  }
+
   return (
     <div className="space-y-4">
       <Card
@@ -414,7 +485,26 @@ const PromptTemplateManager: FC = () => {
                 <div className="mt-3 flex gap-2">
                   {selected.is_system && <Tag color="gold">系统预置</Tag>}
                   {selected.is_default && <Tag color="blue">默认提示词</Tag>}
+                  {isAgentCategory(selected.category) && selected.published_at && (
+                    <Tag color="green">已发布生效</Tag>
+                  )}
                 </div>
+                {isAgentCategory(selected.category) && (
+                  <div className="mt-3 flex gap-2">
+                    {selected.published_at ? (
+                      <Button size="small" onClick={() => handleResetTemplate(selected)}>
+                        恢复默认
+                      </Button>
+                    ) : (
+                      <Button size="small" type="primary" onClick={() => handlePublishTemplate(selected)}>
+                        发布生效
+                      </Button>
+                    )}
+                    <span className="text-xs text-gray-400 self-center">
+                      发布后覆盖代码内置默认，下一次生成任务生效
+                    </span>
+                  </div>
+                )}
               </Card>
             ) : (
               <Card>

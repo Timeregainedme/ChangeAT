@@ -56,6 +56,19 @@ _PROMPT_CATEGORY_ZH: dict[PromptCategory, tuple[str, str]] = {
     PromptCategory.combined: ("组合提示词", "用于组合多段提示词的模板"),
     PromptCategory.bgm: ("背景音乐提示词", "用于生成背景音乐描述的提示词"),
     PromptCategory.sfx: ("音效提示词", "用于生成音效描述的提示词"),
+    # 运行时 Agent 系统提示词（保存后需「发布生效」才覆盖代码默认值）
+    PromptCategory.agent_script_division: ("分镜拆解提示词", "剧本分镜 Agent 的系统提示词"),
+    PromptCategory.agent_element_extract: ("要素提取提示词", "角色/场景/道具/服装要素提取 Agent 的系统提示词"),
+    PromptCategory.agent_character_portrait: ("角色画像提示词", "角色画像分析 Agent 的系统提示词"),
+    PromptCategory.agent_scene_info: ("场景信息提示词", "场景信息分析 Agent 的系统提示词"),
+    PromptCategory.agent_prop_info: ("道具信息提示词", "道具信息分析 Agent 的系统提示词"),
+    PromptCategory.agent_costume_info: ("服装信息提示词", "服装信息分析 Agent 的系统提示词"),
+    PromptCategory.agent_consistency_check: ("一致性检查提示词", "一致性检查 Agent 的系统提示词"),
+    PromptCategory.agent_entity_merge: ("实体合并提示词", "实体合并 Agent 的系统提示词"),
+    PromptCategory.agent_script_optimize: ("剧本优化提示词", "剧本优化 Agent 的系统提示词"),
+    PromptCategory.agent_script_simplify: ("剧本简化提示词", "剧本简化 Agent 的系统提示词"),
+    PromptCategory.agent_variant_analyze: ("变体分析提示词", "变体分析 Agent 的系统提示词"),
+    PromptCategory.agent_h3_video: ("H3 视频提示词", "MiniMax H3 英文正文 Agent 的系统提示词"),
 }
 
 
@@ -231,3 +244,52 @@ async def delete_prompt_template(
         raise HTTPException(status_code=403, detail="默认提示词不可删除，请先将其他提示词设为默认")
     await db.delete(obj)
     return empty_response()
+
+
+# ---------- 发布 / 恢复默认（仅 agent_* 分类） ----------
+
+
+@router.post(
+    "/{template_id}/publish",
+    response_model=ApiResponse[PromptTemplateRead],
+    summary="发布 Agent 提示词：覆盖运行时代码默认，下一次任务生效",
+)
+async def publish_prompt_template(
+    template_id: str,
+    db: AsyncSession = Depends(get_db),
+) -> ApiResponse[PromptTemplateRead]:
+    """发布 agent 模板：写 published_at 并更新本进程缓存（跨进程由 worker 任务前刷新）。"""
+    from app.chains.agents.prompt_registry import publish_agent_prompt
+
+    try:
+        template = await publish_agent_prompt(db, template_id)
+    except LookupError:
+        raise HTTPException(status_code=404, detail=entity_not_found("PromptTemplate")) from None
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from None
+    await db.commit()
+    await db.refresh(template)
+    return success_response(PromptTemplateRead.model_validate(template))
+
+
+@router.post(
+    "/{template_id}/reset",
+    response_model=ApiResponse[PromptTemplateRead],
+    summary="恢复 Agent 提示词为代码内置默认",
+)
+async def reset_prompt_template(
+    template_id: str,
+    db: AsyncSession = Depends(get_db),
+) -> ApiResponse[PromptTemplateRead]:
+    """恢复默认：清 published_at 并移除缓存，运行时回落代码内置提示词。"""
+    from app.chains.agents.prompt_registry import reset_agent_prompt
+
+    try:
+        template = await reset_agent_prompt(db, template_id)
+    except LookupError:
+        raise HTTPException(status_code=404, detail=entity_not_found("PromptTemplate")) from None
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from None
+    await db.commit()
+    await db.refresh(template)
+    return success_response(PromptTemplateRead.model_validate(template))

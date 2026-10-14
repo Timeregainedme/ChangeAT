@@ -39,10 +39,13 @@ CHARACTER_PORTRAIT_PROMPT = PromptTemplate(
 
 
 class CharacterPortraitAnalysisAgent(AgentBase[CharacterPortraitAnalysisResult]):
+
     """根据原文人物描述分析缺失信息，并输出优化后的可生成画像描述。"""
 
-    @property
-    def system_prompt(self) -> str:
+    # 注册表键：发布后的模板提示词覆盖代码默认（见 prompt_registry.py）
+    agent_key = 'character_portrait'
+
+    def _default_system_prompt(self) -> str:
         return _CHARACTER_PORTRAIT_SYSTEM_PROMPT
 
     @property

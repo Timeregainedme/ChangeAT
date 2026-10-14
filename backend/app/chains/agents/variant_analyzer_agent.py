@@ -27,10 +27,13 @@ VARIANT_ANALYZER_PROMPT = PromptTemplate(
 
 
 class VariantAnalyzerAgent(AgentBase[VariantAnalysisResult]):
+
     """服装/外形变体检测与建议：输入实体库+全镜提取，输出变体分析结果。"""
 
-    @property
-    def system_prompt(self) -> str:
+    # 注册表键：发布后的模板提示词覆盖代码默认（见 prompt_registry.py）
+    agent_key = 'variant_analyze'
+
+    def _default_system_prompt(self) -> str:
         return _VARIANT_ANALYZER_SYSTEM_PROMPT
 
     @property

@@ -20,11 +20,12 @@ weight: 11
 | `variables` | `json` | 本模板声明的变量列表 |
 | `is_default` | `tinyint(1)` | 是否默认模板 |
 | `is_system` | `tinyint(1)` | 是否系统内置 |
+| `published_at` | `datetime` | 发布时间（非空 = 已发布到运行时；仅 `agent_*` 分类使用） |
 
 索引为 `ix_prompt_templates_category`、`ix_prompt_templates_name`。注意 **`category` 上没有唯一键**，因此写入迁移必须是幂等的 `UPDATE ... WHERE category = 'x'` 配合
 `INSERT INTO ... SELECT ... FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM prompt_templates WHERE category = 'x')`。
 
-当前共 **14 个类别**：
+当前共 **26 个类别**：
 
 ```text
 actor_image_front        actor_image_other
@@ -34,6 +35,10 @@ scene_image_front        scene_image_other
 costume_image_front      costume_image_other
 combined
 frame_head_prompt        frame_tail_prompt        frame_key_prompt
+agent_script_division    agent_element_extract    agent_character_portrait
+agent_scene_info         agent_prop_info          agent_costume_info
+agent_consistency_check  agent_entity_merge       agent_script_optimize
+agent_script_simplify    agent_variant_analyze    agent_h3_video
 ```
 
 ### 为什么 `video_prompt` 故意不播种
@@ -54,6 +59,8 @@ cd backend && .venv/bin/python scripts/gen_prompt_templates_sql.py
 - 用统一的 `ASSET_VARS` 描述资产类模板变量；
 - 输出 `backend/sql/012-rewrite-prompt-templates.sql`。
 
+Agent 提示词种子同样由生成器产出（`backend/scripts/gen_agent_prompt_templates_sql.py` → `backend/sql/015-add-agent-prompt-templates.sql`），直接 `import` 各 Agent 的 `_*_SYSTEM_PROMPT` 常量，避免手抄漂移。
+
 应用方式：
 
 ```bash
@@ -61,7 +68,26 @@ docker exec -i compose-mysql-1 mysql -uroot -p"$DB_PASS" --default-character-set
   < backend/sql/012-rewrite-prompt-templates.sql
 ```
 
-迁移可重复执行：跑第二次不会新增行，`SELECT COUNT(*) FROM prompt_templates` 仍是 14。
+迁移可重复执行：跑第二次不会新增行，`SELECT COUNT(*) FROM prompt_templates` 仍是 26。
+
+## Agent 提示词的发布机制
+
+`agent_*` 这 12 个类别对应 12 个运行时 Agent 的**系统提示词**（分镜拆解、要素提取、角色画像、场景/道具/服装信息、一致性检查、实体合并、剧本优化/简化、变体分析、H3 视频提示词）。它们的权威默认值仍硬编码在各 Agent 的 `_*_SYSTEM_PROMPT` 常量里，但可以通过模板页**编辑并发布**，覆盖代码默认。
+
+生效模型（用户侧语义为「保存后手动触发生效」）：
+
+| 动作 | 效果 |
+| --- | --- |
+| 模板页「发布生效」 | 写 `published_at`，并更新**当前进程**缓存；下一次生成任务（API 进程直接触发）即用新提示词 |
+| Celery worker 任务执行 | 每次任务在 `_execute_phase` 前调用 `refresh_published_agent_prompts_sync`，从 DB 拉已发布模板，保证跨进程一致 |
+| API 启动 | lifespan 中调用 `refresh_published_agent_prompts` 加载已发布模板，重启后仍生效 |
+| 模板页「恢复默认」 | 清 `published_at` 并移除缓存，回落代码内置默认 |
+
+关键实现：
+
+- `backend/app/chains/agents/prompt_registry.py`：`agent_key ↔ PromptCategory` 映射、进程内缓存（`_cache: dict[str, str]`）、发布/恢复/刷新函数（含同步版供 Celery worker 使用）。
+- `AgentBase.system_prompt`：`registry.get_agent_prompt(agent_key)` 命中则返回发布内容，否则回落子类 `_default_system_prompt()`；子类只需声明 `agent_key` 并把原 `system_prompt` 改名 `_default_system_prompt`。
+- `published_at` 只表达「已发布」，与 `is_default`（生成类模板的默认选择）解耦；`agent_*` 模板 `is_system=0`，允许编辑（发布后才影响运行时）。
 
 ## 变量契约
 

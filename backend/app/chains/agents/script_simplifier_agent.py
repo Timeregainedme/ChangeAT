@@ -33,10 +33,13 @@ SCRIPT_SIMPLIFIER_PROMPT = PromptTemplate(
 
 
 class ScriptSimplifierAgent(AgentBase[ScriptSimplificationResult]):
+
     """智能精简剧本 Agent：输入剧本文本，输出保留主线与连续性的精简版本。"""
 
-    @property
-    def system_prompt(self) -> str:
+    # 注册表键：发布后的模板提示词覆盖代码默认（见 prompt_registry.py）
+    agent_key = 'script_simplify'
+
+    def _default_system_prompt(self) -> str:
         return _SCRIPT_SIMPLIFIER_SYSTEM_PROMPT
 
     @property

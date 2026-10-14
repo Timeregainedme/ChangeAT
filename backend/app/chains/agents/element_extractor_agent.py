@@ -65,10 +65,13 @@ SCRIPT_EXTRACTOR_PROMPT = PromptTemplate(
 
 
 class ElementExtractorAgent(AgentBase[StudioScriptExtractionDraft]):
+
     """项目级信息提取（最终输出）：输入分镜结果，产出全局实体表 + 逐镜关联。"""
 
-    @property
-    def system_prompt(self) -> str:
+    # 注册表键：发布后的模板提示词覆盖代码默认（见 prompt_registry.py）
+    agent_key = 'element_extract'
+
+    def _default_system_prompt(self) -> str:
         return _SCRIPT_EXTRACTOR_SYSTEM_PROMPT
 
     @property

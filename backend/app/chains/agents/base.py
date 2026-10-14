@@ -133,6 +133,10 @@ def _load_json_like(text: str) -> Any:
 class AgentBase(ABC, Generic[T]):
     """通用 Agent 基类：子类固化 prompt_template 与 output_model。"""
 
+    # 注册表键：对应「提示词模板」页面的 agent_* 分类。为空表示不参与发布覆盖。
+    # 子类声明后，system_prompt 优先取已发布模板，否则回落 _default_system_prompt()。
+    agent_key: str = ""
+
     # 思考开关是「声明式」的：真正下发由模型构造方按供应商决定
     # （app/services/llm/resolver.py 的 _build_chat_openai_model → provider_registry.thinking_extra_body，
     # 阿里百炼下发 enable_thinking、DeepSeek 下发 thinking.type，未登记供应商不下发）。
@@ -166,7 +170,22 @@ class AgentBase(ABC, Generic[T]):
 
     @property
     def system_prompt(self) -> str:
-        """子类可覆盖：系统提示词（作为 system message / 高优先级指令）。"""
+        """系统提示词：已发布的模板优先，未发布回落子类内置默认。
+
+        通过 `prompt_registry` 与「提示词模板」页面联动：
+        模板页「发布生效」后本属性返回用户编辑内容，无需重启；
+        「恢复默认」后回落 `_default_system_prompt()`。
+        """
+        if self.agent_key:
+            from app.chains.agents.prompt_registry import get_agent_prompt
+
+            published = get_agent_prompt(self.agent_key)
+            if published is not None:
+                return published
+        return self._default_system_prompt()
+
+    def _default_system_prompt(self) -> str:
+        """子类可覆盖：内置默认系统提示词（未发布/恢复默认时使用）。"""
         return ""
 
     def _normalize(self, data: dict[str, Any]) -> dict[str, Any]:

@@ -45,10 +45,25 @@ def test_list_prompt_categories_returns_value_label_description(client: TestClie
         "costume_image_front",
         "costume_image_other",
         "combined",
+        "agent_script_division",
+        "agent_element_extract",
+        "agent_character_portrait",
+        "agent_scene_info",
+        "agent_prop_info",
+        "agent_costume_info",
+        "agent_consistency_check",
+        "agent_entity_merge",
+        "agent_script_optimize",
+        "agent_script_simplify",
+        "agent_variant_analyze",
+        "agent_h3_video",
     }
     assert "首帧图片" in labels
     assert "关键帧图片" in labels
     assert "用于生成首帧图片的提示词" in descriptions
+    assert "分镜拆解提示词" in labels
+    assert "H3 视频提示词" in labels
+    assert "剧本分镜 Agent 的系统提示词" in descriptions
 
 
 def test_prompt_category_mapping_is_complete() -> None:

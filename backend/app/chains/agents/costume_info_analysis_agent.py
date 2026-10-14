@@ -39,10 +39,13 @@ COSTUME_INFO_PROMPT = PromptTemplate(
 
 
 class CostumeInfoAnalysisAgent(AgentBase[CostumeInfoAnalysisResult]):
+
     """根据原文服装/造型描述分析缺失信息，并输出优化后的可生成服装描述。"""
 
-    @property
-    def system_prompt(self) -> str:
+    # 注册表键：发布后的模板提示词覆盖代码默认（见 prompt_registry.py）
+    agent_key = 'costume_info'
+
+    def _default_system_prompt(self) -> str:
         return _COSTUME_INFO_SYSTEM_PROMPT
 
     @property

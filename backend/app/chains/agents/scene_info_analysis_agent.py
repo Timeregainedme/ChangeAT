@@ -39,10 +39,13 @@ SCENE_INFO_PROMPT = PromptTemplate(
 
 
 class SceneInfoAnalysisAgent(AgentBase[SceneInfoAnalysisResult]):
+
     """根据原文场景描述分析缺失信息，并输出优化后的可生成场景描述。"""
 
-    @property
-    def system_prompt(self) -> str:
+    # 注册表键：发布后的模板提示词覆盖代码默认（见 prompt_registry.py）
+    agent_key = 'scene_info'
+
+    def _default_system_prompt(self) -> str:
         return _SCENE_INFO_SYSTEM_PROMPT
 
     @property

@@ -51,6 +51,7 @@ class PromptTemplateRead(BaseModel):
     variables: list[str] = Field(..., description="变量名列表")
     is_default: bool = Field(..., description="是否为默认提示词")
     is_system: bool = Field(..., description="是否为系统预置")
+    published_at: datetime | None = Field(None, description="发布时间（非空 = 已发布到运行时）")
     created_at: datetime = Field(..., description="创建时间")
     updated_at: datetime = Field(..., description="最后更新时间")
 

@@ -42,10 +42,13 @@ ENTITY_MERGER_PROMPT = PromptTemplate(
 
 
 class EntityMergerAgent(AgentBase[EntityMergeResult]):
+
     """跨镜合并 + 基础画像生成：输入全部分镜提取结果+历史实体库，输出合并后的库。"""
 
-    @property
-    def system_prompt(self) -> str:
+    # 注册表键：发布后的模板提示词覆盖代码默认（见 prompt_registry.py）
+    agent_key = 'entity_merge'
+
+    def _default_system_prompt(self) -> str:
         return _ENTITY_MERGER_SYSTEM_PROMPT
 
     @property

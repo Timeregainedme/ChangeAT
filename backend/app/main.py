@@ -1,5 +1,6 @@
 """FastAPI 应用入口。"""
 
+import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Request
@@ -11,6 +12,8 @@ from app.api.v1 import router as api_v1_router
 from app.bootstrap import bootstrap_all_registries
 from app.config import settings
 from app.schemas.common import ApiResponse
+
+logger = logging.getLogger(__name__)
 
 
 def _error_message(detail: object) -> str:
@@ -77,6 +80,15 @@ async def lifespan(app: FastAPI):
     """应用生命周期：启动时初始化，关闭时清理。"""
     # 启动时：供应商注册 + 任务执行器注册（幂等）
     bootstrap_all_registries()
+    # 启动时：加载已发布的 Agent 提示词模板（模板页「发布生效」状态持久化，重启后仍生效）
+    try:
+        from app.chains.agents.prompt_registry import refresh_published_agent_prompts
+        from app.core.db import async_session_maker
+
+        async with async_session_maker() as db:
+            await refresh_published_agent_prompts(db)
+    except Exception:  # noqa: BLE001 - 启动阶段 DB 不可用时不应阻断应用拉起
+        logger.exception("failed to load published agent prompts at startup")
     yield
     # 关闭时：清理资源
     pass

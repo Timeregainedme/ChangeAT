@@ -106,6 +106,10 @@ class AbstractWorkerTaskExecutor(ABC):
 
     def _execute_phase(self, task_id: str, run_args: dict[str, Any]) -> Any | None:
         with self._session_maker() as db:
+            # 任务执行前刷新已发布的 Agent 提示词（模板页「发布生效」后跨进程生效）
+            from app.chains.agents.prompt_registry import refresh_published_agent_prompts_sync
+
+            refresh_published_agent_prompts_sync(db)
             ctx = self._load_context(db, task_id)
             if ctx is None:
                 return None

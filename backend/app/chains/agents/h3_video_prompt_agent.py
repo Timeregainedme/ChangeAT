@@ -164,14 +164,17 @@ def build_h3_agent_variables(ir: IRPrompt) -> dict[str, str]:
 
 
 class H3VideoPromptAgent(AgentBase[H3Prose]):
+
     """把分镜 IR 写成 H3 官方英文六段正文。"""
+
+    # 注册表键：发布后的模板提示词覆盖代码默认（见 prompt_registry.py）
+    agent_key = 'h3_video'
 
     @property
     def output_model(self) -> type[H3Prose]:
         return H3Prose
 
-    @property
-    def system_prompt(self) -> str:
+    def _default_system_prompt(self) -> str:
         return _SYSTEM_PROMPT
 
     @property

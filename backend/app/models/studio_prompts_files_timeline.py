@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from sqlalchemy import Boolean, JSON, Index, Integer, String, Text
+from datetime import datetime
+
+from sqlalchemy import Boolean, DateTime, JSON, Index, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.db import Base
@@ -26,6 +28,11 @@ class PromptTemplate(Base,TimestampMixin):
     variables: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list, comment="变量名列表（JSON 数组）")
     is_default: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, comment="是否为默认提示词（同类别唯一，应用层保证）")
     is_system: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, comment="是否为系统预置（仅初始化脚本写入，接口层禁止删改）")
+    published_at: Mapped[datetime | None] = mapped_column(
+        DateTime,
+        nullable=True,
+        comment="发布时间（非空 = 已发布到运行时；仅 agent_* 分类使用，见 prompt_registry）",
+    )
 
     __table_args__ = (
         Index("ix_prompt_templates_name", "name"),
