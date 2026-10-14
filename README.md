@@ -327,9 +327,15 @@ pnpm dev
 007-add-video-size-ratio-defaults-and-overrides.sql
 008-add-shot-action-beats.sql
 009-add-audio-category-and-base-urls.sql
+010-add-character-voice-and-audio-attachments.sql
+（011 未使用，序号已跳过）
+012-rewrite-prompt-templates.sql
+013-add-dialog-line-emotion.sql
+014-add-project-image-output-settings.sql
+015-add-agent-prompt-templates.sql
 ```
 
-**新增迁移请追加为 `010-*.sql` 等新文件，不要修改已应用的编号文件。**
+**新增迁移请追加为 `016-*.sql` 等新文件，不要修改已应用的编号文件。**
 
 ### OpenAPI 契约同步
 
