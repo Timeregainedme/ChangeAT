@@ -46,12 +46,48 @@ async def list_paginated(
         default="index",
     )
     items, total = await paginate(db, stmt=stmt, page=page, page_size=page_size)
+    reads = [ShotDialogLineRead.model_validate(x) for x in items]
+    reads = await _backfill_display_names(db, reads)
     return paginated_response(
-        [ShotDialogLineRead.model_validate(x) for x in items],
+        reads,
         page=page,
         page_size=page_size,
         total=total,
     )
+
+
+async def _backfill_display_names(
+    db: AsyncSession,
+    reads: list[ShotDialogLineRead],
+) -> list[ShotDialogLineRead]:
+    """说话/听者显示名兜底：行内 name 为空但关联了角色时，用角色库名字填充。
+
+    与编辑页草稿（``shot_extraction_draft``）保持同一口径：
+    展示层拿到的 ``speaker_name`` / ``target_name`` 应优先反映角色真名，
+    而不是只在提取回填过的行上才有名字。仅补展示字段，不回写数据库。
+    """
+    missing_ids: set[str] = set()
+    for r in reads:
+        if r.speaker_character_id and not r.speaker_name:
+            missing_ids.add(r.speaker_character_id)
+        if r.target_character_id and not r.target_name:
+            missing_ids.add(r.target_character_id)
+    if not missing_ids:
+        return reads
+    rows = (
+        await db.execute(select(Character).where(Character.id.in_(missing_ids)))
+    ).scalars().all()
+    name_map = {c.id: c.name for c in rows}
+    return [
+        r.model_copy(
+            update={
+                "speaker_name": r.speaker_name
+                or name_map.get(r.speaker_character_id or ""),
+                "target_name": r.target_name or name_map.get(r.target_character_id or ""),
+            }
+        )
+        for r in reads
+    ]
 
 
 async def list_by_shot(

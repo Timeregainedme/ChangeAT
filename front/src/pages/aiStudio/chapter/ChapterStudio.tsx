@@ -2091,7 +2091,8 @@ const ChapterStudio: React.FC = () => {
     const per = dur / dialogLines.length
     return dialogLines.map((d, i) => ({
       key: `${selectedShot.id}-${d.id}`,
-      role: d.speaker_character_id ?? '—',
+      // 优先展示人物名（后端已做角色名兜底），避免把 char-xxx 角色 ID 直接暴露给用户
+      role: d.speaker_name || d.speaker_character_id || '—',
       text: d.text,
       start: i * per,
       end: (i + 1) * per,
