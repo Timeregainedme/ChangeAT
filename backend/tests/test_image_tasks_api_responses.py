@@ -212,7 +212,8 @@ def test_create_shot_frame_image_task_renders_prompt_before_submit(client: TestC
     db = _ShotDetailDB()
 
     async def _fake_resolve_image_refs(*_args, **_kwargs):
-        return [{"image_url": "data:image/png;base64,abc"}]
+        # 与真实实现一致：提交阶段只产出 file_id 引用，不含内联 base64。
+        return [{"file_id": "file-1"}]
 
     async def _fake_load_frame_render_guidance(**_kwargs):
         return {
@@ -231,7 +232,7 @@ def test_create_shot_frame_image_task_renders_prompt_before_submit(client: TestC
         assert "构图锚点：以温室门框和人物站位作为空间锚点，保持环境与人物同时可读" not in kwargs["prompt"]
         assert "朝向与视线：保持陆远与环境入口的视线方向稳定，避免无故翻转朝向" not in kwargs["prompt"]
         assert "图1: 陆远" in kwargs["prompt"]
-        assert kwargs["images"] == [{"image_url": "data:image/png;base64,abc"}]
+        assert kwargs["images"] == [{"file_id": "file-1"}]
         assert kwargs["target_ratio"] == "9:16"
         assert kwargs["resolution_profile"] == "standard"
         assert kwargs["purpose"] == "video_reference"
@@ -243,7 +244,7 @@ def test_create_shot_frame_image_task_renders_prompt_before_submit(client: TestC
         assert kwargs["render_context"]["dropped_guidance_details"][1]["reason_tag"] == "首帧降轴线"
         return "task-1"
 
-    monkeypatch.setattr(route, "_resolve_reference_image_refs_by_file_ids_service", _fake_resolve_image_refs)
+    monkeypatch.setattr(route, "_compact_reference_image_refs_by_file_ids_service", _fake_resolve_image_refs)
     monkeypatch.setattr(route, "_load_frame_render_guidance", _fake_load_frame_render_guidance)
     monkeypatch.setattr(route, "_create_image_task_and_link_service", _fake_create_image_task_and_link)
     app.dependency_overrides[get_db] = _override_db(db)

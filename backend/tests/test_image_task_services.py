@@ -23,9 +23,9 @@ from app.services.studio.generation.frame.build_base import build_frame_base_dra
 from app.services.studio.generation.frame.build_context import build_frame_context
 from app.services.studio.generation.frame.derive_preview import derive_frame_preview
 from app.services.studio.image_task_references import (
+    compact_reference_image_refs_by_file_ids,
     pick_ordered_ref_file_ids,
     resolve_reference_file_ids_and_names_from_linked_items,
-    resolve_reference_image_refs_by_file_ids,
 )
 from app.services.studio.image_task_validation import (
     validate_actor_image,
@@ -153,25 +153,28 @@ async def test_resolve_reference_file_ids_and_names_filters_empty_file_ids():
 
 
 @pytest.mark.asyncio
-async def test_resolve_reference_image_refs_by_file_ids_returns_data_urls(monkeypatch):
+async def test_compact_reference_image_refs_keeps_file_ids_only(monkeypatch):
+    """提交任务时只留 file_id、不下载字节，避免 base64 进 generation_tasks.payload。"""
     file_obj = FileItem(id="file-1", name="sample.png", storage_key="images/sample.png")
     db = _FakeDB(mapping={(FileItem, "file-1"): file_obj})
-
-    async def _fake_download_file(*, key: str):
-        assert key == "images/sample.png"
-        return b"png-bytes"
 
     async def _fake_get_file_info(*, key: str):
         assert key == "images/sample.png"
         return SimpleNamespace(content_type="image/png")
 
-    monkeypatch.setattr("app.services.studio.image_task_references.storage.download_file", _fake_download_file)
-    monkeypatch.setattr("app.services.studio.image_task_references.storage.get_file_info", _fake_get_file_info)
+    async def _fail_download_file(*, key: str):
+        raise AssertionError("提交阶段不应下载参考图字节")
 
-    refs = await resolve_reference_image_refs_by_file_ids(db, file_ids=["file-1"])
+    monkeypatch.setattr(
+        "app.services.media_reference_files.storage.get_file_info", _fake_get_file_info
+    )
+    monkeypatch.setattr(
+        "app.services.media_reference_files.storage.download_file", _fail_download_file
+    )
 
-    assert len(refs) == 1
-    assert refs[0]["image_url"].startswith("data:image/png;base64,")
+    refs = await compact_reference_image_refs_by_file_ids(db, file_ids=["file-1"])
+
+    assert refs == [{"file_id": "file-1"}]
 
 
 @pytest.mark.asyncio

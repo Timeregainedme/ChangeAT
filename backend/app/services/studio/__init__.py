@@ -22,7 +22,7 @@ from app.services.studio.image_task_references import (
     pick_front_ref_file_id,
     pick_ordered_ref_file_ids,
     resolve_reference_file_ids_and_names_from_linked_items,
-    resolve_reference_image_refs_by_file_ids,
+    compact_reference_image_refs_by_file_ids,
 )
 from app.services.studio.generation.asset_image import (
     build_actor_image_base_draft,
@@ -208,7 +208,7 @@ __all__ = [
     "resolve_thumbnails",
     "resolve_thumbnail_infos",
     "resolve_reference_file_ids_and_names_from_linked_items",
-    "resolve_reference_image_refs_by_file_ids",
+    "compact_reference_image_refs_by_file_ids",
     "create_shot_detail",
     "get_shot_detail",
     "update_shot_detail",
@@ -243,9 +243,7 @@ try:
         is_front_view,
         load_provider_config,
         map_view_angle_for_prompt,
-        resolve_front_image_ref,
         resolve_image_model,
-        resolve_ordered_image_refs,
         shot_frame_prompt_category,
     )
 
@@ -255,9 +253,7 @@ try:
         "is_front_view",
         "load_provider_config",
         "map_view_angle_for_prompt",
-        "resolve_front_image_ref",
         "resolve_image_model",
-        "resolve_ordered_image_refs",
         "shot_frame_prompt_category",
     ]
 except Exception:  # noqa: BLE001

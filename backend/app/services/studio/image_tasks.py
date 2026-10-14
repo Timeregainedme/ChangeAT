@@ -2,18 +2,14 @@ from __future__ import annotations
 
 """Studio 图片任务的数据层能力。"""
 
-import base64
-import mimetypes
-
 from fastapi import HTTPException, status
 from langchain_core.prompts import PromptTemplate as LcPromptTemplate
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core import storage
 from app.core.contracts.provider import ProviderConfig
 from app.models.llm import Model, ModelCategoryKey
-from app.models.studio import AssetViewAngle, FileItem, PromptCategory, PromptTemplate, ShotFrameType
+from app.models.studio import AssetViewAngle, PromptCategory, PromptTemplate, ShotFrameType
 from app.services.llm import get_model_by_category
 from app.services.llm.provider_resolver import resolve_provider_config
 
@@ -128,136 +124,6 @@ async def build_prompt_with_template(
             return rendered
     return prompt_from_description(fallback_prompt, not_found_msg=not_found_msg)
 
-
-async def resolve_front_image_ref(
-    db: AsyncSession,
-    *,
-    image_model: type,
-    parent_field_name: str,
-    parent_id: str,
-    preferred_quality_level: object | None,
-) -> dict[str, str] | None:
-    parent_field = getattr(image_model, parent_field_name)
-    stmt = (
-        select(image_model)
-        .where(
-            parent_field == parent_id,
-            image_model.view_angle == AssetViewAngle.front,
-            image_model.file_id.is_not(None),
-        )
-        .order_by(image_model.created_at.desc(), image_model.id.desc())
-    )
-    result = await db.execute(stmt)
-    rows = result.scalars().all()
-    if not rows:
-        return None
-
-    target = rows[0]
-    if preferred_quality_level is not None:
-        for row in rows:
-            if row.quality_level == preferred_quality_level:
-                target = row
-                break
-
-    if not target.file_id:
-        return None
-
-    file_obj = await db.get(FileItem, target.file_id)
-    if file_obj is None or not file_obj.storage_key:
-        return None
-
-    try:
-        content = await storage.download_file(key=file_obj.storage_key)
-    except Exception:  # noqa: BLE001
-        return None
-    if not content:
-        return None
-
-    content_type: str | None = None
-    try:
-        info = await storage.get_file_info(key=file_obj.storage_key)
-        content_type = (info.content_type or "").strip().lower() or None
-    except Exception:  # noqa: BLE001
-        content_type = None
-
-    if not content_type:
-        guessed_type, _ = mimetypes.guess_type(file_obj.storage_key)
-        content_type = (guessed_type or "").strip().lower() or None
-
-    if not content_type or not content_type.startswith("image/"):
-        content_type = "image/png"
-
-    image_format = content_type.split("/", 1)[1].split(";", 1)[0].strip().lower() or "png"
-    encoded = base64.b64encode(content).decode("ascii")
-    data_url = f"data:image/{image_format};base64,{encoded}"
-    return {"image_url": data_url}
-
-
-async def resolve_ordered_image_refs(
-    db: AsyncSession,
-    *,
-    image_model: type,
-    parent_field_name: str,
-    parent_id: str,
-    view_angles: tuple[AssetViewAngle, ...],
-) -> list[dict[str, str]]:
-    """按指定 view_angles 顺序，解析参考图（data url）。"""
-    parent_field = getattr(image_model, parent_field_name)
-    stmt = (
-        select(image_model)
-        .where(
-            parent_field == parent_id,
-            image_model.file_id.is_not(None),
-        )
-        .order_by(image_model.created_at.desc(), image_model.id.desc())
-    )
-    result = await db.execute(stmt)
-    rows = result.scalars().all()
-    if not rows:
-        return []
-
-    best_by_angle: dict[str, object] = {}
-    for row in rows:
-        angle = getattr(row, "view_angle", None)
-        key = angle.value if isinstance(angle, AssetViewAngle) else str(angle)
-        if key and key not in best_by_angle:
-            best_by_angle[key] = row
-
-    out: list[dict[str, str]] = []
-    for angle in view_angles:
-        row = best_by_angle.get(angle.value)
-        if row is None:
-            continue
-        file_id = getattr(row, "file_id", None)
-        if not file_id:
-            continue
-        file_obj = await db.get(FileItem, str(file_id))
-        if file_obj is None or not file_obj.storage_key:
-            continue
-        try:
-            content = await storage.download_file(key=file_obj.storage_key)
-        except Exception:  # noqa: BLE001
-            continue
-        if not content:
-            continue
-
-        content_type: str | None = None
-        try:
-            info = await storage.get_file_info(key=file_obj.storage_key)
-            content_type = (info.content_type or "").strip().lower() or None
-        except Exception:  # noqa: BLE001
-            content_type = None
-        if not content_type:
-            guessed_type, _ = mimetypes.guess_type(file_obj.storage_key)
-            content_type = (guessed_type or "").strip().lower() or None
-        if not content_type or not content_type.startswith("image/"):
-            content_type = "image/png"
-
-        image_format = content_type.split("/", 1)[1].split(";", 1)[0].strip().lower() or "png"
-        encoded = base64.b64encode(content).decode("ascii")
-        data_url = f"data:image/{image_format};base64,{encoded}"
-        out.append({"image_url": data_url})
-    return out
 
 
 def asset_prompt_category(

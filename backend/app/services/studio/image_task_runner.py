@@ -26,6 +26,7 @@ from app.models.studio import (
 )
 from app.models.task_links import GenerationTaskLink
 from app.models.types import FileUsageKind
+from app.services.media_reference_files import materialize_image_reference_refs
 from app.services.studio.file_usages import (
     first_project_id_for_actor,
     first_project_id_for_costume,
@@ -333,6 +334,15 @@ async def run_image_generation_task(
             api_key = str(run_args.get("api_key") or "")
             base_url = run_args.get("base_url")
             input_dict = dict(run_args.get("input") or {})
+
+            # payload 里只保存 file_id 引用，参考图字节到这一步（调用供应商前）才下载编码，
+            # 避免把 base64 写进 generation_tasks.payload 撑爆 MySQL 排序缓冲。
+            raw_refs = input_dict.get("images")
+            if raw_refs:
+                input_dict["images"] = await materialize_image_reference_refs(
+                    session,
+                    images=raw_refs,
+                )
 
             task = ImageGenerationTask(
                 provider_config=ProviderConfig(

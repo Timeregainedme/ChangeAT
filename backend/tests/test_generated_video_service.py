@@ -24,6 +24,7 @@ from app.models.studio import (
 )
 from app.services.film.generated_video import (
     build_run_args,
+    materialize_input_references,
     preview_prompt_and_images,
     resolve_default_video_model,
     validate_images_count,
@@ -212,11 +213,26 @@ async def test_build_run_args_maps_reference_images(monkeypatch: pytest.MonkeyPa
         assert run_args["provider"] == "openai"
         assert run_args["api_key"] == "k"
         assert run_args["input"]["model"] == "sora-mini"
-        assert run_args["input"]["first_frame_base64"] == "data:image/png;base64,img-first"
-        assert run_args["input"]["last_frame_base64"] == "data:image/png;base64,img-last"
-        assert run_args["input"]["key_frame_base64"] is None
+        # payload 只存 file_id 引用，不内联 base64（字节在派发期物化）。
+        assert run_args["input"]["frame_file_ids"] == {
+            "first": "img-first",
+            "last": "img-last",
+            "key": None,
+        }
+        assert "first_frame_base64" not in run_args["input"]
+        assert "last_frame_base64" not in run_args["input"]
         assert run_args["input"]["ratio"] == "9:16"
         assert run_args["input"]["seconds"] == 6
+
+        # 派发期物化：file_id → data URL，且下发给供应商前引用键被摘掉。
+        materialized = await materialize_input_references(
+            db,
+            input_dict=run_args["input"],
+        )
+        assert materialized["first_frame_base64"] == "data:image/png;base64,img-first"
+        assert materialized["last_frame_base64"] == "data:image/png;base64,img-last"
+        assert "key_frame_base64" not in materialized
+        assert "frame_file_ids" not in materialized
     await engine.dispose()
 
 

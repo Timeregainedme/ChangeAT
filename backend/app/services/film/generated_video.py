@@ -1,14 +1,11 @@
 from __future__ import annotations
 
-import base64
-import mimetypes
 from typing import get_args
 
 from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core import storage
 from app.core.db import async_session_maker
 from app.core.task_manager import SqlAlchemyTaskStore
 from app.core.task_manager.types import TaskStatus
@@ -21,6 +18,7 @@ from app.models.studio import Chapter, FileItem, Project, Shot, ShotDetail, Shot
 from app.models.types import FileUsageKind
 from app.services.common import entity_not_found
 from app.services.llm.provider_resolver import resolve_provider_config_by_model
+from app.services.media_reference_files import image_data_url_from_file_id
 from app.services.studio.file_usages import sync_usage_from_shot_context
 from app.services.studio.generation.video import (
     REFERENCE_MODE,
@@ -49,31 +47,37 @@ async def validate_shot_and_duration(db: AsyncSession, shot_id: str) -> ShotDeta
 
 
 async def file_id_to_data_url(db: AsyncSession, *, file_id: str) -> str:
-    file_obj = await db.get(FileItem, file_id)
-    if file_obj is None or not file_obj.storage_key:
-        raise HTTPException(status_code=400, detail=f"Invalid image file_id: {file_id}")
-    try:
-        content = await storage.download_file(key=file_obj.storage_key)
-    except Exception:  # noqa: BLE001
-        raise HTTPException(status_code=400, detail=f"Invalid image file_id: {file_id}") from None
-    if not content:
-        raise HTTPException(status_code=400, detail=f"Invalid image file_id: {file_id}")
+    """下载 file_id 并编码为 data URL。
 
-    content_type: str | None = None
-    try:
-        info = await storage.get_file_info(key=file_obj.storage_key)
-        content_type = (info.content_type or "").strip().lower() or None
-    except Exception:  # noqa: BLE001
-        content_type = None
-    if not content_type:
-        guessed_type, _ = mimetypes.guess_type(file_obj.storage_key)
-        content_type = (guessed_type or "").strip().lower() or None
-    if not content_type or not content_type.startswith("image/"):
-        raise HTTPException(status_code=400, detail=f"Invalid image file_id: {file_id}")
+    仅在**派发期物化**时调用（见 `materialize_input_references`），
+    不要用它构造写进 payload 的 run_args。
+    """
+    return await image_data_url_from_file_id(db, file_id=file_id)
 
-    image_format = content_type.split("/", 1)[1].split(";", 1)[0].strip().lower() or "png"
-    encoded = base64.b64encode(content).decode("ascii")
-    return f"data:image/{image_format};base64,{encoded}"
+
+async def materialize_input_references(db: AsyncSession, *, input_dict: dict) -> dict:
+    """把 `run_args["input"]` 里的 file_id 引用物化成 data URL 后再交给供应商。
+
+    约定（对齐 toonflow 的「引用存储、派发期读取」）：payload 只存 id，
+    字节到执行端才取。兼容历史 payload——已内联 base64 的条目不含这些键，原样通过。
+    """
+    out = dict(input_dict)
+    reference_ids = out.pop("reference_file_ids", None)
+    if reference_ids:
+        out["reference_images"] = [
+            await file_id_to_data_url(db, file_id=str(file_id)) for file_id in reference_ids
+        ]
+    frame_ids = out.pop("frame_file_ids", None)
+    if isinstance(frame_ids, dict):
+        for frame_key, field_name in (
+            ("first", "first_frame_base64"),
+            ("last", "last_frame_base64"),
+            ("key", "key_frame_base64"),
+        ):
+            file_id = str(frame_ids.get(frame_key) or "").strip()
+            if file_id:
+                out[field_name] = await file_id_to_data_url(db, file_id=file_id)
+    return out
 
 
 async def preview_prompt_and_images(
@@ -247,12 +251,10 @@ async def build_run_args(
 
     if reference_mode == REFERENCE_MODE:
         # 参考图模式：上传顺序即 IR 参考列表顺序，与提示词里的 <Picture N> 一一对应。
+        # payload 只存 file_id，字节在派发期物化（materialize_input_references）。
         input_payload: dict = {
             "prompt": final_prompt,
-            "reference_images": [
-                await file_id_to_data_url(db, file_id=file_id)
-                for file_id in submission.images
-            ],
+            "reference_file_ids": list(submission.images),
             "model": model.name,
             "ratio": resolved_ratio,
             "seconds": shot_detail.duration,
@@ -261,15 +263,14 @@ async def build_run_args(
         required_frames = tuple(
             ShotFrameType(item) for item in REQUIRED_FRAMES_BY_MODE[reference_mode]
         )
-        frame_data_urls = [
-            await file_id_to_data_url(db, file_id=file_id) for file_id in submission.images
-        ]
-        frame_map = {ft: frame_data_urls[i] for i, ft in enumerate(required_frames)}
+        frame_map = {ft: submission.images[i] for i, ft in enumerate(required_frames)}
         input_payload = {
             "prompt": final_prompt,
-            "first_frame_base64": frame_map.get(ShotFrameType.first),
-            "last_frame_base64": frame_map.get(ShotFrameType.last),
-            "key_frame_base64": frame_map.get(ShotFrameType.key),
+            "frame_file_ids": {
+                "first": frame_map.get(ShotFrameType.first),
+                "last": frame_map.get(ShotFrameType.last),
+                "key": frame_map.get(ShotFrameType.key),
+            },
             "model": model.name,
             "ratio": resolved_ratio,
             "seconds": shot_detail.duration,
@@ -368,6 +369,9 @@ async def run_video_generation_task(
             api_key = str(run_args.get("api_key") or "")
             base_url = run_args.get("base_url")
             input_dict = dict(run_args.get("input") or {})
+
+            # payload 只存 file_id 引用；参考图/首尾帧字节到这一步（调用供应商前）才下载编码。
+            input_dict = await materialize_input_references(session, input_dict=input_dict)
 
             task = VideoGenerationTask(
                 provider_config=ProviderConfig(

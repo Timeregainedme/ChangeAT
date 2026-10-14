@@ -1,15 +1,11 @@
 from __future__ import annotations
 
-import base64
-import mimetypes
-
-from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core import storage
-from app.models.studio import AssetViewAngle, FileItem
+from app.models.studio import AssetViewAngle
 from app.schemas.studio.shots import ShotLinkedAssetItem
+from app.services.media_reference_files import compact_image_reference_refs
 
 
 async def resolve_reference_file_ids_and_names_from_linked_items(
@@ -30,55 +26,18 @@ async def resolve_reference_file_ids_and_names_from_linked_items(
     return file_ids, names
 
 
-async def resolve_reference_image_refs_by_file_ids(
+async def compact_reference_image_refs_by_file_ids(
     db: AsyncSession,
     *,
     file_ids: list[str],
 ) -> list[dict[str, str]]:
-    """将 file_id 列表解析为图片参考（data url）。顺序与入参一致。"""
-    out: list[dict[str, str]] = []
-    for fid in file_ids or []:
-        file_id = (fid or "").strip()
-        if not file_id:
-            continue
-        file_obj = await db.get(FileItem, file_id)
-        if file_obj is None or not file_obj.storage_key:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"FileItem not found or storage_key empty for file_id={file_id}",
-            )
-        try:
-            content = await storage.download_file(key=file_obj.storage_key)
-        except Exception as exc:  # noqa: BLE001
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Failed to download file for file_id={file_id}: {exc}",
-            ) from exc
-        if not content:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Empty file content for file_id={file_id}",
-            )
+    """将 file_id 列表校验为**紧凑引用** ``[{"file_id": ...}]``，顺序与入参一致。
 
-        content_type: str | None = None
-        try:
-            info = await storage.get_file_info(key=file_obj.storage_key)
-            content_type = (info.content_type or "").strip().lower() or None
-        except Exception:  # noqa: BLE001
-            content_type = None
-        if not content_type:
-            guessed_type, _ = mimetypes.guess_type(file_obj.storage_key)
-            content_type = (guessed_type or "").strip().lower() or None
-        if not content_type or not content_type.startswith("image/"):
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"File is not an image for file_id={file_id}",
-            )
-
-        image_format = content_type.split("/", 1)[1].split(";", 1)[0].strip().lower() or "png"
-        encoded = base64.b64encode(content).decode("ascii")
-        out.append({"image_url": f"data:image/{image_format};base64,{encoded}"})
-    return out
+    只校验、只留 id：字节内容推迟到任务执行端物化（见
+    `app.services.media_reference_files.materialize_image_reference_refs`），
+    避免把 base64 写进 `generation_tasks.payload`。
+    """
+    return await compact_image_reference_refs(db, file_ids=file_ids)
 
 
 async def pick_front_ref_file_id(
