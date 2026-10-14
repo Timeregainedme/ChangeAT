@@ -112,6 +112,28 @@ async def generate_h3_prose(...)
 
 代码在 `backend/app/chains/agents/h3_video_prompt_agent.py`。
 
+## 默认视频模型
+
+视频生成任务的模型**不可由请求体指定**：`build_run_args` 一律通过
+`resolve_default_video_model(db)` 读取 `ModelSettings.default_video_model_id`，
+因此「当前默认模型」决定了所有视频生成实际使用的供应商与模型。
+
+当前生效配置（运行库 `model_settings`）：
+
+| 项 | 值 |
+| --- | --- |
+| 默认视频模型 | `minimax-h3`（PIX 供应商 `db1fec41…`） |
+| 备用视频模型 | `MiniMax-H3`（优云智算供应商 `a04dc839…`，保留可选，不再默认） |
+
+决策背景：
+
+- 历史成功任务（`generation_tasks` 中 `task_kind=video_generation`）均使用 PIX 的
+  `minimax-h3`，生成结果正常；
+- 曾有一次将默认指向优云智算的 `MiniMax-H3`，任务载荷中提示词中文变为乱码
+  （供应商链路编码问题），已切回 PIX 并修正模型名为 `MiniMax-H3`；
+- 40–150 集短剧要求跨集画风一致，默认模型保持单一供应商/模型是硬约束；
+  如需切换，在「模型设置」页修改默认视频模型即可，代码无需变更。
+
 ## 短剧创作纪律
 
 `backend/app/chains/prompts/short_drama_rules.py` 是无 IO、无 LLM 的纯常量与纯函数层，供 IR 与校验复用：
