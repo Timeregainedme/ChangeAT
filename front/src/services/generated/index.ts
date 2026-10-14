@@ -87,6 +87,8 @@ export type { ApiResponse_VideoGenerationOptionsRead_ } from './models/ApiRespon
 export type { ApiResponse_VideoPromptPreviewResponse_ } from './models/ApiResponse_VideoPromptPreviewResponse_';
 export type { AsyncTaskCreateRead } from './models/AsyncTaskCreateRead';
 export type { AudioGenerationOptionsRead } from './models/AudioGenerationOptionsRead';
+export type { BatchAssetImageTaskRequest } from './models/BatchAssetImageTaskRequest';
+export type { BatchCreateAssetsFromCandidatesRequest } from './models/BatchCreateAssetsFromCandidatesRequest';
 export type { Body_upload_file_api_api_v1_studio_files_upload_post } from './models/Body_upload_file_api_api_v1_studio_files_upload_post';
 export type { CameraAngle } from './models/CameraAngle';
 export type { CameraMovement } from './models/CameraMovement';

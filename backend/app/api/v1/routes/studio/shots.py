@@ -66,6 +66,7 @@ from app.services.studio.generation.video.derive_preview import to_shot_video_pr
 from app.schemas.common import ApiResponse, PaginatedData, created_response, empty_response, success_response
 from app.schemas.skills.script_processing import StudioScriptExtractionDraft
 from app.services.studio.shot_extraction_draft import build_script_extraction_draft_for_shot
+from app.services.studio.batch_candidate_assets import create_assets_from_extraction_candidates
 from app.schemas.studio.shots import (
     ProjectActorLinkRead,
     ProjectAssetLinkCreate,
@@ -89,6 +90,7 @@ from app.schemas.studio.shots import (
     ShotFrameImageUpdate,
     ShotExtractedCandidateLinkRequest,
     ShotExtractedCandidateRead,
+    BatchCreateAssetsFromCandidatesRequest,
     ShotExtractedDialogueCandidateAcceptRequest,
     ShotExtractedDialogueCandidateRead,
     ShotPreparationMutationAction,
@@ -403,6 +405,27 @@ async def ignore_extracted_candidate(
             state=data,
         )
     )
+
+
+@router.post(
+    "/extracted-candidates/batch-create-assets",
+    response_model=ApiResponse[dict[str, Any]],
+    summary="一键从提取候选项创建/关联资产（人物/场景/道具/服装）",
+)
+async def batch_create_assets_from_candidates(
+    body: BatchCreateAssetsFromCandidatesRequest,
+    db: AsyncSession = Depends(get_db),
+) -> ApiResponse[dict[str, Any]]:
+    """按章节遍历 pending 提取候选，批量创建资产实体并关联到分镜。
+
+    ToonFlow 式「一键提取资产」：提取完成后一次性把人物/场景/道具/服装落库。
+    """
+    result = await create_assets_from_extraction_candidates(
+        db,
+        chapter_id=body.chapter_id,
+        types=body.types,
+    )
+    return success_response(result)
 
 
 @router.patch(

@@ -2,9 +2,11 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
+import type { ApiResponse_dict_str__Any__ } from '../models/ApiResponse_dict_str__Any__';
 import type { ApiResponse_RenderedPromptResponse_ } from '../models/ApiResponse_RenderedPromptResponse_';
 import type { ApiResponse_RenderedShotFramePromptRead_ } from '../models/ApiResponse_RenderedShotFramePromptRead_';
 import type { ApiResponse_TaskCreated_ } from '../models/ApiResponse_TaskCreated_';
+import type { BatchAssetImageTaskRequest } from '../models/BatchAssetImageTaskRequest';
 import type { ShotFrameImageTaskRequest } from '../models/ShotFrameImageTaskRequest';
 import type { ShotFramePromptRenderRequest } from '../models/ShotFramePromptRenderRequest';
 import type { StudioImageTaskRequest } from '../models/StudioImageTaskRequest';
@@ -171,6 +173,30 @@ export class StudioImageTasksService {
             path: {
                 'character_id': characterId,
             },
+            body: requestBody,
+            mediaType: 'application/json',
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * 一键批量生成资产参考图（人物/场景/道具/服装）
+     * 为指定类型资产（缺省全部）批量创建图片生成任务。
+     *
+     * 对每个资产自动选取 front 优先的图片槽位并生成提示词（复用资产图渲染逻辑），
+     * 返回 {"tasks": [{asset_id, task_id, prompt}], "skipped": [...]}。
+     * @returns ApiResponse_dict_str__Any__ Successful Response
+     * @throws ApiError
+     */
+    public static createBatchAssetImageTasksApiV1StudioImageTasksAssetsBatchImageTasksPost({
+        requestBody,
+    }: {
+        requestBody: BatchAssetImageTaskRequest,
+    }): CancelablePromise<ApiResponse_dict_str__Any__> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/v1/studio/image-tasks/assets/batch-image-tasks',
             body: requestBody,
             mediaType: 'application/json',
             errors: {

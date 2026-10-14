@@ -33,6 +33,10 @@ export type StudioCharacterDraft = {
      */
     description?: string;
     /**
+     * 角色音色描述（剧本提取产出：年龄段/声线/气质/语速等；用于配音选型参考）
+     */
+    voice_description?: string;
+    /**
      * 标签（可选）
      */
     tags?: Array<string>;

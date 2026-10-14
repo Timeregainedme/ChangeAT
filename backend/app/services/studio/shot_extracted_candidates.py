@@ -50,7 +50,7 @@ async def list_by_shot(
 
 def _payload_from_asset(item: Any) -> dict[str, Any]:
     payload: dict[str, Any] = {}
-    for key in ("id", "file_id", "thumbnail", "description"):
+    for key in ("id", "file_id", "thumbnail", "description", "voice_description"):
         value = getattr(item, key, None)
         if value is None:
             continue

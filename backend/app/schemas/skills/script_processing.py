@@ -304,6 +304,10 @@ class StudioCharacterDraft(BaseModel):
     index: Optional[int] = Field(None, description="镜头内角色排序（shot_character_links.index）")
     name: str = Field(..., description="角色名称（同项目内建议唯一）")
     description: str = Field("", description="角色描述")
+    voice_description: str = Field(
+        "",
+        description="角色音色描述（剧本提取产出：年龄段/声线/气质/语速等；用于配音选型参考）",
+    )
     tags: List[str] = Field(default_factory=list, description="标签（可选）")
     costume_name: Optional[str] = Field(None, description="服装名称（可选，导入时映射到 costume_id）")
     prop_names: List[str] = Field(default_factory=list, description="角色常用道具名称列表（可选）")

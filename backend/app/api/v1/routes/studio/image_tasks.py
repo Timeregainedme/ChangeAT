@@ -6,6 +6,8 @@ from __future__ import annotations
 将任务与上层业务实体（演员形象/道具/场景/服装/角色/镜头分镜帧）建立关联。
 """
 
+from typing import Any
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 from sqlalchemy import select
@@ -45,6 +47,9 @@ from app.services.studio.generation.frame.derive_preview import (
     to_rendered_shot_frame_prompt_read as _to_rendered_shot_frame_prompt_read_service,
 )
 from app.services.studio.image_task_runner import create_image_task_and_link as _create_image_task_and_link_service
+from app.services.studio.batch_asset_images import (
+    create_batch_asset_image_tasks as create_batch_asset_image_tasks_service,
+)
 
 
 router = APIRouter()
@@ -77,6 +82,19 @@ class StudioImageTaskRequest(BaseModel):
     images: list[str] = Field(
         default_factory=list,
         description="参考图 file_id 列表（可多张，顺序有效）。创建任务接口会基于 file_id 从数据中解析为参考图",
+    )
+
+
+class BatchAssetImageTaskRequest(BaseModel):
+    """一键批量资产参考图生成请求体。"""
+
+    asset_type: str = Field(
+        ...,
+        description="资产类型：character / scene / prop / costume",
+    )
+    asset_ids: list[str] | None = Field(
+        None,
+        description="目标资产 ID 列表；缺省为该类型全部资产",
     )
 
 
@@ -355,6 +373,29 @@ async def render_character_image_prompt(
     context = _build_asset_image_context_service(base=base)
     derived = _derive_asset_image_preview_service(base=base, context=context)
     return success_response(RenderedPromptResponse(prompt=derived.prompt, images=derived.images))
+
+
+@router.post(
+    "/assets/batch-image-tasks",
+    response_model=ApiResponse[dict[str, Any]],
+    status_code=status.HTTP_201_CREATED,
+    summary="一键批量生成资产参考图（人物/场景/道具/服装）",
+)
+async def create_batch_asset_image_tasks(
+    body: BatchAssetImageTaskRequest,
+    db: AsyncSession = Depends(get_db),
+) -> ApiResponse[dict[str, Any]]:
+    """为指定类型资产（缺省全部）批量创建图片生成任务。
+
+    对每个资产自动选取 front 优先的图片槽位并生成提示词（复用资产图渲染逻辑），
+    返回 {"tasks": [{asset_id, task_id, prompt}], "skipped": [...]}。
+    """
+    result = await create_batch_asset_image_tasks_service(
+        db,
+        asset_type=body.asset_type,
+        asset_ids=body.asset_ids,
+    )
+    return success_response(result)
 
 
 @router.post(

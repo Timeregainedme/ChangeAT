@@ -251,6 +251,12 @@ class Character(Base, TimestampMixin):
         nullable=True,
         comment="角色默认音色来源（preset 预设音色 / custom 自定义音色；为空时按模型名推断）",
     )
+    voice_description: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+        default="",
+        comment="角色音色描述（剧本提取产出：年龄段/声线/气质/语速等；用于配音选型参考）",
+    )
 
     project: Mapped["Project"] = relationship(back_populates="characters")
     actor: Mapped["Actor"] = relationship(back_populates="characters")

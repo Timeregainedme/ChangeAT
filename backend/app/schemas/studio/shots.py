@@ -87,6 +87,16 @@ class ShotExtractedCandidateLinkRequest(BaseModel):
     linked_entity_id: str = Field(..., description="确认关联到的实体 ID")
 
 
+class BatchCreateAssetsFromCandidatesRequest(BaseModel):
+    """一键从提取候选创建/关联资产的请求体。"""
+
+    chapter_id: str = Field(..., description="章节 ID：遍历该章节下所有 pending 提取候选")
+    types: list[str] | None = Field(
+        None,
+        description="候选类型过滤（character/scene/prop/costume）；缺省处理全部类型",
+    )
+
+
 class ShotExtractedCandidateRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

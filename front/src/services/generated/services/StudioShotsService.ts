@@ -2,6 +2,7 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
+import type { ApiResponse_dict_str__Any__ } from '../models/ApiResponse_dict_str__Any__';
 import type { ApiResponse_list_ShotExtractedCandidateRead__ } from '../models/ApiResponse_list_ShotExtractedCandidateRead__';
 import type { ApiResponse_list_ShotExtractedDialogueCandidateRead__ } from '../models/ApiResponse_list_ShotExtractedDialogueCandidateRead__';
 import type { ApiResponse_list_ShotRuntimeSummaryRead__ } from '../models/ApiResponse_list_ShotRuntimeSummaryRead__';
@@ -16,6 +17,7 @@ import type { ApiResponse_ShotRead_ } from '../models/ApiResponse_ShotRead_';
 import type { ApiResponse_ShotVideoPromptPreviewRead_ } from '../models/ApiResponse_ShotVideoPromptPreviewRead_';
 import type { ApiResponse_ShotVideoReadinessRead_ } from '../models/ApiResponse_ShotVideoReadinessRead_';
 import type { ApiResponse_StudioScriptExtractionDraft_ } from '../models/ApiResponse_StudioScriptExtractionDraft_';
+import type { BatchCreateAssetsFromCandidatesRequest } from '../models/BatchCreateAssetsFromCandidatesRequest';
 import type { ShotCreate } from '../models/ShotCreate';
 import type { ShotExtractedCandidateLinkRequest } from '../models/ShotExtractedCandidateLinkRequest';
 import type { ShotExtractedDialogueCandidateAcceptRequest } from '../models/ShotExtractedDialogueCandidateAcceptRequest';
@@ -421,6 +423,29 @@ export class StudioShotsService {
             path: {
                 'candidate_id': candidateId,
             },
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * 一键从提取候选项创建/关联资产（人物/场景/道具/服装）
+     * 按章节遍历 pending 提取候选，批量创建资产实体并关联到分镜。
+     *
+     * ToonFlow 式「一键提取资产」：提取完成后一次性把人物/场景/道具/服装落库。
+     * @returns ApiResponse_dict_str__Any__ Successful Response
+     * @throws ApiError
+     */
+    public static batchCreateAssetsFromCandidatesApiV1StudioShotsExtractedCandidatesBatchCreateAssetsPost({
+        requestBody,
+    }: {
+        requestBody: BatchCreateAssetsFromCandidatesRequest,
+    }): CancelablePromise<ApiResponse_dict_str__Any__> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/v1/studio/shots/extracted-candidates/batch-create-assets',
+            body: requestBody,
+            mediaType: 'application/json',
             errors: {
                 422: `Validation Error`,
             },

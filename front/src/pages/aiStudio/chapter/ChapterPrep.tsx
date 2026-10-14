@@ -1,4 +1,5 @@
-import React, { useEffect, useMemo, useState } from 'react'
+import type React from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
   Badge,
   Button,
@@ -35,8 +36,14 @@ import {
   VideoCameraOutlined,
 } from '@ant-design/icons'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { StudioChaptersService } from '../../../services/generated'
-import type { ChapterRead } from '../../../services/generated'
+import {
+  FilmService,
+  ScriptProcessingService,
+  StudioChaptersService,
+  StudioImageTasksService,
+  StudioShotsService,
+} from '../../../services/generated'
+import type { ChapterRead, ScriptExtractRequest, ScriptDividerRequest } from '../../../services/generated'
 import type { Chapter } from '../../../mocks/data'
 import { ChapterRawTextEditorModal } from './components/ChapterRawTextEditorModal'
 
@@ -96,7 +103,125 @@ type ExtractResults = {
   props: PropItem[]
 }
 
-// TODO: 后续接入“章节草稿/版本历史/智能精简”等接口后，可移除当前页面的 Mock 逻辑与预置数据。
+// TODO: 后续可移除本页面的 Mock 辅助交互（实体编辑/从资产库选取等），核心提取与生成已接真实接口。
+
+// 轮询异步任务直至终态（succeeded/failed/cancelled），返回最终 TaskStatusRead。
+async function pollTaskUntilDone(taskId: string, onProgress?: (p: number) => void): Promise<string> {
+  for (let i = 0; i < 120; i += 1) {
+    const res = await FilmService.getTaskStatusApiV1FilmTasksTaskIdStatusGet({ taskId })
+    const data = res.data ?? null
+    const status = data?.status ?? 'pending'
+    onProgress?.(data?.progress ?? 0)
+    if (status === 'succeeded' || status === 'failed' || status === 'cancelled') {
+      if (status !== 'succeeded') {
+        throw new Error(`任务未成功：${status}`)
+      }
+      return status
+    }
+    await new Promise((r) => setTimeout(r, 1200))
+  }
+  throw new Error('任务轮询超时')
+}
+
+// 剧本 -> 分镜（divide-async）-> 项目级提取（extract-async）真实链路。
+// 提取完成后，后端会把候选写入各镜头的 extracted_candidates，前端再聚合展示。
+async function fetchPrepExtract(opts: {
+  projectId: string
+  chapterId: string
+  scriptText: string
+  onProgress?: (label: string, p: number) => void
+}): Promise<ExtractResults> {
+  const { projectId, chapterId, scriptText, onProgress } = opts
+
+  onProgress?.('分镜切分', 0)
+  const divided = await ScriptProcessingService.divideScriptAsyncApiV1ScriptProcessingDivideAsyncPost({
+    requestBody: {
+      script_text: scriptText,
+      write_to_db: true,
+      chapter_id: chapterId,
+    } as ScriptDividerRequest,
+  })
+  const divideTaskId = divided.data?.task_id
+  if (!divideTaskId) {
+    throw new Error('divide-async 未返回 task_id')
+  }
+  await pollTaskUntilDone(divideTaskId, (p) => onProgress?.('分镜切分', p))
+
+  onProgress?.('智能提取', 0)
+  const extracted = await ScriptProcessingService.extractScriptAsyncApiV1ScriptProcessingExtractAsyncPost({
+    requestBody: {
+      project_id: projectId,
+      chapter_id: chapterId,
+      script_division: {}, // 服务端从库内分镜重建；保持接口契约
+    } as ScriptExtractRequest,
+  })
+  const extractTaskId = extracted.data?.task_id
+  if (!extractTaskId) {
+    throw new Error('extract-async 未返回 task_id')
+  }
+  await pollTaskUntilDone(extractTaskId, (p) => onProgress?.('智能提取', p))
+
+  return await collectExtractionResults(chapterId)
+}
+
+// 聚合章节下各镜头的提取候选 + 分镜，映射为页面 ExtractResults 结构。
+async function collectExtractionResults(chapterId: string): Promise<ExtractResults> {
+  const shotsRes = await StudioShotsService.listShotsApiV1StudioShotsGet({
+    chapterId,
+    page: 1,
+    pageSize: 500,
+  })
+  const shotRows = shotsRes.data?.items ?? []
+
+  const storyboards: StoryboardSuggestion[] = shotRows.map((s, i) => ({
+    id: s.id ?? `shot-${i}`,
+    index: s.index ?? i + 1,
+    title: s.title ?? '',
+    preview: (s.script_excerpt ?? '').slice(0, 60),
+    paragraphRange: '',
+    duration: '',
+    actions: [],
+    roles: [],
+    scenes: [],
+    props: [],
+  }))
+
+  const roles: RoleItem[] = []
+  const scenes: SceneItem[] = []
+  const props: PropItem[] = []
+  const seen = { role: new Set<string>(), scene: new Set<string>(), prop: new Set<string>() }
+
+  for (const shot of shotRows) {
+    const shotId = shot.id
+    if (!shotId) continue
+    const candRes = await StudioShotsService.getShotExtractedCandidatesApiV1StudioShotsShotIdExtractedCandidatesGet({
+      shotId,
+    })
+    for (const c of candRes.data ?? []) {
+      const type = c.candidate_type
+      const name = c.candidate_name
+      const description = c.payload?.description ?? ''
+      if (type === 'character' && !seen.role.has(name)) {
+        seen.role.add(name)
+        roles.push({ id: `role-${roles.length + 1}`, name, aliases: [], firstSeen: '', description, primary: true })
+      } else if (type === 'scene' && !seen.scene.has(name)) {
+        seen.scene.add(name)
+        scenes.push({
+          id: `scene-${scenes.length + 1}`,
+          name,
+          indoorOutdoor: '未知',
+          time: '未知',
+          keywords: [],
+        })
+      } else if (type === 'prop' && !seen.prop.has(name)) {
+        seen.prop.add(name)
+        props.push({ id: `prop-${props.length + 1}`, name, owner: undefined, count: 1, key: false })
+      }
+    }
+  }
+
+  return { storyboards, roles, scenes, props }
+}
 
 type EntityKind = 'roles' | 'scenes' | 'props'
 
@@ -108,61 +233,6 @@ type ExistingEntities = {
 
 function entitiesStorageKey(projectId: string) {
   return `jellyfish_project_entities_v1:${projectId}`
-}
-
-function extractMock(text: string): ExtractResults {
-  const baseRoles = ['小雨', '阿川', '房东']
-  const baseScenes = ['十平米出租屋', '城郊老旧小区走廊', '窗边']
-  const baseProps = ['欠条', '风扇', '手机', '钥匙']
-  const hasText = text.trim().length > 0
-
-  const storyboards: StoryboardSuggestion[] = (hasText ? Array.from({ length: 8 }) : []).map((_, i) => ({
-    id: `sb-${i + 1}`,
-    index: i + 1,
-    title:
-      i === 2 ? '两人对峙' :
-        i === 5 ? '门口停顿' :
-          `段落推进 · ${i + 1}`,
-    preview:
-      i === 0 ? '夜色下的老旧小区，路灯昏黄，情绪压着。' :
-        i === 1 ? '出租屋内风扇吱呀作响，欠条摊在桌上。' :
-          i === 2 ? '沉默持续，目光交锋，谁也不肯先开口。' :
-            '对话推进，情绪起伏，动作带出关系变化。',
-    paragraphRange: `第${i * 2 + 1}–${i * 2 + 2}段`,
-    duration: i % 3 === 0 ? '8–12秒' : '5–9秒',
-    actions: i % 2 === 0 ? ['沉默', '转身'] : ['质问', '停顿'],
-    roles: i % 2 === 0 ? ['小雨', '阿川'] : ['小雨'],
-    scenes: i % 3 === 0 ? ['十平米出租屋'] : ['城郊老旧小区走廊'],
-    props: i % 2 === 0 ? ['欠条'] : ['手机'],
-    isTransition: i === 5,
-  }))
-
-  const roles: RoleItem[] = (hasText ? baseRoles : []).map((name, i) => ({
-    id: `r-${i + 1}`,
-    name,
-    aliases: name === '小雨' ? ['小雨儿'] : [],
-    firstSeen: `第${i + 1}段`,
-    description: name === '小雨' ? '25岁互联网运营，疲惫但眼神坚定。' : '情绪克制，话少但带刺。',
-    primary: name !== '房东',
-  }))
-
-  const scenes: SceneItem[] = (hasText ? baseScenes : []).map((name, i) => ({
-    id: `s-${i + 1}`,
-    name,
-    indoorOutdoor: i === 0 ? '室内' : i === 1 ? '室外' : '未知',
-    time: i === 1 ? '夜晚' : '未知',
-    keywords: i === 0 ? ['狭窄', '顶灯冷白'] : ['昏黄路灯', '潮湿'],
-  }))
-
-  const props: PropItem[] = (hasText ? baseProps : []).map((name, i) => ({
-    id: `p-${i + 1}`,
-    name,
-    owner: name === '手机' ? '小雨' : undefined,
-    count: 1 + (i % 3),
-    key: name === '欠条',
-  }))
-
-  return { storyboards, roles, scenes, props }
 }
 
 function toUIChapter(c: ChapterRead): Chapter {
@@ -194,6 +264,9 @@ const ChapterPrep: React.FC = () => {
   const [editorModalOpen, setEditorModalOpen] = useState(false)
 
   const [extracting, setExtracting] = useState(false)
+  const [creatingAssets, setCreatingAssets] = useState(false)
+  const [generatingImages, setGeneratingImages] = useState(false)
+  const [lastImageTasks, setLastImageTasks] = useState<Array<{ asset_id?: string; task_id?: string; prompt?: string }>>([])
   const [results, setResults] = useState<ExtractResults>({ storyboards: [], roles: [], scenes: [], props: [] })
   const [extractReviewOpen, setExtractReviewOpen] = useState(false)
   const [extractReviewTab, setExtractReviewTab] = useState<EntityKind>('roles')
@@ -261,7 +334,12 @@ const ChapterPrep: React.FC = () => {
         const nextCondensed = data.condensed_text ?? ''
         setRawText(nextRaw)
         setCondensedText(nextCondensed)
-        setResults(extractMock(nextRaw))
+        // 进入页面时若已有分镜/候选，直接聚合展示，避免整页空白。
+        if (data.project_id) {
+          void collectExtractionResults(chapterId)
+            .then(setResults)
+            .catch(() => undefined)
+        }
       })
       .catch(() => {
         setChapter(null)
@@ -314,17 +392,24 @@ const ChapterPrep: React.FC = () => {
     }
   }, [projectId, existingEntities])
 
-  // TODO: 后续可在此接入“章节草稿/版本历史”接口，替换掉当前预置数据与本地状态实现。
-
+  // 真实提取链路：divide-async -> extract-async -> 聚合候选/分镜展示。
   const runExtract = async (kind: 'all' | ExtractKind) => {
     if (!rawText.trim()) {
       message.warning('请先粘贴或输入原文')
       return
     }
+    if (!projectId || !chapterId) {
+      message.warning('缺少项目或章节上下文')
+      return
+    }
     setExtracting(true)
     try {
-      await new Promise((r) => setTimeout(r, 900))
-      const next = extractMock(rawText)
+      const next = await fetchPrepExtract({
+        projectId,
+        chapterId,
+        scriptText: rawText,
+        onProgress: (_label, _p) => undefined,
+      })
       setResults((prev) => {
         if (kind === 'all') return next
         switch (kind) {
@@ -340,7 +425,7 @@ const ChapterPrep: React.FC = () => {
             return prev
         }
       })
-      message.success('提取完成（Mock）')
+      message.success(`提取完成：分镜 ${next.storyboards.length} / 角色 ${next.roles.length} / 场景 ${next.scenes.length} / 道具 ${next.props.length}`)
 
       // 打开提取回显浮窗
       if (kind === 'roles' || kind === 'scenes' || kind === 'props') {
@@ -350,8 +435,62 @@ const ChapterPrep: React.FC = () => {
       }
       setSelectedEntityKeys({ roles: [], scenes: [], props: [] })
       setExtractReviewOpen(true)
+    } catch (err) {
+      message.error(`提取失败：${err instanceof Error ? err.message : String(err)}`)
     } finally {
       setExtracting(false)
+    }
+  }
+
+  // 一键从提取候选创建/关联资产（人物/场景/道具/服装落库）。
+  const batchCreateAssets = async () => {
+    if (!chapterId) {
+      message.warning('缺少章节上下文')
+      return
+    }
+    setCreatingAssets(true)
+    try {
+      const res = await StudioShotsService.batchCreateAssetsFromCandidatesApiV1StudioShotsExtractedCandidatesBatchCreateAssetsPost(
+        {
+          requestBody: { chapter_id: chapterId, types: undefined },
+        },
+      )
+      const data = (res.data ?? {}) as Record<string, unknown>
+      const created = data.created ?? []
+      const linked = data.linked ?? []
+      const skipped = data.skipped ?? []
+      message.success(`资产就绪：新建 ${created.length} / 关联 ${linked.length} / 跳过 ${skipped.length}`)
+      // 刷新候选展示（新资产已关联，重新聚合以保持最新状态）
+      const next = await collectExtractionResults(chapterId)
+      setResults(next)
+    } catch (err) {
+      message.error(`创建资产失败：${err instanceof Error ? err.message : String(err)}`)
+    } finally {
+      setCreatingAssets(false)
+    }
+  }
+
+  // 一键批量生成资产参考图（人物/场景/道具/服装），任务提交后由工作室/资产页出图与抽卡。
+  const batchGenerateAssetImages = async (assetType: 'character' | 'scene' | 'prop' | 'costume') => {
+    setGeneratingImages(true)
+    try {
+      const res = await StudioImageTasksService.createBatchAssetImageTasksApiV1StudioImageTasksAssetsBatchImageTasksPost({
+        requestBody: { asset_type: assetType, asset_ids: undefined },
+      })
+      const body = (res.data ?? {}) as Record<string, unknown>
+      const tasks = Array.isArray(body.tasks) ? (body.tasks as Array<Record<string, unknown>>) : []
+      const skipped = Array.isArray(body.skipped) ? body.skipped : []
+      const typeLabel = { character: '角色', scene: '场景', prop: '道具', costume: '服装' }[assetType]
+      message.success(
+        skipped.length > 0
+          ? `${typeLabel}参考图：已提交 ${tasks.length} 个任务，跳过 ${skipped.length}（无图片槽位）`
+          : `${typeLabel}参考图：已提交 ${tasks.length} 个生成任务`,
+      )
+      setLastImageTasks(tasks)
+    } catch (err) {
+      message.error(`批量生成参考图失败：${err instanceof Error ? err.message : String(err)}`)
+    } finally {
+      setGeneratingImages(false)
     }
   }
 
@@ -709,17 +848,46 @@ const ChapterPrep: React.FC = () => {
           <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', gap: 12, overflow: 'hidden' }}>
             <Card size="small">
               <div className="flex items-center justify-between gap-2 flex-wrap">
-                <Space>
+                <Space wrap>
                   <Button icon={<FileTextOutlined />} onClick={() => setEditorModalOpen(true)}>
                     编辑原文
                   </Button>
                   <Button type="primary" loading={extracting} icon={<ThunderboltOutlined />} onClick={() => void runExtract('all')}>
                     一键提取全部
                   </Button>
+                  <Button
+                    loading={creatingAssets}
+                    icon={<CheckCircleOutlined />}
+                    onClick={() => void batchCreateAssets()}
+                    disabled={currentItemsCount.roles + currentItemsCount.scenes + currentItemsCount.props === 0}
+                  >
+                    一键创建资产
+                  </Button>
+                  <Button
+                    loading={generatingImages}
+                    icon={<VideoCameraOutlined />}
+                    onClick={() => void batchGenerateAssetImages('character')}
+                    disabled={currentItemsCount.roles === 0}
+                  >
+                    批量生成角色参考图
+                  </Button>
+                  <Button
+                    loading={generatingImages}
+                    icon={<VideoCameraOutlined />}
+                    onClick={() => void batchGenerateAssetImages('scene')}
+                    disabled={currentItemsCount.scenes === 0}
+                  >
+                    批量生成场景参考图
+                  </Button>
                   <span className="text-xs text-gray-500">
                     {currentItemsCount.roles + currentItemsCount.scenes + currentItemsCount.props > 0 ? '已提取，可重新提取' : '尚未提取'}
                   </span>
                 </Space>
+                {lastImageTasks.length > 0 && (
+                  <div className="text-xs text-gray-500 w-full mt-1">
+                    最近提交 {lastImageTasks.length} 个参考图任务，提示词已下发（前往分镜工作室或资产页查看出图/抽卡）。
+                  </div>
+                )}
               </div>
             </Card>
 

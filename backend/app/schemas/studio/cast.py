@@ -77,6 +77,10 @@ class CharacterBase(BaseModel):
         None,
         description="角色默认音色来源：preset 预设音色 / custom 自定义音色；为空时按模型名推断",
     )
+    voice_description: str = Field(
+        "",
+        description="角色音色描述（剧本提取产出：年龄段/声线/气质/语速等；用于配音选型参考）",
+    )
 
 
 class CharacterCreate(CharacterBase):
