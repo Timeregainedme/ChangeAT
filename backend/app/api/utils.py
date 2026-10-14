@@ -44,7 +44,12 @@ def apply_order(
     allow_fields: set[str],
     default: str,
 ) -> Select[Any]:
-    col = order if order and order in allow_fields else default
+    if order and order not in allow_fields:
+        # 静默回落到默认排序会让前端的字段名笔误无声失效（拿到看似正常、顺序却不对的
+        # 数据），这里改成显式报错，错误信息带上允许的字段方便定位。空串仍按未传处理。
+        allowed = ", ".join(sorted(allow_fields))
+        raise ValueError(f"Unsupported order field: {order}. Allowed fields: {allowed}")
+    col = order or default
     attr = getattr(model, col)
     return stmt.order_by(attr.desc() if is_desc else attr.asc())
 

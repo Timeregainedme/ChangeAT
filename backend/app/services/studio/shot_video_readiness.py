@@ -177,6 +177,10 @@ async def get_shot_video_readiness(
     )
     if extraction_ok:
         extraction_msg = "信息提取确认已完成" if not shot.skip_extraction else "当前镜头已标记为无需提取"
+    elif shot.last_extracted_at is None:
+        # 未提取时 pending 计数天然为 0，沿用「仍有待确认项：资产 0 项，对白 0 项」会自相
+        # 矛盾，也掩盖了真正的缺口（尚未执行提取），故单独成句。
+        extraction_msg = "尚未执行信息提取，请先提取或将该镜头标记为无需提取"
     else:
         extraction_msg = f"仍有待确认项：资产 {pending_assets} 项，对白 {pending_dialogues} 项"
 

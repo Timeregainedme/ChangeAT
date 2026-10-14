@@ -526,6 +526,36 @@ def test_validate_images_count_reference_mode_messages_are_actionable() -> None:
 
 
 @pytest.mark.asyncio
+async def test_shot_video_readiness_says_never_extracted_instead_of_zero_pending() -> None:
+    """未提取时不能说「仍有待确认项：资产 0 项，对白 0 项」。
+
+    回归 P2：未提取时 pending 候选天然为 0，沿用那句文案会自相矛盾，也掩盖了真正
+    的缺口（尚未执行提取），用户看不出该点哪里。
+    """
+    db, engine = await _build_session()
+    async with db:
+        await _seed_shot_graph(db)
+        shot = await db.get(Shot, "s1")
+        assert shot is not None
+        assert shot.last_extracted_at is None
+        provider = Provider(id="p1", name="OpenAI", base_url="https://api.openai.com/v1", api_key="k")
+        model = Model(id="m_video", name="sora-mini", category=ModelCategoryKey.video, provider_id="p1")
+        settings = ModelSettings(id=1, default_video_model_id="m_video")
+        db.add_all([provider, model, settings])
+        await db.flush()
+
+        readiness = await get_shot_video_readiness(db, shot_id="s1", reference_mode="text_only")
+
+        checks = {item.key: item for item in readiness.checks}
+        assert checks["extraction_ready"].ok is False
+        assert checks["extraction_ready"].message == (
+            "尚未执行信息提取，请先提取或将该镜头标记为无需提取"
+        )
+        assert "仍有待确认项" not in checks["extraction_ready"].message
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
 async def test_build_run_args_uses_request_ratio_as_final_value(monkeypatch: pytest.MonkeyPatch) -> None:
     db, engine = await _build_session()
     async with db:

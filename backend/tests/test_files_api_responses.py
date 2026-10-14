@@ -13,6 +13,7 @@ from app.dependencies import get_db
 from app.main import app
 from app.models.studio import FileItem
 from app.models.types import FileType
+from app.schemas.studio.files import FileRead, FileTypeEnum
 
 
 class _DummyDB:
@@ -123,3 +124,24 @@ def test_update_file_meta_returns_success_envelope(client: TestClient, monkeypat
     assert body["message"] == "success"
     assert body["data"]["id"] == "file-1"
     assert body["data"]["name"] == "封面图"
+
+
+def test_file_type_enum_covers_every_db_file_type() -> None:
+    """回归 P1：schema 枚举必须覆盖 DB ``FileType`` 的全部取值。
+
+    ``FileTypeEnum`` 曾缺少 ``audio``，而库里存在 TTS 产出的音频文件，导致文件
+    列表响应整表序列化失败并返回 400（整表失败，不是跳过该行）。
+    """
+    assert {item.value for item in FileTypeEnum} == {item.value for item in FileType}
+
+
+def test_file_read_accepts_audio_type() -> None:
+    """音频文件必须能通过 FileRead 序列化（列表接口不再整表 400）。"""
+    read = FileRead(
+        id="file-audio",
+        type="audio",
+        name="对白.wav",
+        thumbnail="",
+        tags=["dialogue"],
+    )
+    assert read.type is FileTypeEnum.audio

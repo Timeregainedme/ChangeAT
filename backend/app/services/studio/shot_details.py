@@ -6,7 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.utils import apply_order, paginate
-from app.models.studio import Scene, Shot, ShotDetail
+from app.models.studio import CameraAngle, CameraMovement, CameraShotType, Scene, Shot, ShotDetail, VFXType
 from app.schemas.common import ApiResponse, PaginatedData, paginated_response
 from app.schemas.studio.shots import ShotDetailCreate, ShotDetailRead, ShotDetailUpdate
 from app.services.common import (
@@ -22,6 +22,28 @@ from app.services.common import (
     require_optional_entity,
 )
 from app.services.studio.shot_extracted_candidates import mark_linked_by_name, mark_pending_by_linked_entity
+
+
+# 镜头默认细节：新建 Shot 时必须同时落下这一行。
+# 编辑页（preparation-state）、准备度聚合与「跳过提取」都以 ShotDetail 为前提，
+# 缺行会让这些接口 404，且写操作随事务回滚，使分镜永久卡在 pending。
+DEFAULT_SHOT_CAMERA_SHOT = CameraShotType.ms
+DEFAULT_SHOT_ANGLE = CameraAngle.eye_level
+DEFAULT_SHOT_MOVEMENT = CameraMovement.static
+DEFAULT_SHOT_DURATION = 4
+
+
+def build_default_shot_detail(shot_id: str) -> ShotDetail:
+    """构造镜头默认细节行（与剧本分镜写库的默认值保持一致）。"""
+    return ShotDetail(
+        id=shot_id,
+        camera_shot=DEFAULT_SHOT_CAMERA_SHOT,
+        angle=DEFAULT_SHOT_ANGLE,
+        movement=DEFAULT_SHOT_MOVEMENT,
+        follow_atmosphere=True,
+        vfx_type=VFXType.none,
+        duration=DEFAULT_SHOT_DURATION,
+    )
 
 
 async def list_paginated(

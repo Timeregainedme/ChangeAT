@@ -10,14 +10,20 @@ from fastapi.testclient import TestClient
 from app.dependencies import get_db
 from app.main import app
 from app.models.studio import (
+    CameraAngle,
+    CameraMovement,
+    CameraShotType,
     Chapter,
     ChapterStatus,
     Project,
     ProjectStyle,
     ProjectVisualStyle,
     Shot,
+    ShotDetail,
     ShotStatus,
+    VFXType,
 )
+from app.services.studio.shot_details import DEFAULT_SHOT_DURATION
 
 
 class _FakeStudioDB:
@@ -27,6 +33,7 @@ class _FakeStudioDB:
         self.projects: dict[str, Project] = {}
         self.chapters: dict[str, Chapter] = {}
         self.shots: dict[str, Shot] = {}
+        self.shot_details: dict[str, ShotDetail] = {}
 
     async def get(self, model: type, entity_id: str):  # noqa: ANN001
         if model is Project:
@@ -35,6 +42,8 @@ class _FakeStudioDB:
             return self.chapters.get(entity_id)
         if model is Shot:
             return self.shots.get(entity_id)
+        if model is ShotDetail:
+            return self.shot_details.get(entity_id)
         return None
 
     def add(self, obj: object) -> None:
@@ -46,6 +55,9 @@ class _FakeStudioDB:
             return
         if isinstance(obj, Shot):
             self.shots[obj.id] = obj
+            return
+        if isinstance(obj, ShotDetail):
+            self.shot_details[obj.id] = obj
             return
         raise TypeError(f"Unsupported object type: {type(obj)!r}")
 
@@ -67,6 +79,9 @@ class _FakeStudioDB:
             return
         if isinstance(obj, Shot):
             self.shots.pop(obj.id, None)
+            return
+        if isinstance(obj, ShotDetail):
+            self.shot_details.pop(obj.id, None)
             return
         raise TypeError(f"Unsupported object type: {type(obj)!r}")
 
@@ -336,6 +351,45 @@ def test_create_shot_returns_created_envelope(client: TestClient) -> None:
     assert body["code"] == 201
     assert body["data"]["id"] == "shot-create"
     assert body["data"]["chapter_id"] == "ch-shot"
+
+
+def test_create_shot_also_creates_default_shot_detail(client: TestClient) -> None:
+    """手工创建镜头必须同事务落下配套 ShotDetail。
+
+    回归 P0：`shots.create()` 曾只建 Shot 不建 ShotDetail，导致手工创建的分镜在
+    `preparation-state` / `shot-details` / `skip-extraction` 上一律 404，且写操作
+    随事务回滚，分镜永久卡在 pending（只有「一键提取」产出的分镜带 detail）。
+    """
+    db = _FakeStudioDB()
+    _seed_project(db, "proj-shot-detail")
+    _seed_chapter(db, chapter_id="ch-shot-detail", project_id="proj-shot-detail")
+    app.dependency_overrides[get_db] = _override_db(db)
+    try:
+        response = client.post(
+            "/api/v1/studio/shots",
+            json={
+                "id": "shot-with-detail",
+                "chapter_id": "ch-shot-detail",
+                "index": 1,
+                "title": "镜头一",
+                "thumbnail": "",
+                "status": "pending",
+                "script_excerpt": "镜头内容",
+                "generated_video_file_id": None,
+            },
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 201
+    detail = db.shot_details.get("shot-with-detail")
+    assert detail is not None, "创建镜头时没有落下配套 ShotDetail"
+    assert detail.id == "shot-with-detail"
+    assert detail.camera_shot is CameraShotType.ms
+    assert detail.angle is CameraAngle.eye_level
+    assert detail.movement is CameraMovement.static
+    assert detail.vfx_type is VFXType.none
+    assert detail.duration == DEFAULT_SHOT_DURATION
 
 
 def test_get_shot_not_found_returns_api_response(client: TestClient) -> None:

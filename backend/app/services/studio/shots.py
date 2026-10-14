@@ -31,6 +31,9 @@ from app.services.common import (
 )
 
 
+from app.services.studio.shot_details import build_default_shot_detail
+
+
 def _build_extraction_state(
     *,
     shot: Shot,
@@ -204,10 +207,17 @@ async def create(
     *,
     body: ShotCreate,
 ) -> Shot:
-    """创建镜头。"""
+    """创建镜头。
+
+    必须同事务落下配套的 ShotDetail：编辑页、准备度聚合与「跳过提取」都以它为前提，
+    缺行会让这些接口 404（写操作还会随事务回滚），使手工创建的分镜永久卡在 pending。
+    """
     await ensure_not_exists(db, Shot, body.id, detail=entity_already_exists("Shot"))
     await require_entity(db, Chapter, body.chapter_id, detail=entity_not_found("Chapter"), status_code=400)
-    return await create_and_refresh(db, Shot(**body.model_dump()))
+    shot = await create_and_refresh(db, Shot(**body.model_dump()))
+    db.add(build_default_shot_detail(shot.id))
+    await db.flush()
+    return shot
 
 
 async def get(

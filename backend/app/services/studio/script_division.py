@@ -9,9 +9,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session
 
-from app.models.studio import CameraAngle, CameraMovement, CameraShotType, Chapter, Shot, ShotDetail, VFXType
+from app.models.studio import Chapter, Shot
 from app.schemas.skills.script_processing import ScriptDivisionResult
 from app.services.common import entity_not_found, require_entity
+from app.services.studio.shot_details import build_default_shot_detail
 
 
 def _append_division_rows(
@@ -32,17 +33,7 @@ def _append_division_rows(
                 script_excerpt=shot_division.script_excerpt,
             )
         )
-        db_add(
-            ShotDetail(
-                id=shot_id,
-                camera_shot=CameraShotType.ms,
-                angle=CameraAngle.eye_level,
-                movement=CameraMovement.static,
-                follow_atmosphere=True,
-                vfx_type=VFXType.none,
-                duration=4,
-            )
-        )
+        db_add(build_default_shot_detail(shot_id))
 
 
 async def write_division_result_to_chapter(
