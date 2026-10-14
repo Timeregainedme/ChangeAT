@@ -122,15 +122,17 @@ async def generate_h3_prose(...)
 
 | 项 | 值 |
 | --- | --- |
-| 默认视频模型 | `minimax-h3`（PIX 供应商 `db1fec41…`） |
-| 备用视频模型 | `MiniMax-H3`（优云智算供应商 `a04dc839…`，保留可选，不再默认） |
+| 默认视频模型 | `MiniMax-H3`（优云智算供应商 `a04dc839…`，base `https://cp.compshare.cn`） |
+| 备用视频模型 | `minimax-h3`（PIX 供应商 `db1fec41…`，保留可选，不再默认） |
 
 决策背景：
 
-- 历史成功任务（`generation_tasks` 中 `task_kind=video_generation`）均使用 PIX 的
-  `minimax-h3`，生成结果正常；
-- 曾有一次将默认指向优云智算的 `MiniMax-H3`，任务载荷中提示词中文变为乱码
-  （供应商链路编码问题），已切回 PIX 并修正模型名为 `MiniMax-H3`；
+- 默认模型由产品方指定为**优云智算的 `MiniMax-H3`**（历史生成结果可用，供应商链路能正常出片）；
+- PIX 的 `minimax-h3` 曾作为默认并被成功使用过，现降级为备用；
+- 已知风险：优云智算链路上曾出现一次任务载荷中提示词中文乱码
+  （`generation_tasks` 中 `task_kind=video_generation` 的 `run_args.input.prompt` 全为 `?`）；
+  该条任务虽成功出片，但画面与提示词不对应。若默认切回优云智算后再次出现乱码，
+  优先排查供应商 API 的编码/请求体序列化，必要时切回 PIX；
 - 40–150 集短剧要求跨集画风一致，默认模型保持单一供应商/模型是硬约束；
   如需切换，在「模型设置」页修改默认视频模型即可，代码无需变更。
 
