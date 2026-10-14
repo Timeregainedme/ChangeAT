@@ -60,3 +60,14 @@ extract-async -> 候选落库(shot_extracted_candidates，含 payload.descriptio
 - “智能提取”：真实调用 divide-async → extract-async → 聚合分镜与候选展示。
 - “一键创建资产 / 批量生成参考图”：调用上述两个批量接口；参考图任务提交后提示前往分镜工作室/资产页查看出图与抽卡。
 - 实体编辑、从资产库选取等辅助交互仍为 Mock 占位，后续接入实体 CRUD 后可替换。
+
+## 提取链路修复记录（2026-10-14）
+
+- 现象：ChapterPrep「一键提取」divide 成功生成分镜，但候选/资产为空。
+- 根因：前端按契约传空 `script_division`（注释「服务端从库内分镜重建」），但后端 `generate_extraction_result`
+  直接透传空 dict 给 LLM，LLM 无分镜内容可提取，draft 的 shots/characters 全空。
+- 修复：`script_processing_worker.py` 新增 `_rebuild_script_division_from_shots(db, chapter_id)`，
+  当 `script_division.shots` 为空时从库内 shots（index/title/script_excerpt）重建分镜结构再提取；
+  提取结果经 `apply_extraction_result` 正常写入 `shot_extracted_candidates`。
+- 验证：测试项目 9cbc4302 重建后提取出 2 角色（林晚/顾言，含音色描述）、1 场景、3 道具；
+  一键创建资产接口返回 entity_id 并落库（characters 2 条）。

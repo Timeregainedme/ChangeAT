@@ -7,6 +7,7 @@ import logging
 from typing import Any
 
 from fastapi import HTTPException
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.chains.agents import ElementExtractorAgent, ScriptDividerAgent
@@ -26,6 +27,7 @@ from app.chains.agents.script_processing_agents import (
     ScriptSimplificationResult,
 )
 from app.core.db_sync import sync_session_maker
+from app.models.studio_shots import Shot
 from app.services.script_extraction_cache import (
     build_script_extract_cache_key,
     get_cached_script_extract,
@@ -269,6 +271,33 @@ def apply_division_result(
     write_division_result_to_chapter_sync(db, chapter_id=chapter_id, result=result)
 
 
+def _rebuild_script_division_from_shots(db: Session, chapter_id: str) -> dict[str, Any]:
+    """从库内分镜重建 script_division。
+
+    extract-async 契约允许前端传空 ``script_division``（见 ChapterPrep 注释
+    「服务端从库内分镜重建」）；此前后端直接透传空 dict，导致 LLM 提取
+    拿到空输入、候选/资产全为空。这里按 divide 落库的 shots 重建分镜结构。
+    """
+
+    shots = db.execute(
+        select(Shot).where(Shot.chapter_id == chapter_id).order_by(Shot.index)
+    ).scalars().all()
+    if not shots:
+        return {"shots": [], "total_shots": 0}
+    division_shots = []
+    for shot in shots:
+        division_shots.append(
+            {
+                "index": shot.index,
+                "start_line": shot.index,  # 库内不存原始行号，用序号近似（LLM 提取主要依赖 script_excerpt）
+                "end_line": shot.index,
+                "script_excerpt": shot.script_excerpt or "",
+                "shot_name": shot.title or "",
+            }
+        )
+    return {"shots": division_shots, "total_shots": len(division_shots)}
+
+
 def generate_extraction_result(
     *,
     db: Session,
@@ -278,6 +307,10 @@ def generate_extraction_result(
     consistency: dict[str, Any] | None,
     refresh_cache: bool,
 ) -> tuple[Any, bool]:
+    # 前端契约：script_division 可为空，服务端从库内分镜重建后再提取。
+    if not script_division.get("shots"):
+        script_division = _rebuild_script_division_from_shots(db, chapter_id)
+
     cache_key = build_script_extract_cache_key(
         project_id=project_id,
         chapter_id=chapter_id,
