@@ -16,6 +16,7 @@ AgentBase.system_prompt：发布后覆盖代码默认，未发布/恢复默认�
 
 from __future__ import annotations
 
+import time
 from datetime import UTC, datetime
 
 from sqlalchemy import select
@@ -48,10 +49,34 @@ _CATEGORY_TO_AGENT_KEY: dict[PromptCategory, str] = {
 # agent_key -> 已发布提示词内容。不存在该键 = 未发布，回落代码默认。
 _cache: dict[str, str] = {}
 
+# 刷新 TTL：worker 每次任务都会尝试刷新，TTL 内跳过 DB 查询，避免高频任务反复全量拉取。
+# 发布/恢复默认走 publish/reset 直接精确更新本进程缓存，不受 TTL 延迟；
+# 跨进程（其他 worker/API 实例）最长在 TTL 内感知发布变更。
+_CACHE_TTL_SECONDS = 10.0
+_last_refresh_monotonic = 0.0
+
+
+def _refresh_due() -> bool:
+    """是否需要重新拉取：缓存为空（首次）或距上次刷新超过 TTL。"""
+    return (not _cache) or (time.monotonic() - _last_refresh_monotonic) >= _CACHE_TTL_SECONDS
+
 
 def get_agent_prompt(agent_key: str) -> str | None:
     """返回已发布的提示词；未发布返回 None（调用方回落代码默认）。"""
     return _cache.get(agent_key)
+
+
+def _reload_from_rows(rows: list[PromptTemplate]) -> None:
+    """把已发布模板行重建进缓存，并刷新计时。"""
+    fresh: dict[str, str] = {}
+    for row in rows:
+        key = _agent_key_of(row)
+        if key is not None:
+            fresh[key] = row.content
+    _cache.clear()
+    _cache.update(fresh)
+    global _last_refresh_monotonic
+    _last_refresh_monotonic = time.monotonic()
 
 
 def _template_category(template: PromptTemplate) -> PromptCategory | None:
@@ -70,36 +95,32 @@ def _agent_key_of(template: PromptTemplate) -> str | None:
     return _CATEGORY_TO_AGENT_KEY[category]
 
 
-def refresh_published_agent_prompts_sync(db: Session) -> None:
-    """同步版刷新：供 Celery worker（同步 Session）在任务入口调用。"""
+def refresh_published_agent_prompts_sync(db: Session, *, force: bool = False) -> None:
+    """同步版刷新：供 Celery worker（同步 Session）在任务入口调用。
+
+    TTL 内且非 force 时跳过 DB 查询（直接使用本进程缓存）。
+    """
+    if not force and not _refresh_due():
+        return
     rows = (
         db.execute(select(PromptTemplate).where(PromptTemplate.published_at.is_not(None)))
         .scalars()
         .all()
     )
-    fresh: dict[str, str] = {}
-    for row in rows:
-        key = _agent_key_of(row)
-        if key is not None:
-            fresh[key] = row.content
-    _cache.clear()
-    _cache.update(fresh)
+    _reload_from_rows(list(rows))
 
 
-async def refresh_published_agent_prompts(db: AsyncSession) -> None:
+async def refresh_published_agent_prompts(db: AsyncSession, *, force: bool = False) -> None:
     """把 DB 中已发布（published_at 非空）的 agent 模板拉入本进程缓存。
 
     供 worker / 其它进程在任务入口调用；幂等，可重复执行。
+    TTL 内且非 force 时跳过 DB 查询。
     """
+    if not force and not _refresh_due():
+        return
     stmt = select(PromptTemplate).where(PromptTemplate.published_at.is_not(None))
     rows = (await db.execute(stmt)).scalars().all()
-    fresh: dict[str, str] = {}
-    for row in rows:
-        key = _agent_key_of(row)
-        if key is not None:
-            fresh[key] = row.content
-    _cache.clear()
-    _cache.update(fresh)
+    _reload_from_rows(list(rows))
 
 
 async def publish_agent_prompt(db: AsyncSession, template_id: str) -> PromptTemplate:

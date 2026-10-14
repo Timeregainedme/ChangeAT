@@ -106,10 +106,14 @@ class AbstractWorkerTaskExecutor(ABC):
 
     def _execute_phase(self, task_id: str, run_args: dict[str, Any]) -> Any | None:
         with self._session_maker() as db:
-            # 任务执行前刷新已发布的 Agent 提示词（模板页「发布生效」后跨进程生效）
+            # 任务执行前刷新已发布的 Agent 提示词（模板页「发布生效」后跨进程生效）。
+            # 刷新失败不阻断任务：提示词保持上一份缓存（或代码默认），任务照常执行。
             from app.chains.agents.prompt_registry import refresh_published_agent_prompts_sync
 
-            refresh_published_agent_prompts_sync(db)
+            try:
+                refresh_published_agent_prompts_sync(db)
+            except Exception:  # noqa: BLE001
+                logger.exception("%s task agent prompt refresh failed, continuing with cached prompts", self.task_kind)
             ctx = self._load_context(db, task_id)
             if ctx is None:
                 return None

@@ -81,6 +81,9 @@ class _FakeDB:
     async def commit(self) -> None:
         return None
 
+    async def delete(self, obj: PromptTemplate) -> None:
+        self.by_id.pop(obj.id, None)
+
 
 @pytest.fixture(autouse=True)
 def _clear_registry_cache() -> None:
@@ -203,6 +206,64 @@ def test_agent_key_mapping_covers_all_registry_keys() -> None:
         assert category.value.startswith("agent_")
 
 
+# ---------- TTL 刷新 ----------
+
+
+class _CountingDB(_FakeDB):
+    """记录 execute 调用次数的 DB 替身，用于断言 TTL 跳过。"""
+
+    def __init__(self, templates: list[PromptTemplate]) -> None:
+        super().__init__(templates)
+        self.execute_count = 0
+
+    async def execute(self, *_args, **_kwargs):  # noqa: ANN001
+        self.execute_count += 1
+        return await super().execute(*_args, **_kwargs)
+
+
+@pytest.mark.asyncio
+async def test_refresh_skips_db_query_within_ttl() -> None:
+    """TTL 窗口内且缓存非空：跳过 DB 查询。"""
+    db = _CountingDB([_template(template_id="tpl-a", content="A", published_at=datetime.now(UTC))])
+    await refresh_published_agent_prompts(db)
+    first_count = db.execute_count
+    assert first_count == 1
+
+    # 第二次刷新在 TTL 内：不应再查库
+    await refresh_published_agent_prompts(db)
+
+    assert db.execute_count == first_count
+    assert get_agent_prompt("script_division") == "A"
+
+
+@pytest.mark.asyncio
+async def test_refresh_force_bypasses_ttl() -> None:
+    """force=True：即使 TTL 内也强制拉取 DB。"""
+    db = _CountingDB([_template(template_id="tpl-a", content="A", published_at=datetime.now(UTC))])
+    await refresh_published_agent_prompts(db)
+    await refresh_published_agent_prompts(db, force=True)
+
+    assert db.execute_count == 2
+
+
+@pytest.mark.asyncio
+async def test_publish_does_not_advance_refresh_timer() -> None:
+    """发布精确更新单条缓存，不推进全局刷新计时（其余条目仍按 TTL 轮询）。"""
+    published = _template(template_id="tpl-a", content="旧内容", published_at=datetime.now(UTC))
+    db = _CountingDB([published])
+    await refresh_published_agent_prompts(db)
+    count_before = db.execute_count
+
+    draft = _template(template_id="tpl-b", category=PromptCategory.agent_element_extract, content="草稿")
+    db.by_id["tpl-b"] = draft
+    await publish_agent_prompt(db, "tpl-b")
+
+    # 发布只写缓存单条，不触发全量拉取
+    assert db.execute_count == count_before
+    assert get_agent_prompt("script_division") == "旧内容"
+    assert get_agent_prompt("element_extract") == "草稿"
+
+
 # ---------- 接口层：publish / reset ----------
 
 
@@ -283,5 +344,36 @@ def test_publish_endpoint_returns_404_for_missing(client) -> None:
     try:
         response = client.post("/api/v1/studio/prompts/missing/publish")
         assert response.status_code == 404
+    finally:
+        app.dependency_overrides.pop(get_db, None)
+
+
+def test_delete_agent_template_is_forbidden(client) -> None:
+    """agent_* 模板禁止删除（可通过编辑/恢复默认调整）。"""
+    from app.main import app
+
+    template = _template(category=PromptCategory.agent_script_division)
+    db = _FakeHttpDB([template])
+    app.dependency_overrides[get_db] = _override_db(db)
+    try:
+        response = client.delete("/api/v1/studio/prompts/tpl-1")
+        assert response.status_code == 403
+        assert "Agent 提示词模板不可删除" in response.json()["message"]
+        assert db.by_id["tpl-1"] is not None  # 行未被删除
+    finally:
+        app.dependency_overrides.pop(get_db, None)
+
+
+def test_delete_generation_template_still_allowed(client) -> None:
+    """非 agent 分类的可编辑模板仍可删除。"""
+    from app.main import app
+
+    template = _template(template_id="tpl-gen", category=PromptCategory.combined)
+    db = _FakeHttpDB([template])
+    app.dependency_overrides[get_db] = _override_db(db)
+    try:
+        response = client.delete("/api/v1/studio/prompts/tpl-gen")
+        assert response.status_code == 200
+        assert "tpl-gen" not in db.by_id  # 行被删除
     finally:
         app.dependency_overrides.pop(get_db, None)

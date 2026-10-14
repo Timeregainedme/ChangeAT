@@ -242,6 +242,13 @@ async def delete_prompt_template(
         raise HTTPException(status_code=403, detail="系统预置提示词不可删除")
     if obj.is_default:
         raise HTTPException(status_code=403, detail="默认提示词不可删除，请先将其他提示词设为默认")
+    # 注意：不能用 str(obj.category)，Python 3.12 下 str(枚举) 返回
+    # "PromptCategory.xxx" 而非值，需取 .value（兼容 str / 枚举两种形态）
+    if PromptCategory(obj.category).value.startswith("agent_"):
+        raise HTTPException(
+            status_code=403,
+            detail="Agent 提示词模板不可删除，可通过编辑内容或恢复默认调整",
+        )
     await db.delete(obj)
     return empty_response()
 

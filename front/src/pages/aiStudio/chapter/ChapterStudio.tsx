@@ -94,6 +94,8 @@ import type {
   ShotCharacterLinkRead,
   ProjectPropLinkRead,
   ShotFramePromptMappingRead,
+  ShotFrameImageTaskRequest,
+  ShotLinkedAssetItem,
   ShotRead,
   ShotVideoReadinessRead,
   ShotRuntimeSummaryRead,
@@ -101,6 +103,7 @@ import type {
   ShotStatus,
   ShotVideoPromptPackRead,
   ShotVideoVersionRead,
+  VideoGenerationTaskRequest,
 } from '../../../services/generated'
 import { listTaskLinksNormalized } from '../../../services/filmTaskLinks'
 import { buildFileDownloadUrl, resolveAssetUrl } from '../assets/utils'
@@ -715,8 +718,8 @@ const ChapterStudio: React.FC = () => {
       const res = await StudioShotsService.updateShotApiV1StudioShotsShotIdPatch({
         shotId,
         requestBody: { title },
-      } as any)
-      if (res.data) patchShotInList(shotId, res.data as any)
+      })
+      if (res.data) patchShotInList(shotId, res.data)
       message.success('标题已保存')
     } catch {
       message.error('保存标题失败')
@@ -728,8 +731,8 @@ const ChapterStudio: React.FC = () => {
       const res = await StudioShotsService.updateShotApiV1StudioShotsShotIdPatch({
         shotId,
         requestBody: { script_excerpt },
-      } as any)
-      if (res.data) patchShotInList(shotId, res.data as any)
+      })
+      if (res.data) patchShotInList(shotId, res.data)
       message.success('备注已保存')
     } catch {
       message.error('保存备注失败')
@@ -802,7 +805,7 @@ const ChapterStudio: React.FC = () => {
     setShotCandidateItems([])
     setShotDialogueCandidateItems([])
     Promise.all([
-      StudioShotDetailsService.getShotDetailApiV1StudioShotDetailsShotIdGet({ shotId: selectedShotId }).then((r: any) => r.data ?? null),
+      StudioShotDetailsService.getShotDetailApiV1StudioShotDetailsShotIdGet({ shotId: selectedShotId }).then((r) => r.data ?? null),
       StudioShotDialogLinesService.listShotDialogLinesApiV1StudioShotDialogLinesGet({
         shotDetailId: selectedShotId,
         q: null,
@@ -810,14 +813,14 @@ const ChapterStudio: React.FC = () => {
         isDesc: false,
         page: 1,
         pageSize: 100,
-      }).then((r: any) => r.data?.items ?? []),
+      }).then((r) => r.data?.items ?? []),
       StudioShotFrameImagesService.listShotFrameImagesApiV1StudioShotFrameImagesGet({
         shotDetailId: selectedShotId,
         order: null,
         isDesc: false,
         page: 1,
         pageSize: 100,
-      }).then((r: any) => r.data?.items ?? []),
+      }).then((r) => r.data?.items ?? []),
       StudioShotLinksService.listProjectEntityLinksApiV1StudioShotLinksEntityTypeGet({
         entityType: 'scene',
         projectId: projectId ?? null,
@@ -828,7 +831,7 @@ const ChapterStudio: React.FC = () => {
         isDesc: false,
         page: 1,
         pageSize: 100,
-      }).then((r: any) => r.data?.items ?? []),
+      }).then((r) => r.data?.items ?? []),
       StudioShotLinksService.listProjectEntityLinksApiV1StudioShotLinksEntityTypeGet({
         entityType: 'actor',
         projectId: projectId ?? null,
@@ -839,7 +842,7 @@ const ChapterStudio: React.FC = () => {
         isDesc: false,
         page: 1,
         pageSize: 100,
-      }).then((r: any) => r.data?.items ?? []),
+      }).then((r) => r.data?.items ?? []),
       StudioShotLinksService.listProjectEntityLinksApiV1StudioShotLinksEntityTypeGet({
         entityType: 'prop',
         projectId: projectId ?? null,
@@ -850,7 +853,7 @@ const ChapterStudio: React.FC = () => {
         isDesc: false,
         page: 1,
         pageSize: 100,
-      }).then((r: any) => r.data?.items ?? []),
+      }).then((r) => r.data?.items ?? []),
       StudioShotLinksService.listProjectEntityLinksApiV1StudioShotLinksEntityTypeGet({
         entityType: 'costume',
         projectId: projectId ?? null,
@@ -861,10 +864,10 @@ const ChapterStudio: React.FC = () => {
         isDesc: false,
         page: 1,
         pageSize: 100,
-      }).then((r: any) => r.data?.items ?? []),
+      }).then((r) => r.data?.items ?? []),
       StudioShotCharacterLinksService.listShotCharacterLinksApiV1StudioShotCharacterLinksGet({
         shotId: selectedShotId,
-      }).then((r: any) => (r.data ?? []) as ShotCharacterLinkRead[]),
+      }).then((r) => (r.data ?? []) as ShotCharacterLinkRead[]),
       StudioShotsService.getShotExtractedCandidatesApiV1StudioShotsShotIdExtractedCandidatesGet({
         shotId: selectedShotId,
       }).then((r) => r.data ?? []),
@@ -885,7 +888,7 @@ const ChapterStudio: React.FC = () => {
         setShotCharacterLinks(shotCharacters)
         setShotCandidateItems(candidates as ShotExtractedCandidateRead[])
         setShotDialogueCandidateItems(dialogueCandidates as ShotExtractedDialogueCandidateRead[])
-        if (detail?.duration != null) {
+        if (detail && detail.duration !== null) {
           setShotDurations((prev) => ({ ...prev, [selectedShotId]: detail.duration ?? 0 }))
         }
       })
@@ -975,7 +978,7 @@ const ChapterStudio: React.FC = () => {
         isDesc: false,
         page: 1,
         pageSize: 100,
-      }).then((r: any) => (r.data?.items ?? []) as ProjectSceneLinkRead[]),
+      }).then((r) => (r.data?.items ?? []) as ProjectSceneLinkRead[]),
       StudioShotLinksService.listProjectEntityLinksApiV1StudioShotLinksEntityTypeGet({
         entityType: 'actor',
         projectId: projectId ?? null,
@@ -986,7 +989,7 @@ const ChapterStudio: React.FC = () => {
         isDesc: false,
         page: 1,
         pageSize: 100,
-      }).then((r: any) => (r.data?.items ?? []) as ProjectActorLinkRead[]),
+      }).then((r) => (r.data?.items ?? []) as ProjectActorLinkRead[]),
       StudioShotLinksService.listProjectEntityLinksApiV1StudioShotLinksEntityTypeGet({
         entityType: 'prop',
         projectId: projectId ?? null,
@@ -997,7 +1000,7 @@ const ChapterStudio: React.FC = () => {
         isDesc: false,
         page: 1,
         pageSize: 100,
-      }).then((r: any) => (r.data?.items ?? []) as ProjectPropLinkRead[]),
+      }).then((r) => (r.data?.items ?? []) as ProjectPropLinkRead[]),
       StudioShotLinksService.listProjectEntityLinksApiV1StudioShotLinksEntityTypeGet({
         entityType: 'costume',
         projectId: projectId ?? null,
@@ -1008,7 +1011,7 @@ const ChapterStudio: React.FC = () => {
         isDesc: false,
         page: 1,
         pageSize: 100,
-      }).then((r: any) => (r.data?.items ?? []) as ProjectCostumeLinkRead[]),
+      }).then((r) => (r.data?.items ?? []) as ProjectCostumeLinkRead[]),
     ])
     setSceneLinks(scenes)
     setActorImageLinks(actors)
@@ -1138,8 +1141,8 @@ const ChapterStudio: React.FC = () => {
         const target = frames.find((x) => x.frame_type === 'key') ?? frames[0]
         if (!target) continue
 
-        const detailRes: any = await StudioShotDetailsService.getShotDetailApiV1StudioShotDetailsShotIdGet({ shotId: id })
-        const d = detailRes?.data as any
+        const detailRes = await StudioShotDetailsService.getShotDetailApiV1StudioShotDetailsShotIdGet({ shotId: id })
+        const d = detailRes?.data ?? null
         const prompt =
           (target.frame_type === 'first'
             ? d?.first_frame_prompt
@@ -1153,7 +1156,7 @@ const ChapterStudio: React.FC = () => {
           page: 1,
           pageSize: 100,
         })
-        const items = (linked.data?.items ?? []) as any[]
+        const items = linked.data?.items ?? []
         const extractFileId = (thumbnail?: string | null): string | null => {
           const v = (thumbnail || '').trim()
           if (!v) return null
@@ -1172,26 +1175,26 @@ const ChapterStudio: React.FC = () => {
             const fileId = typeof x?.file_id === 'string' && x.file_id.trim() ? x.file_id.trim() : extractFileId(x?.thumbnail)
             return fileId
               ? {
-                  type: x?.type as any,
+                  type: x.type,
                   id: String(x?.id ?? ''),
                   name: String(x?.name ?? x?.id ?? ''),
                   file_id: fileId,
                 }
               : null
           })
-          .filter(Boolean)
+          .filter((x): x is NonNullable<typeof x> => x !== null)
         const targetRatio = resolveShotVideoRatio(d)
         if (!targetRatio) continue
         await StudioImageTasksService.createShotFrameImageGenerationTaskApiV1StudioImageTasksShotShotIdFrameImageTasksPost({
           shotId: id,
           requestBody: {
-            frame_type: target.frame_type as any,
+            frame_type: target.frame_type,
             model_id: null,
             prompt,
             images: imagesPayload,
-            target_ratio: targetRatio,
+            target_ratio: targetRatio as ShotFrameImageTaskRequest['target_ratio'],
             resolution_profile: keyframeResolutionProfile,
-          } as any,
+          },
         })
       }
     },
@@ -1330,7 +1333,7 @@ const ChapterStudio: React.FC = () => {
         page: 1,
         pageSize: 100,
       })
-      const items = (linked.data?.items ?? []) as any[]
+      const items = linked.data?.items ?? []
       const extractFileId = (thumbnail?: string | null): string | null => {
         const v = (thumbnail || '').trim()
         if (!v) return null
@@ -1349,14 +1352,14 @@ const ChapterStudio: React.FC = () => {
           const fileId = typeof x?.file_id === 'string' && x.file_id.trim() ? x.file_id.trim() : extractFileId(x?.thumbnail)
           return fileId
             ? {
-                type: x?.type as any,
+                type: x.type,
                 id: String(x?.id ?? ''),
                 name: String(x?.name ?? x?.id ?? ''),
                 file_id: fileId,
               }
             : null
         })
-        .filter(Boolean)
+        .filter((x): x is NonNullable<typeof x> => x !== null)
       const targetRatio = resolveShotVideoRatio(shotDetail)
       if (!targetRatio) {
         message.warning('请先设置视频比例')
@@ -1365,13 +1368,13 @@ const ChapterStudio: React.FC = () => {
       await StudioImageTasksService.createShotFrameImageGenerationTaskApiV1StudioImageTasksShotShotIdFrameImageTasksPost({
         shotId: selectedShotId,
         requestBody: {
-          frame_type: target.frame_type as any,
+          frame_type: target.frame_type,
           model_id: null,
           prompt,
           images: imagesPayload,
-          target_ratio: targetRatio,
+          target_ratio: targetRatio as ShotFrameImageTaskRequest['target_ratio'],
           resolution_profile: keyframeResolutionProfile,
-        } as any,
+        },
       })
       message.success('已创建生成任务')
     } catch {
@@ -1406,7 +1409,8 @@ const ChapterStudio: React.FC = () => {
       try {
         const res = await StudioFilesService.getFileDetailApiV1StudioFilesFileIdGet({ fileId: currentFrameFileId })
         if (canceled) return
-        const tagsRaw = Array.isArray((res.data as any)?.tags) ? ((res.data as any).tags as string[]).filter(Boolean) : []
+        const tags = res.data?.tags ?? []
+        const tagsRaw = Array.isArray(tags) ? tags.filter(Boolean) : []
         setFrameFileTagsMap((prev) => ({ ...prev, [currentFrameFileId]: normalizeFrameExclusiveTags(tagsRaw) }))
       } catch {
         if (!canceled) setFrameFileTagsMap((prev) => ({ ...prev, [currentFrameFileId]: [] }))
@@ -1435,7 +1439,7 @@ const ChapterStudio: React.FC = () => {
       try {
         await StudioFilesService.updateFileMetaApiV1StudioFilesFileIdPatch({
           fileId: currentFrameFileId,
-          requestBody: { tags: normalized } as any,
+          requestBody: { tags: normalized },
         })
       } catch {
         message.error('更新标签失败')
@@ -1469,15 +1473,15 @@ const ChapterStudio: React.FC = () => {
     setCameraUpdating(true)
     const seq = ++cameraPatchSeqRef.current
     try {
-      const r: any = await StudioShotDetailsService.updateShotDetailApiV1StudioShotDetailsShotIdPatch({
+      const r = await StudioShotDetailsService.updateShotDetailApiV1StudioShotDetailsShotIdPatch({
         shotId: selectedShotId,
-        requestBody: patch as any,
+        requestBody: patch,
       })
       if (seq !== cameraPatchSeqRef.current) return
       if (r.data) {
         setShotDetail(r.data)
         lastSavedDetailRef.current = r.data
-        if (r.data.duration != null) {
+        if (r.data.duration !== null) {
           setShotDurations((m) => ({ ...m, [selectedShotId]: r.data?.duration ?? 0 }))
         }
       }
@@ -1524,13 +1528,13 @@ const ChapterStudio: React.FC = () => {
 
       void StudioShotDetailsService.updateShotDetailApiV1StudioShotDetailsShotIdPatch({
         shotId: selectedShotId,
-        requestBody: patch as any,
+        requestBody: patch,
       })
-        .then((r: any) => {
+        .then((r) => {
           if (r.data) {
             setShotDetail(r.data)
             lastSavedDetailRef.current = r.data
-            if (r.data.duration != null) {
+            if (r.data.duration !== null) {
               setShotDurations((m) => ({ ...m, [selectedShotId]: r.data?.duration ?? 0 }))
             }
           }
@@ -2494,7 +2498,7 @@ const ChapterStudio: React.FC = () => {
                     loading={frameFileTagsLoading}
                     value={currentFrameFileTags.filter((t) => t !== FRAME_FILE_TAG_ADOPT && t !== FRAME_FILE_TAG_ABANDON)}
                     onChange={(vals) => {
-                      const base = Array.isArray(vals) ? (vals as any[]).map((v) => String(v)) : []
+                      const base = Array.isArray(vals) ? vals.map((v) => String(v)) : []
                       const keep =
                         currentFrameFileTags.find((t) => t === FRAME_FILE_TAG_ADOPT || t === FRAME_FILE_TAG_ABANDON) ?? null
                       void updateCurrentFrameFileTags(keep ? [keep, ...base] : base)
@@ -3037,7 +3041,7 @@ function Inspector(props: {
     Array<{ value: string; label: React.ReactNode; searchLabel: string; disabled?: boolean }>
   >([])
   const [shotLinkedAssets, setShotLinkedAssets] = useState<
-    Array<{ type: string; id: string; name?: string; thumbnail?: string; image_id?: number | null }>
+    Array<{ type: string; id: string; name?: string; thumbnail?: string; image_id?: number | null; file_id?: string | null }>
   >([])
   const [shotAssetsOverview, setShotAssetsOverview] = useState<ShotAssetsOverviewRead | null>(null)
   const shotAssetsOverviewRequestSeqRef = useRef(0)
@@ -3117,13 +3121,14 @@ function Inspector(props: {
           reference_mode: context.referenceMode,
           prompt: (base.prompt || '').trim() || null,
           images: context.images,
-          ratio,
-        } as any,
+          ratio: ratio as VideoGenerationTaskRequest['ratio'],
+        },
       })
-      const data = (res as any)?.data ?? null
+      const data = res.data ?? null
+      const images = data?.images ?? []
       return {
         prompt: typeof data?.prompt === 'string' ? data.prompt : '',
-        images: Array.isArray(data?.images) ? (data.images as string[]).filter(Boolean) : [],
+        images: Array.isArray(images) ? images.filter(Boolean) : [],
         pack: data?.pack ?? null,
       }
     },
@@ -3141,11 +3146,11 @@ function Inspector(props: {
           reference_mode: context.referenceMode,
           prompt: (derived.prompt || '').trim(),
           images: derived.images,
-          ratio,
+          ratio: ratio as VideoGenerationTaskRequest['ratio'],
           // A5：平台自带提示词优化，默认关闭。
           use_context_ir: platformPromptOptimize,
           skill_id: platformPromptOptimize ? platformPromptSkillId.trim() || null : null,
-        } as any,
+        },
       })
       // 记住这次尝试的快照，「重新抽卡」按同一提示词再抽一张。
       setLastVideoSubmit({
@@ -3416,10 +3421,10 @@ function Inspector(props: {
           reference_mode: snapshot.referenceMode,
           prompt: snapshot.prompt,
           images: snapshot.images,
-          ratio: snapshot.ratio,
+          ratio: snapshot.ratio as VideoGenerationTaskRequest['ratio'],
           use_context_ir: platformPromptOptimize,
           skill_id: platformPromptOptimize ? platformPromptSkillId.trim() || null : null,
-        } as any,
+        },
       })
       const taskId = created.data?.task_id
       if (!taskId) {
@@ -3527,7 +3532,7 @@ function Inspector(props: {
           pageSize: 100,
         })
         if (canceled) return
-        const items = (res.data?.items ?? []) as any[]
+        const items = res.data?.items ?? []
         setShotLinkedAssets(
           items
             .filter((x) => x && typeof x.type === 'string' && typeof x.id === 'string')
@@ -3537,6 +3542,7 @@ function Inspector(props: {
               name: typeof x.name === 'string' ? x.name : undefined,
               image_id: typeof x.image_id === 'number' ? x.image_id : x.image_id === null ? null : undefined,
               thumbnail: typeof x.thumbnail === 'string' && x.thumbnail.trim() ? x.thumbnail.trim() : undefined,
+              file_id: typeof x.file_id === 'string' && x.file_id.trim() ? x.file_id.trim() : undefined,
             })),
         )
       } catch {
@@ -3816,7 +3822,7 @@ function Inspector(props: {
 
   const shotLinkedAssetNameByFileId = useMemo(() => {
     const map = new Map<string, string>()
-    shotLinkedAssets.forEach((it: any) => {
+    shotLinkedAssets.forEach((it) => {
       const fid =
         (typeof it?.file_id === 'string' && it.file_id.trim() ? it.file_id.trim() : null) ??
         extractFileIdFromThumbnail(it?.thumbnail ?? null)
@@ -3858,39 +3864,47 @@ function Inspector(props: {
         .map((fid) => {
           const match =
             shotLinkedAssets.find((x) => extractFileIdFromThumbnail(x.thumbnail ?? null) === fid) ??
-            shotLinkedAssets.find((x) => (x as any)?.file_id === fid)
+            shotLinkedAssets.find((x) => x.file_id === fid)
           return match
             ? {
-                type: match.type as any,
+                type: match.type as ShotLinkedAssetItem['type'],
                 id: match.id,
                 name: match.name ?? match.id,
                 file_id: fid,
               }
             : null
         })
-        .filter(Boolean)
+        .filter((x): x is NonNullable<typeof x> => x !== null)
 
       const rendered = await StudioImageTasksService.renderShotFramePromptApiV1StudioImageTasksShotShotIdFrameRenderPromptPost({
         shotId: selectedShot.id,
         requestBody: {
           frame_type: base.frameType,
           prompt: basePrompt,
-          images: imagesPayload as any,
-        } as any,
+          images: imagesPayload,
+        },
       })
-      const d = rendered.data as any
+      const d = rendered.data ?? null
+      const basePromptValue = d?.base_prompt ?? ''
+      const renderedPromptValue = d?.rendered_prompt ?? ''
+      const selectedGuidance = d?.selected_guidance ?? []
+      const droppedGuidance = d?.dropped_guidance ?? []
+      const selectedGuidanceDetails = d?.selected_guidance_details ?? []
+      const droppedGuidanceDetails = d?.dropped_guidance_details ?? []
+      const renderedImages = d?.images ?? []
+      const mappings = d?.mappings ?? []
       return {
-        basePrompt: typeof d?.base_prompt === 'string' ? d.base_prompt : basePrompt,
-        renderedPrompt: typeof d?.rendered_prompt === 'string' ? d.rendered_prompt : '',
-        selectedGuidance: Array.isArray(d?.selected_guidance)
-          ? d.selected_guidance.map((item: unknown) => String(item ?? '').trim()).filter(Boolean)
+        basePrompt: typeof basePromptValue === 'string' && basePromptValue ? basePromptValue : basePrompt,
+        renderedPrompt: typeof renderedPromptValue === 'string' ? renderedPromptValue : '',
+        selectedGuidance: Array.isArray(selectedGuidance)
+          ? selectedGuidance.map((item: unknown) => String(item ?? '').trim()).filter(Boolean)
           : [],
-        droppedGuidance: Array.isArray(d?.dropped_guidance)
-          ? d.dropped_guidance.map((item: unknown) => String(item ?? '').trim()).filter(Boolean)
+        droppedGuidance: Array.isArray(droppedGuidance)
+          ? droppedGuidance.map((item: unknown) => String(item ?? '').trim()).filter(Boolean)
           : [],
-        selectedGuidanceDetails: Array.isArray(d?.selected_guidance_details)
-          ? d.selected_guidance_details
-            .map((item: any) => ({
+        selectedGuidanceDetails: Array.isArray(selectedGuidanceDetails)
+          ? selectedGuidanceDetails
+            .map((item) => ({
               text: String(item?.text ?? '').trim(),
               category: String(item?.category ?? '').trim(),
               reasonTag: String(item?.reason_tag ?? '').trim(),
@@ -3898,9 +3912,9 @@ function Inspector(props: {
             }))
             .filter((item: { text: string }) => item.text)
           : [],
-        droppedGuidanceDetails: Array.isArray(d?.dropped_guidance_details)
-          ? d.dropped_guidance_details
-            .map((item: any) => ({
+        droppedGuidanceDetails: Array.isArray(droppedGuidanceDetails)
+          ? droppedGuidanceDetails
+            .map((item) => ({
               text: String(item?.text ?? '').trim(),
               category: String(item?.category ?? '').trim(),
               reasonTag: String(item?.reason_tag ?? '').trim(),
@@ -3908,8 +3922,8 @@ function Inspector(props: {
             }))
             .filter((item: { text: string }) => item.text)
           : [],
-        images: Array.isArray(d?.images) ? (d.images as string[]).filter(Boolean) : [],
-        mappings: Array.isArray(d?.mappings) ? (d.mappings as ShotFramePromptMappingRead[]) : [],
+        images: Array.isArray(renderedImages) ? renderedImages.filter(Boolean) : [],
+        mappings: Array.isArray(mappings) ? mappings : [],
       }
     },
     [extractFileIdFromThumbnail, selectedShot?.id, shotLinkedAssets],
@@ -3939,9 +3953,9 @@ function Inspector(props: {
           : (context.refFileIds || []).map((fid) => {
               const match =
                 shotLinkedAssets.find((x) => extractFileIdFromThumbnail(x.thumbnail ?? null) === fid) ??
-                shotLinkedAssets.find((x) => (x as any)?.file_id === fid)
+                shotLinkedAssets.find((x) => x.file_id === fid)
               return {
-                type: (match?.type as any) ?? 'character',
+                type: (match?.type ?? 'character') as ShotLinkedAssetItem['type'],
                 id: match?.id ?? fid,
                 name: match?.name ?? match?.id ?? fid,
                 file_id: fid,
@@ -3958,10 +3972,10 @@ function Inspector(props: {
           frame_type: base.frameType,
           model_id: null,
           prompt: (base.prompt || '').trim(),
-          images: resolvedItems as any,
-          target_ratio: ratio,
+          images: resolvedItems,
+          target_ratio: ratio as ShotFrameImageTaskRequest['target_ratio'],
           resolution_profile: keyframeResolutionProfile,
-        } as any,
+        },
       })
       return {
         taskId: created.data?.task_id ?? null,
@@ -4087,8 +4101,8 @@ function Inspector(props: {
     setLinkRoleLoading(true)
     try {
       const res = await StudioEntitiesApi.list('character', { page: 1, pageSize: 20, q: null })
-      const items = (res.data?.items ?? []).filter((x: any) => x?.project_id === projectId)
-      const opts = items.map((c: any) => {
+      const items = (res.data?.items ?? []).filter((x) => x?.project_id === projectId)
+      const opts = items.map((c) => {
         const id = String(c?.id ?? '')
         const name = String(c?.name ?? id)
         const thumb = typeof c?.thumbnail === 'string' ? c.thumbnail : ''
@@ -4136,7 +4150,7 @@ function Inspector(props: {
         page: 1,
         pageSize: 20,
       })
-      const items = (res.data?.items ?? []) as any[]
+      const items = res.data?.items ?? []
       const ids = Array.from(
         new Set(
           items
@@ -4148,8 +4162,8 @@ function Inspector(props: {
       const details = await Promise.all(
         ids.map(async (id) => {
           try {
-            const r = await StudioEntitiesApi.get(kind as any, id)
-            const d = (r.data ?? null) as any
+            const r = await StudioEntitiesApi.get(kind, id)
+            const d = r.data ?? null
             return { id, name: String(d?.name ?? id), thumb: typeof d?.thumbnail === 'string' ? d.thumbnail : '' }
           } catch {
             return { id, name: id, thumb: '' }
@@ -4800,7 +4814,7 @@ function Inspector(props: {
     try {
       await StudioShotFrameImagesService.updateShotFrameImageApiV1StudioShotFrameImagesImageIdPatch({
         imageId: slot.id,
-        requestBody: { file_id: fileId } as any,
+        requestBody: { file_id: fileId },
       })
       await loadCardThumbs(frameType)
       message.success('已切换使用图片')
@@ -5389,7 +5403,7 @@ function Inspector(props: {
                                 options={projectRoleOptions}
                                 optionFilterProp="searchLabel"
                                 showSearch
-                                filterOption={(input: string, option?: any) =>
+                                filterOption={(input: string, option?: { searchLabel?: string }) =>
                                   String(option?.searchLabel ?? '').toLowerCase().includes(input.toLowerCase())
                                 }
                                 onChange={(vals: Array<string | number>) => {
@@ -5425,7 +5439,7 @@ function Inspector(props: {
                                 options={projectSceneOptions}
                                 optionFilterProp="searchLabel"
                                 showSearch
-                                filterOption={(input: string, option?: any) =>
+                                filterOption={(input: string, option?: { searchLabel?: string }) =>
                                   String(option?.searchLabel ?? '').toLowerCase().includes(input.toLowerCase())
                                 }
                                 onChange={(v: string) => {
@@ -5458,7 +5472,7 @@ function Inspector(props: {
                                 options={projectPropOptions}
                                 optionFilterProp="searchLabel"
                                 showSearch
-                                filterOption={(input: string, option?: any) =>
+                                filterOption={(input: string, option?: { searchLabel?: string }) =>
                                   String(option?.searchLabel ?? '').toLowerCase().includes(input.toLowerCase())
                                 }
                                 onChange={(vals: Array<string | number>) => {
@@ -5495,7 +5509,7 @@ function Inspector(props: {
                                 options={projectCostumeOptions}
                                 optionFilterProp="searchLabel"
                                 showSearch
-                                filterOption={(input: string, option?: any) =>
+                                filterOption={(input: string, option?: { searchLabel?: string }) =>
                                   String(option?.searchLabel ?? '').toLowerCase().includes(input.toLowerCase())
                                 }
                                 onChange={(vals: Array<string | number>) => {
