@@ -80,23 +80,58 @@ async def list_shot_video_versions(
     if shot is None:
         raise ValueError(entity_not_found("Shot"))
 
-    stmt = (
-        select(GenerationTaskLink, GenerationTask)
-        .join(GenerationTask, GenerationTask.id == GenerationTaskLink.task_id)
-        .where(
-            GenerationTaskLink.resource_type == VIDEO_RESOURCE_TYPE,
-            GenerationTaskLink.relation_type == VIDEO_RELATION_TYPE,
-            GenerationTaskLink.relation_entity_id == shot_id,
-            GenerationTask.task_kind == VIDEO_TASK_KIND,
+    # 先只取「窄」的排序键，再按 id 回表读宽行。原实现
+    # `select(GenerationTaskLink, GenerationTask)` 会把 `payload` / `result`
+    # 两个大文本列一起塞进 filesort，行一宽就撞上 MySQL 的
+    # `(1038, 'Out of sort memory, consider increasing server sort buffer size')`，
+    # 版本列表接口直接 500。排序在窄列上完成后，回表不再需要排序。
+    ordered = (
+        await db.execute(
+            select(GenerationTaskLink.id, GenerationTaskLink.task_id)
+            .join(GenerationTask, GenerationTask.id == GenerationTaskLink.task_id)
+            .where(
+                GenerationTaskLink.resource_type == VIDEO_RESOURCE_TYPE,
+                GenerationTaskLink.relation_type == VIDEO_RELATION_TYPE,
+                GenerationTaskLink.relation_entity_id == shot_id,
+                GenerationTask.task_kind == VIDEO_TASK_KIND,
+            )
+            .order_by(GenerationTask.created_at.desc(), GenerationTask.id.desc())
         )
-        .order_by(GenerationTask.created_at.desc(), GenerationTask.id.desc())
-    )
-    rows = (await db.execute(stmt)).all()
+    ).all()
+    link_ids = [row[0] for row in ordered]
+    task_ids = [row[1] for row in ordered]
+
+    links: dict[str, GenerationTaskLink] = {}
+    tasks: dict[str, GenerationTask] = {}
+    if link_ids:
+        links = {
+            item.id: item
+            for item in (
+                await db.execute(
+                    select(GenerationTaskLink).where(GenerationTaskLink.id.in_(link_ids))
+                )
+            )
+            .scalars()
+            .all()
+        }
+    if task_ids:
+        tasks = {
+            item.id: item
+            for item in (
+                await db.execute(select(GenerationTask).where(GenerationTask.id.in_(task_ids)))
+            )
+            .scalars()
+            .all()
+        }
 
     current_file_id = str(shot.generated_video_file_id or "").strip() or None
 
     versions: list[ShotVideoVersionRead] = []
-    for link, task in rows:
+    for link_id, task_id in ordered:
+        link = links.get(link_id)
+        task = tasks.get(task_id)
+        if link is None or task is None:
+            continue
         file_id = str(link.file_id or "").strip() or None
         versions.append(
             ShotVideoVersionRead(

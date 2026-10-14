@@ -265,3 +265,49 @@ async def test_adopt_unknown_shot_raises_value_error() -> None:
         with pytest.raises(ValueError):
             await adopt_shot_video_version(db, shot_id="missing", file_id="f1")
     await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_list_versions_handles_large_inline_payload() -> None:
+    """回归：payload 内含内联 base64 参考图（线上实测单行约 11 MB）。
+
+    本用例在 SQLite 上只验证「大 payload 下版本列表仍能正确排序并还原元信息」。
+    真正的线上故障是 MySQL 排序缓冲（``sort_buffer_size=256KB``）对宽行排序直接报
+    ``(1038, 'Out of sort memory, consider increasing server sort buffer size')``，
+    所以 ``list_shot_video_versions`` 的排序必须走 ``(link_id, task_id)`` 窄列，
+    绝不能 ``select(GenerationTaskLink, GenerationTask)`` 后对整行排序——
+    否则任何含大 payload 的项目在这一页就会 500。
+    """
+    db, engine = await _build_session()
+    async with db:
+        await _seed_shot(db, current="f_big")
+        base = datetime(2026, 1, 1, tzinfo=timezone.utc)
+        huge = "data:image/png;base64," + "A" * (2 * 1024 * 1024)
+        payload = {
+            "run_args": {
+                "input": {
+                    "model": "gpt-image-2.5-flare",
+                    "prompt": "含参考图的一版",
+                    "ratio": "16:9",
+                    "seconds": 4,
+                    "images": [{"image_url": huge}],
+                }
+            }
+        }
+        await _add_version(db, task_id="t_small", file_id="f_small", created_at=base)
+        await _add_version(
+            db,
+            task_id="t_big",
+            file_id="f_big",
+            created_at=base + timedelta(minutes=5),
+            payload=payload,
+        )
+
+        versions = await list_shot_video_versions(db, shot_id="s1")
+
+        assert [item.task_id for item in versions] == ["t_big", "t_small"]
+        assert versions[0].is_current is True
+        assert versions[0].prompt == "含参考图的一版"
+        assert versions[0].ratio == "16:9"
+        assert versions[0].seconds == 4.0
+    await engine.dispose()
