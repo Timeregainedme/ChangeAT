@@ -21,3 +21,11 @@ from app.schemas.studio.entity_existence import (
     EntityNameExistenceCheckResponse,
     EntityNameExistenceItem,
 )
+from app.schemas.studio.timeline import (
+    ProjectTimelineRead,
+    TimelineClipRead,
+    TimelineDialogRead,
+    TimelineExportRead,
+    TimelineFrameRead,
+    TimelineStatsRead,
+)

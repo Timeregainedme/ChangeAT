@@ -42,6 +42,18 @@ class Project(Base, TimestampMixin):
         default=None,
         comment="项目级默认视频比例（可为空；分镜未覆盖时使用）",
     )
+    default_image_ratio: Mapped[str | None] = mapped_column(
+        String(16),
+        nullable=True,
+        default=None,
+        comment="项目级默认图片比例（可为空；为空时回落到 default_video_ratio）",
+    )
+    default_image_resolution_profile: Mapped[str | None] = mapped_column(
+        String(16),
+        nullable=True,
+        default=None,
+        comment="项目级默认图片分辨率档位（standard/high；为空时回落到提供方默认档位）",
+    )
     stats: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict, comment="聚合统计（JSON）")
 
     chapters: Mapped[list["Chapter"]] = relationship(

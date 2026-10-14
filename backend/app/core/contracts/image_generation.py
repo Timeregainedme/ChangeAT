@@ -13,6 +13,10 @@ ImageTargetRatio = Literal["16:9", "4:3", "1:1", "3:4", "9:16", "21:9", "3:2", "
 ImageResolutionProfile = Literal["standard", "high"]
 ImagePurpose = Literal["generic", "video_reference", "asset_image"]
 
+# 图片落库时的容器格式。供应商可能返回 png 或 jpg，落库统一按此格式命名扩展名；
+# 开工预检会把该值作为「图片格式」回显给用户，故此处保持单一来源，避免与执行层漂移。
+DEFAULT_IMAGE_OUTPUT_FORMAT = "png"
+
 
 class InputImageRef(BaseModel):
     """参考图片引用：统一映射到 OpenAI images[*] 与火山 image[]。"""

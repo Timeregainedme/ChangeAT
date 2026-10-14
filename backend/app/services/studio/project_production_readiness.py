@@ -13,7 +13,15 @@ from typing import get_args
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.contracts.image_generation import (
+    DEFAULT_IMAGE_OUTPUT_FORMAT,
+    ImageResolutionProfile,
+)
 from app.core.contracts.video_generation import VideoRatio
+from app.core.integrations.image_capabilities import (
+    DEFAULT_VIDEO_REFERENCE_RATIO_SIZE_MAP,
+    resolve_image_capability,
+)
 from app.models.llm import Model, ModelCategoryKey, ModelSettings, Provider
 from app.models.studio import (
     Chapter,
@@ -32,9 +40,11 @@ from app.schemas.studio.projects import (
     ProjectProductionReadinessRead,
 )
 from app.services.common import entity_not_found
+from app.services.llm.provider_registry import resolve_provider_key_from_name
 
 
 _VALID_VIDEO_RATIOS = set(get_args(VideoRatio))
+_VALID_IMAGE_RESOLUTION_PROFILES = set(get_args(ImageResolutionProfile))
 
 
 def _enum_text(value: object) -> str:
@@ -104,6 +114,119 @@ async def _model_check(
     )
 
 
+async def _image_output_check(
+    db: AsyncSession,
+    *,
+    project: Project,
+    image_model_id: str | None,
+) -> ProjectProductionReadinessCheck:
+    """校验图片输出规格：比例 → 分辨率档位 → 像素尺寸 → 容器格式。
+
+    用户开工前必须确认「分辨率、图片格式」，但此前预检只校验视频比例；
+    关键帧的 `resolution_profile`（standard/high，PIX 映射为 1K/2K）只活在前端 state 里，
+    从未落库，预检完全看不到，用户只能等到真正跑图才发现档位/比例不对。
+
+    这里按执行层同样的方式解析一遍，任何一步解析不出确定规格都判为未就绪，
+    避免「预检全绿、一跑图就失败」。
+    """
+    key, label = "image_output_ready", "图片输出"
+    if not image_model_id:
+        return _ck(key, label, False, "未配置默认图片模型，无法确定图片输出规格")
+    model = await db.get(Model, image_model_id)
+    if model is None:
+        return _ck(key, label, False, f"默认图片模型不存在：{image_model_id}", {"model_id": image_model_id})
+    provider = await db.get(Provider, model.provider_id)
+    if provider is None:
+        return _ck(key, label, False, f"图片模型的供应商不存在：{model.provider_id}", {"model_id": image_model_id})
+
+    provider_key = resolve_provider_key_from_name(provider.name or "")
+    try:
+        capability = resolve_image_capability(provider=provider_key, model=model.name)
+    except ValueError as exc:
+        return _ck(
+            key,
+            label,
+            False,
+            f"供应商 {provider_key or '<未设置>'} 没有注册图片能力，无法推导输出规格：{exc}",
+            {"model_id": image_model_id, "provider": provider_key},
+        )
+
+    ratio_map = capability.ratio_size_profiles or DEFAULT_VIDEO_REFERENCE_RATIO_SIZE_MAP
+    supported_ratios = set(capability.supported_ratios or ratio_map.keys())
+    ratio = (project.default_image_ratio or "").strip() or (project.default_video_ratio or "").strip() or None
+    profile = (
+        (project.default_image_resolution_profile or "").strip()
+        or (capability.default_resolution_profile or "").strip()
+        or "standard"
+    )
+    detail: dict = {
+        "provider": provider_key,
+        "model_id": image_model_id,
+        "model_name": model.name,
+        "ratio": ratio,
+        "resolution_profile": profile,
+        "format": DEFAULT_IMAGE_OUTPUT_FORMAT,
+    }
+
+    if not ratio:
+        return _ck(
+            key,
+            label,
+            False,
+            "项目未设置图片比例（default_image_ratio），也未设置 default_video_ratio，无法确定关键帧像素尺寸",
+            detail,
+        )
+    if ratio not in supported_ratios:
+        return _ck(
+            key,
+            label,
+            False,
+            f"图片比例 {ratio} 不被 {provider_key}/{model.name} 支持；允许值 {sorted(supported_ratios)}",
+            detail,
+        )
+    if profile not in _VALID_IMAGE_RESOLUTION_PROFILES:
+        return _ck(
+            key,
+            label,
+            False,
+            f"图片分辨率档位取值非法：{profile}；允许值 {sorted(_VALID_IMAGE_RESOLUTION_PROFILES)}",
+            detail,
+        )
+    size = (ratio_map.get(ratio) or {}).get(profile)
+    if not size:
+        return _ck(
+            key,
+            label,
+            False,
+            (
+                f"比例 {ratio} 下没有档位 {profile} 对应的像素尺寸；"
+                f"可选档位 {sorted((ratio_map.get(ratio) or {}).keys())}"
+            ),
+            detail,
+        )
+    allowed_sizes = capability.allowed_sizes
+    if allowed_sizes is not None and size not in allowed_sizes:
+        return _ck(
+            key,
+            label,
+            False,
+            f"{provider_key}/{model.name} 的档位 {profile} 解析出 {size}，但该模型只接受 {sorted(allowed_sizes)}",
+            {**detail, "size": size},
+        )
+
+    detail["size"] = size
+    return _ck(
+        key,
+        label,
+        True,
+        (
+            f"{provider.name or provider_key} / {model.name} · {ratio} · "
+            f"{profile}({size}) · 输出 {DEFAULT_IMAGE_OUTPUT_FORMAT}"
+        ),
+        detail,
+    )
+
+
 async def _project_shot_ids(db: AsyncSession, *, project_id: str) -> list[str]:
     stmt = (
         select(Shot.id)
@@ -124,35 +247,41 @@ async def get_project_production_readiness(
         raise ValueError(entity_not_found("Project"))
 
     settings = await db.get(ModelSettings, 1)
+    text_model_id = settings.default_text_model_id if settings else None
+    image_model_id = settings.default_image_model_id if settings else None
+    video_model_id = settings.default_video_model_id if settings else None
+    audio_model_id = settings.default_audio_model_id if settings else None
     checks: list[ProjectProductionReadinessCheck] = [
         await _model_check(
             db,
             key="text_model_ready",
             label="文本模型",
             category=ModelCategoryKey.text,
-            model_id=settings.default_text_model_id if settings else None,
+            model_id=text_model_id,
         ),
         await _model_check(
             db,
             key="image_model_ready",
             label="图片模型",
             category=ModelCategoryKey.image,
-            model_id=settings.default_image_model_id if settings else None,
+            model_id=image_model_id,
         ),
         await _model_check(
             db,
             key="video_model_ready",
             label="视频模型",
             category=ModelCategoryKey.video,
-            model_id=settings.default_video_model_id if settings else None,
+            model_id=video_model_id,
         ),
         await _model_check(
             db,
             key="audio_model_ready",
             label="音频模型",
             category=ModelCategoryKey.audio,
-            model_id=settings.default_audio_model_id if settings else None,
+            model_id=audio_model_id,
         ),
+        # 图片输出紧随图片模型：模型可用不代表输出规格可用（比例/档位/像素/格式都要能定下来）。
+        await _image_output_check(db, project=project, image_model_id=image_model_id),
     ]
 
     # 短剧风格：题材与画面表现形式（数据库非空约束保证有值，这里只做显式回显与比例校验）。

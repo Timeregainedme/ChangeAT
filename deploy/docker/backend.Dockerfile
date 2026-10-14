@@ -7,8 +7,9 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /app
 
 # System deps for common wheels / TLS
+# ffmpeg/ffprobe 用于时间线导出：把各分镜视频归一化后再拼接成成片。
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends ca-certificates curl \
+  && apt-get install -y --no-install-recommends ca-certificates curl ffmpeg \
   && rm -rf /var/lib/apt/lists/*
 
 # Install uv (Python package manager)

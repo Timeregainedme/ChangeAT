@@ -21,6 +21,10 @@ class ProjectBase(BaseModel):
     unify_style: bool = Field(True, description="是否统一风格")
     progress: int = Field(0, description="进度百分比（0-100）")
     default_video_ratio: str | None = Field(None, description="项目级默认视频比例；分镜未覆盖时生效")
+    default_image_ratio: str | None = Field(None, description="项目级默认图片比例；为空时回落到视频比例")
+    default_image_resolution_profile: str | None = Field(
+        None, description="项目级默认图片分辨率档位（standard/high）；为空时回落到提供方默认档位"
+    )
     stats: dict[str, Any] = Field(default_factory=dict, description="聚合统计（JSON）")
 
 
@@ -37,6 +41,8 @@ class ProjectUpdate(BaseModel):
     unify_style: bool | None = None
     progress: int | None = None
     default_video_ratio: str | None = None
+    default_image_ratio: str | None = None
+    default_image_resolution_profile: str | None = None
     stats: dict[str, Any] | None = None
 
 
