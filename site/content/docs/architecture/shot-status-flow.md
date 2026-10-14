@@ -78,6 +78,24 @@ shot_extracted_dialogue_candidates
 
 如果某个镜头提取后没有任何对白候选，这不会阻塞 `ready`。
 
+### 前置条件：分镜必须存在配套的 `shot_details` 行
+
+`Shot` 与 `ShotDetail` 是**一对一、同主键**的关联（`shot_details.id` 外键指向 `shots.id`）。上面前四条规则都要读 `ShotDetail`，所以**没有 `shot_details` 行的分镜永远停留在 `pending`**：
+
+- `PATCH /shots/{id}/skip-extraction`（规则 1）会找不到行而报错；
+- `GET /shots/{id}/preparation-state`（规则 2–5）同样无法工作。
+
+因此**任何创建 `Shot` 的路径都必须在同一事务里一并创建 `ShotDetail`**。默认值由单一工厂给出：
+
+```python
+# backend/app/services/studio/shot_details.py
+def build_default_shot_detail(shot_id: str) -> ShotDetail: ...
+```
+
+`shot_details.build_default_shot_detail()` 是唯一来源，`backend/app/services/studio/shots.py` 的 `create()` 与 `backend/app/services/studio/script_division.py` 都调用它。不要在新建路径里各写一份默认值——历史上正是因为两条路径不对称（一键提取会插 `ShotDetail`，手工创建不会），导致手工创建的分镜永久卡在 `pending`（见 `v0.4.1` 发布说明）。
+
+补充一个易错点：`CameraShotType` / `CameraAngle` / `CameraMovement` 的**枚举值**是全大写（`MS` / `EYE_LEVEL` / `STATIC`），而 Python 属性名是小写（`CameraShotType.ms`）。直接传小写值给接口会得到 422。
+
 ## `shot_extracted_candidates` 表结构职责
 
 这张表记录的是**镜头级资产提取确认明细**，而不是最终资产本身。
