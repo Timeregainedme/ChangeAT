@@ -31,17 +31,21 @@ def _error_message(detail: object) -> str:
 
 
 async def http_exception_handler(request: Request, exc: Exception) -> JSONResponse:
-    """HTTP 异常统一为 { code, message, data: null }。"""
-    from fastapi import HTTPException
+    """HTTP 异常统一为 { code, message, data: null }。
 
+    需转发 ``exc.headers``：FastAPI 默认处理器会带上它们，而自定义处理器若丢弃，
+    依赖响应头表达语义的状态码就失效（如 416 的 ``Content-Range: bytes */total``）。
+    """
     if isinstance(exc, HTTPException):
         code = exc.status_code
         message = _error_message(exc.detail)
+        headers = exc.headers
     else:
         code = 500
         message = "Internal server error"
+        headers = None
     body = ApiResponse[None](code=code, message=message, data=None, meta=None).model_dump()
-    return JSONResponse(status_code=code, content=body)
+    return JSONResponse(status_code=code, content=body, headers=headers)
 
 
 async def validation_exception_handler(request: Request, exc: Exception) -> JSONResponse:

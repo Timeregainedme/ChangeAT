@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.dependencies import get_db
@@ -107,9 +107,14 @@ async def upload_file_api(
 )
 async def download_file_api(
     file_id: str,
+    request: Request,
     db: AsyncSession = Depends(get_db),
 ):
-    return await build_download_response(db, file_id=file_id)
+    return await build_download_response(
+        db,
+        file_id=file_id,
+        range_header=request.headers.get("range"),
+    )
 
 
 @router.get(

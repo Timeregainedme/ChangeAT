@@ -158,8 +158,12 @@ async def upload_file(
     return StoredFileInfo(key=s3_key, url=url, etag=etag)
 
 
-async def download_file(*, key: str) -> bytes:
-    """下载文件内容（整个对象读入内存）。"""
+async def download_file(*, key: str, byte_range: tuple[int, int] | None = None) -> bytes:
+    """下载文件内容（整个对象读入内存）。
+
+    ``byte_range`` 为闭区间 ``(start, end)``。提供时只取该区间，
+    用于满足 HTTP ``Range`` 请求（浏览器拖拽进度条依赖 206 响应）。
+    """
     client = _build_s3_client()
     bucket = settings.s3_bucket_name
     if bucket is None:
@@ -168,7 +172,11 @@ async def download_file(*, key: str) -> bytes:
     s3_key = _normalize_key(key)
 
     def _download() -> bytes:
-        obj = client.get_object(Bucket=bucket, Key=s3_key)
+        extra: dict[str, Any] = {}
+        if byte_range is not None:
+            start, end = byte_range
+            extra["Range"] = f"bytes={start}-{end}"
+        obj = client.get_object(Bucket=bucket, Key=s3_key, **extra)
         body = obj["Body"].read()
         return body  # type: ignore[no-any-return]
 

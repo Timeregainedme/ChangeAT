@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import quote
 
-from fastapi import HTTPException, UploadFile
+from fastapi import HTTPException, UploadFile, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -182,22 +182,115 @@ async def upload_file(
     return file_item
 
 
+def _build_download_filename(file_item: FileItem) -> str:
+    """下载文件名：优先用 files.name；缺后缀时补上存储对象的后缀。
+
+    存储对象的 basename 是随机 key（如 ``937235bd-....mp4``），直接拿去下载会得到
+    不可读的文件名，所以这里回落到业务侧写入的 ``name``。
+    """
+    storage_name = Path(file_item.storage_key).name or "download"
+    suffix = Path(storage_name).suffix
+    display = (file_item.name or "").strip() or storage_name
+    if suffix and not display.lower().endswith(suffix.lower()):
+        display = f"{display}{suffix}"
+    return display
+
+
+def _parse_byte_range(range_header: str | None, total: int) -> tuple[int, int] | None:
+    """解析单段 HTTP Range，返回闭区间 ``(start, end)``；``None`` 表示按整文件返回。
+
+    - 不支持多段 Range（含逗号）与非法语法：一律忽略 Range，退化为整文件返回
+      （RFC 9110 允许服务端忽略 Range）。
+    - ``start`` 越界：抛 416，并带上 ``Content-Range: bytes */total``。
+    """
+    if not range_header:
+        return None
+    value = range_header.strip()
+    if not value.lower().startswith("bytes="):
+        return None
+    spec = value[len("bytes=") :].strip()
+    if "," in spec:
+        return None
+    first, _, last = spec.partition("-")
+    first, last = first.strip(), last.strip()
+    if not first and not last:
+        return None
+    if not first:
+        # 后缀区间 bytes=-N：取最后 N 字节
+        if not last.isdigit():
+            return None
+        length = int(last)
+        if length <= 0:
+            return None
+        return (max(0, total - length), total - 1)
+    if not first.isdigit():
+        return None
+    start = int(first)
+    if start >= total:
+        raise HTTPException(
+            status_code=status.HTTP_416_RANGE_NOT_SATISFIABLE,
+            detail=f"Requested range not satisfiable: start={start}, size={total}",
+            headers={"Content-Range": f"bytes */{total}"},
+        )
+    end = total - 1
+    if last:
+        if not last.isdigit():
+            return None
+        end = min(int(last), total - 1)
+    if end < start:
+        return None
+    return (start, end)
+
+
 async def build_download_response(
     db: AsyncSession,
     *,
     file_id: str,
+    range_header: str | None = None,
 ) -> StreamingResponse:
-    """根据 file_id 构建下载响应。"""
-    file_item = await get_or_404(db, FileItem, file_id, detail=entity_not_found("File"))
-    content = await storage.download_file(key=file_item.storage_key)
+    """根据 file_id 构建下载响应，支持单段 HTTP ``Range``（206）。
 
-    filename = Path(file_item.storage_key).name or "download"
+    浏览器 ``<video>`` 拖拽进度条依赖 206 响应；此前恒返回 200 全量，
+    导致播放器无法 seek。
+    """
+    file_item = await get_or_404(db, FileItem, file_id, detail=entity_not_found("File"))
+
+    filename = _build_download_filename(file_item)
     media_type = _resolve_download_media_type(filename)
-    content_disposition = f"attachment; filename*=UTF-8''{quote(filename)}"
+    headers = {
+        "Content-Disposition": f"attachment; filename*=UTF-8''{quote(filename)}",
+        "Accept-Ranges": "bytes",
+    }
+
+    async def _full_response() -> StreamingResponse:
+        content = await storage.download_file(key=file_item.storage_key)
+        headers["Content-Length"] = str(len(content))
+        return StreamingResponse(iter([content]), media_type=media_type, headers=headers)
+
+    # 无 Range：直接取全量，不额外 HEAD。
+    if range_header is None:
+        return await _full_response()
+
+    info = await storage.get_file_info(key=file_item.storage_key)
+    total = info.size or 0
+    if total <= 0:
+        return await _full_response()
+
+    byte_range = _parse_byte_range(range_header, total)
+    if byte_range is None:
+        return await _full_response()
+
+    start, end = byte_range
+    content = await storage.download_file(
+        key=file_item.storage_key, byte_range=(start, end)
+    )
+    headers["Content-Range"] = f"bytes {start}-{end}/{total}"
+    headers["Content-Length"] = str(len(content))
     return StreamingResponse(
         iter([content]),
+        status_code=status.HTTP_206_PARTIAL_CONTENT,
         media_type=media_type,
-        headers={"Content-Disposition": content_disposition},
+        headers=headers,
     )
 
 
