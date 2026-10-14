@@ -24,6 +24,7 @@ import {
 import {
   AppstoreOutlined,
   ArrowLeftOutlined,
+  AudioMutedOutlined,
   CaretLeftOutlined,
   CaretRightOutlined,
   CameraOutlined,
@@ -550,6 +551,8 @@ const ChapterStudio: React.FC = () => {
   const [isPlaying, setIsPlaying] = useState(false)
   const [videoDuration, setVideoDuration] = useState(0)
   const [videoTime, setVideoTime] = useState(0)
+  // 主播放器默认静音只是为了满足浏览器自动播放策略；用户主动点「播放」时会自动取消静音。
+  const [isMuted, setIsMuted] = useState(true)
 
   const [filter, setFilter] = useState<ShotFilter>('all')
   const [editingTitleId, setEditingTitleId] = useState<string | null>(null)
@@ -1603,8 +1606,15 @@ const ChapterStudio: React.FC = () => {
         e.preventDefault()
         const v = videoRef.current
         if (!v) return
-        if (v.paused) void v.play()
-        else v.pause()
+        if (v.paused) {
+          if (v.muted) {
+            v.muted = false
+            setIsMuted(false)
+          }
+          void v.play()
+        } else {
+          v.pause()
+        }
         return
       }
 
@@ -2507,7 +2517,7 @@ const ChapterStudio: React.FC = () => {
                     ref={videoRef}
                     className="w-full h-full object-contain"
                     controls={false}
-                    muted
+                    muted={isMuted}
                     playsInline
                     preload="metadata"
                     src={currentPreviewVideoUrl || undefined}
@@ -2542,8 +2552,16 @@ const ChapterStudio: React.FC = () => {
                     onClick={() => {
                       const v = videoRef.current
                       if (!v) return
-                      if (v.paused) void v.play()
-                      else v.pause()
+                      if (v.paused) {
+                        // 用户主动播放时自动取消静音，避免「网页里没声音、下载后才有」
+                        if (v.muted) {
+                          v.muted = false
+                          setIsMuted(false)
+                        }
+                        void v.play()
+                      } else {
+                        v.pause()
+                      }
                     }}
                   >
                     {isPlaying ? '暂停' : '播放'}
@@ -2552,6 +2570,17 @@ const ChapterStudio: React.FC = () => {
                     size="small"
                     icon={<CaretRightOutlined />}
                     onClick={() => message.info('帧进（Mock）')}
+                  />
+                  <Button
+                    size="small"
+                    icon={isMuted ? <AudioMutedOutlined /> : <SoundOutlined />}
+                    title={isMuted ? '取消静音' : '静音'}
+                    onClick={() => {
+                      const v = videoRef.current
+                      const next = !isMuted
+                      setIsMuted(next)
+                      if (v) v.muted = next
+                    }}
                   />
                   <div className="flex-1 min-w-0">
                     <Slider
