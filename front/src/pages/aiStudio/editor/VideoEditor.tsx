@@ -1,124 +1,362 @@
-import React, { useEffect, useState } from 'react'
-import { Card, Layout, Button, message } from 'antd'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
-  ScissorOutlined,
-  PlusOutlined,
+  Alert,
+  Button,
+  Card,
+  Col,
+  Empty,
+  Modal,
+  Row,
+  Space,
+  Spin,
+  Statistic,
+  Tag,
+  Tooltip,
+  message,
+} from 'antd'
+import {
+  ArrowLeftOutlined,
+  DownloadOutlined,
   ExportOutlined,
   PlayCircleOutlined,
-  ArrowLeftOutlined,
+  ReloadOutlined,
+  VideoCameraOutlined,
+  WarningOutlined,
+  SoundOutlined,
+  PictureOutlined,
 } from '@ant-design/icons'
-import { useParams, Link } from 'react-router-dom'
-import api from '../../../services/aiStudioApi'
-import type { TimelineClip } from '../../../mocks/data'
+import { Link, useParams } from 'react-router-dom'
+import { StudioTimelineService } from '../../../services/generated'
+import type { ProjectTimelineRead, TimelineClipRead, TimelineExportRead } from '../../../services/generated'
+import { buildFileDownloadUrl } from '../assets/utils'
 
-const { Content } = Layout
+/** 后端 ValueError/HTTPException 统一返回 {code, message, data, meta}，detail 可能是字符串或数组。 */
+function extractErrorMessage(error: unknown, fallback: string): string {
+  const body = (error as { body?: unknown })?.body
+  if (!body) {
+    const text = (error as { message?: string })?.message
+    return text || fallback
+  }
+  const record = body as Record<string, unknown>
+  const detail = record.detail ?? record.message
+  if (typeof detail === 'string' && detail.trim()) return detail
+  if (Array.isArray(detail)) {
+    const parts = detail
+      .map((item) => {
+        if (typeof item === 'string') return item
+        const entry = item as Record<string, unknown>
+        return typeof entry?.msg === 'string' ? entry.msg : JSON.stringify(item)
+      })
+      .filter(Boolean)
+    if (parts.length > 0) return parts.join('；')
+  }
+  return fallback
+}
 
-const VideoEditor: React.FC = () => {
+function formatSeconds(value?: number | null): string {
+  const total = Math.max(0, Math.round(value ?? 0))
+  const m = Math.floor(total / 60)
+  const s = total % 60
+  return m > 0 ? `${m}分${String(s).padStart(2, '0')}秒` : `${s}秒`
+}
+
+function formatRange(start?: number | null, end?: number | null): string {
+  const from = Math.max(0, Math.round(start ?? 0))
+  const to = Math.max(0, Math.round(end ?? 0))
+  return `${from}s – ${to}s`
+}
+
+const FRAME_LABELS: Record<string, string> = {
+  first: '首帧',
+  last: '尾帧',
+  key: '关键帧',
+}
+
+const VideoEditor = () => {
   const { projectId } = useParams<{ projectId: string }>()
-  const [clips, setClips] = useState<TimelineClip[]>([])
-  const [loading, setLoading] = useState(true)
 
-  const load = async () => {
+  const [timeline, setTimeline] = useState<ProjectTimelineRead | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [exporting, setExporting] = useState(false)
+  const [exported, setExported] = useState<TimelineExportRead | null>(null)
+  const [preview, setPreview] = useState<TimelineClipRead | null>(null)
+
+  const load = useCallback(async () => {
     if (!projectId) return
     setLoading(true)
+    setError(null)
     try {
-      const list = await api.timeline.get(projectId)
-      setClips(Array.isArray(list) ? list : [])
-    } catch {
-      message.error('加载时间线失败')
+      const res = await StudioTimelineService.getProjectTimelineApiApiV1StudioTimelineProjectsProjectIdGet({
+        projectId,
+      })
+      setTimeline(res?.data ?? null)
+    } catch (err) {
+      const msg = extractErrorMessage(err, '加载时间线失败')
+      setError(msg)
+      setTimeline(null)
     } finally {
       setLoading(false)
     }
-  }
+  }, [projectId])
 
   useEffect(() => {
     void load()
+  }, [load])
+
+  const clips = useMemo(() => timeline?.clips ?? [], [timeline])
+
+  const handleExport = useCallback(async () => {
+    if (!projectId) return
+    setExporting(true)
+    try {
+      const res = await StudioTimelineService.exportProjectTimelineApiApiV1StudioTimelineProjectsProjectIdExportPost({
+        projectId,
+      })
+      const result = res?.data ?? null
+      setExported(result)
+      if (result) {
+        message.success(`导出完成：${result.name}（${formatSeconds(result.duration)}）`)
+      }
+    } catch (err) {
+      message.error(extractErrorMessage(err, '导出成片失败'))
+    } finally {
+      setExporting(false)
+    }
   }, [projectId])
 
+  const stats = timeline?.stats
+  const exportable = Boolean(stats?.exportable)
+
   return (
-    <div className="space-y-4">
-      <div className="mb-2">
+    <div className="h-full overflow-auto p-4">
+      <div className="mb-3">
         <Link
-          to={projectId ? `/projects/${projectId}/chapters` : '/projects'}
-          className="text-sm text-gray-600 hover:text-blue-600 flex items-center gap-1"
+          to={projectId ? `/projects/${projectId}` : '/projects'}
+          className="text-sm text-gray-600 hover:text-blue-600 inline-flex items-center gap-1"
         >
-          <ArrowLeftOutlined /> {projectId ? '返回章节列表' : '项目列表'}
+          <ArrowLeftOutlined /> {projectId ? '返回项目工作台' : '项目列表'}
         </Link>
       </div>
+
       <Card
-        title="视频编辑"
+        title={
+          <Space>
+            <VideoCameraOutlined />
+            <span>时间线与成片导出</span>
+            {timeline?.project_name ? (
+              <span className="text-sm font-normal text-gray-500">{timeline.project_name}</span>
+            ) : null}
+          </Space>
+        }
         extra={
-          <Button type="primary" icon={<ExportOutlined />}>
-            导出成片
-          </Button>
+          <Space>
+            <Button icon={<ReloadOutlined />} onClick={() => void load()} disabled={loading}>
+              刷新
+            </Button>
+            <Tooltip
+              title={
+                exportable
+                  ? '把全部镜头视频按顺序拼接导出成一个 mp4 文件'
+                  : '还有镜头没有生成视频，暂时无法导出'
+              }
+            >
+              <Button
+                type="primary"
+                icon={<ExportOutlined />}
+                loading={exporting}
+                disabled={!exportable || loading}
+                onClick={() => void handleExport()}
+              >
+                导出成片
+              </Button>
+            </Tooltip>
+          </Space>
         }
       >
-        <div className="flex items-center gap-2 mb-4">
-          <Button icon={<ScissorOutlined />}>剪切</Button>
-          <Button icon={<PlusOutlined />}>添加效果</Button>
-          <Button icon={<PlayCircleOutlined />}>预览</Button>
-        </div>
-
-        <Layout className="bg-gray-50 rounded p-4 min-h-[400px]">
-          <div className="mb-4">
-            <div className="text-sm text-gray-500 mb-2">素材库</div>
-            <div className="flex gap-2 flex-wrap">
-              {clips.map((c) => (
-                <div
-                  key={c.id}
-                  className="px-3 py-2 bg-white rounded border border-gray-200 text-sm cursor-pointer hover:border-blue-400"
-                >
-                  {c.label}
-                </div>
-              ))}
-              {clips.length === 0 && !loading && (
-                <span className="text-gray-500">暂无素材，可从文件管理导入</span>
-              )}
-            </div>
+        {loading ? (
+          <div className="py-16 text-center">
+            <Spin tip="正在加载时间线…" />
           </div>
-          <Content>
-            <div className="text-sm text-gray-500 mb-2">时间线（拖拽素材到轨道）</div>
-            <div className="bg-white rounded border border-gray-200 overflow-hidden">
-              <div className="grid grid-cols-[80px_1fr] border-b border-gray-200">
-                <div className="px-2 py-2 bg-gray-50 text-gray-600 text-xs font-medium">轨道</div>
-                <div className="px-2 py-2 bg-gray-50 text-gray-600 text-xs font-medium">内容</div>
-              </div>
-              <div className="grid grid-cols-[80px_1fr] border-b border-gray-100">
-                <div className="px-2 py-3 bg-gray-50/80 text-gray-500 text-xs">视频轨道</div>
-                <div className="px-2 py-3 min-h-[56px] flex items-center gap-2 flex-wrap">
-                  {clips.filter((c) => c.type === 'video').map((c) => (
-                    <div
-                      key={c.id}
-                      className="px-2 py-1.5 bg-blue-50 border border-blue-200 rounded text-sm cursor-move"
-                    >
-                      {c.label}（{c.start}s–{c.end}s）
+        ) : error ? (
+          <Alert
+            type="error"
+            showIcon
+            message="无法加载时间线"
+            description={error}
+            action={
+              <Button size="small" onClick={() => void load()}>
+                重试
+              </Button>
+            }
+          />
+        ) : (
+          <>
+            {exported ? (
+              <Alert
+                className="mb-4"
+                type="success"
+                showIcon
+                message={`已导出成片：${exported.name}`}
+                description={`共 ${exported.clip_count} 个片段，时长 ${formatSeconds(exported.duration)}。`}
+                action={
+                  <Button
+                    size="small"
+                    type="primary"
+                    icon={<DownloadOutlined />}
+                    onClick={() => {
+                      const url = exported.file_id ? buildFileDownloadUrl(exported.file_id) : undefined
+                      if (url) window.open(url, '_blank', 'noopener,noreferrer')
+                    }}
+                  >
+                    下载
+                  </Button>
+                }
+              />
+            ) : null}
+
+            <Row gutter={16} className="mb-4">
+              <Col xs={12} md={6}>
+                <Statistic title="分镜片段" value={stats?.clip_count ?? 0} suffix="个" />
+              </Col>
+              <Col xs={12} md={6}>
+                <Statistic title="目标总时长" value={stats?.total_duration ?? 0} suffix="秒" />
+              </Col>
+              <Col xs={12} md={6}>
+                <Statistic
+                  title="已生成视频"
+                  value={stats?.clips_with_video ?? 0}
+                  suffix={`/ ${stats?.clip_count ?? 0}`}
+                />
+              </Col>
+              <Col xs={12} md={6}>
+                <Statistic title="带配音片段" value={stats?.clips_with_audio ?? 0} suffix="个" />
+              </Col>
+            </Row>
+
+            {!exportable && (stats?.clip_count ?? 0) > 0 ? (
+              <Alert
+                className="mb-4"
+                type="warning"
+                showIcon
+                icon={<WarningOutlined />}
+                message={`还有 ${stats?.clips_missing_video ?? 0} 个分镜没有生成视频`}
+                description="导出成片要求每个分镜都有视频；请先在分镜工作室里补齐视频生成。"
+              />
+            ) : null}
+
+            {clips.length === 0 ? (
+              <Empty description="该项目还没有分镜，先在项目工作台完成章节切分与分镜生成" />
+            ) : (
+              <div className="space-y-3">
+                {clips.map((clip) => (
+                  <Card
+                    key={clip.shot_id}
+                    size="small"
+                    className="border border-gray-200"
+                  >
+                    <div className="flex gap-3">
+                      <div className="w-40 shrink-0">
+                        <div className="aspect-video bg-gray-100 rounded overflow-hidden flex items-center justify-center">
+                          {clip.thumbnail ? (
+                            <img
+                              src={buildFileDownloadUrl(clip.thumbnail) ?? clip.thumbnail}
+                              alt={clip.title}
+                              className="w-full h-full object-cover"
+                            />
+                          ) : (
+                            <PictureOutlined className="text-gray-300 text-2xl" />
+                          )}
+                        </div>
+                        <div className="mt-2 text-xs text-gray-500 text-center">
+                          {formatRange(clip.start, clip.end)}
+                        </div>
+                      </div>
+
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-xs text-gray-400">
+                            第 {clip.chapter_index + 1} 章 · {clip.chapter_title}
+                          </span>
+                        </div>
+                        <div className="mt-1 flex items-center gap-2 flex-wrap">
+                          <span className="font-medium">
+                            #{clip.index + 1} {clip.title || '未命名分镜'}
+                          </span>
+                          <Tag>{clip.status}</Tag>
+                          <Tag color="blue">{formatSeconds(clip.duration)}</Tag>
+                          {clip.video_file_id ? (
+                            <Tag color="green">视频已生成</Tag>
+                          ) : (
+                            <Tag color="red">缺视频</Tag>
+                          )}
+                          {clip.audio_file_id || (clip.dialogs ?? []).some((d) => d.audio_file_id) ? (
+                            <Tag color="cyan" icon={<SoundOutlined />}>
+                              有配音
+                            </Tag>
+                          ) : null}
+                        </div>
+
+                        <div className="mt-2 flex items-center gap-2 flex-wrap">
+                          {(clip.frames ?? []).map((frame) => (
+                            <Tag key={`${clip.shot_id}-${frame.frame_type}`} icon={<PictureOutlined />}>
+                              {FRAME_LABELS[frame.frame_type] ?? frame.frame_type}
+                              {frame.width && frame.height ? ` ${frame.width}×${frame.height}` : ''}
+                            </Tag>
+                          ))}
+                          {(clip.dialogs ?? []).length > 0 ? (
+                            <Tag>{`台词 ${(clip.dialogs ?? []).length} 条`}</Tag>
+                          ) : null}
+                        </div>
+
+                        {(clip.dialogs ?? []).length > 0 ? (
+                          <div className="mt-2 text-xs text-gray-500 line-clamp-2">
+                            {(clip.dialogs ?? [])
+                              .map((d) => `${d.speaker_name ? `${d.speaker_name}：` : ''}${d.text}`)
+                              .join(' / ')}
+                          </div>
+                        ) : null}
+                      </div>
+
+                      <div className="shrink-0 flex items-center">
+                        <Button
+                          icon={<PlayCircleOutlined />}
+                          disabled={!clip.video_file_id}
+                          onClick={() => setPreview(clip)}
+                        >
+                          预览
+                        </Button>
+                      </div>
                     </div>
-                  ))}
-                  {clips.filter((c) => c.type === 'video').length === 0 && (
-                    <span className="text-gray-400 text-xs">拖入视频素材</span>
-                  )}
-                </div>
+                  </Card>
+                ))}
               </div>
-              <div className="grid grid-cols-[80px_1fr]">
-                <div className="px-2 py-3 bg-gray-50/80 text-gray-500 text-xs">音频轨道</div>
-                <div className="px-2 py-3 min-h-[56px] flex items-center gap-2 flex-wrap">
-                  {clips.filter((c) => c.type === 'audio').map((c) => (
-                    <div
-                      key={c.id}
-                      className="px-2 py-1.5 bg-green-50 border border-green-200 rounded text-sm cursor-move"
-                    >
-                      {c.label}（{c.start}s–{c.end}s）
-                    </div>
-                  ))}
-                  {clips.filter((c) => c.type === 'audio').length === 0 && (
-                    <span className="text-gray-400 text-xs">拖入音频/配乐</span>
-                  )}
-                </div>
-              </div>
-            </div>
-          </Content>
-        </Layout>
+            )}
+          </>
+        )}
       </Card>
+
+      <Modal
+        title={preview ? `#${preview.index + 1} ${preview.title || '未命名分镜'}` : '分镜预览'}
+        open={preview !== null}
+        footer={null}
+        width={720}
+        destroyOnClose
+        onCancel={() => setPreview(null)}
+      >
+        {preview?.video_file_id ? (
+          <video
+            className="w-full max-h-[70vh] bg-black rounded"
+            src={buildFileDownloadUrl(preview.video_file_id)}
+            controls
+            playsInline
+          >
+            您的浏览器不支持视频播放
+          </video>
+        ) : (
+          <Empty description="该分镜还没有生成视频" />
+        )}
+      </Modal>
     </div>
   )
 }

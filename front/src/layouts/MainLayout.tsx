@@ -34,8 +34,6 @@ const MainLayout: React.FC = () => {
     if (location.pathname === '/projects' || location.pathname.startsWith('/projects/')) return ['projects']
     if (location.pathname.startsWith('/assets')) return ['assets']
     if (location.pathname.startsWith('/prompts')) return ['prompts']
-    if (location.pathname.startsWith('/files')) return ['files']
-    if (location.pathname.startsWith('/agents')) return ['agents']
     if (location.pathname.startsWith('/models')) return ['models']
     if (location.pathname.startsWith('/settings')) return ['settings']
     return []
@@ -49,8 +47,6 @@ const MainLayout: React.FC = () => {
       projects: '项目列表',
       assets: '资产管理',
       prompts: '提示词模板',
-      files: '文件管理',
-      agents: 'Agent管理',
       models: '模型管理',
       settings: t('menu.settings'),
       chapters: '章节管理',

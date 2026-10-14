@@ -38,6 +38,14 @@ export type ProjectRead = {
      */
     default_video_ratio?: (string | null);
     /**
+     * 项目级默认图片比例；为空时回落到视频比例
+     */
+    default_image_ratio?: (string | null);
+    /**
+     * 项目级默认图片分辨率档位（standard/high）；为空时回落到提供方默认档位
+     */
+    default_image_resolution_profile?: (string | null);
+    /**
      * 聚合统计（JSON）
      */
     stats?: Record<string, any>;

@@ -13,10 +13,7 @@ import SceneAssetEditPage from './pages/aiStudio/assets/SceneAssetEditPage.tsx'
 import PropAssetEditPage from './pages/aiStudio/assets/PropAssetEditPage.tsx'
 import CostumeAssetEditPage from './pages/aiStudio/assets/CostumeAssetEditPage.tsx'
 import PromptTemplateManager from './pages/aiStudio/prompts/PromptTemplateManager'
-import FileManager from './pages/aiStudio/files/FileManager'
 import VideoEditor from './pages/aiStudio/editor/VideoEditor'
-import AgentManagement from './pages/aiStudio/agents/AgentManagement'
-import AgentEdit from './pages/aiStudio/agents/AgentEdit.tsx'
 import ModelManagement from './pages/aiStudio/models/ModelManagement'
 import { ChapterShotsPage } from './pages/aiStudio/shots/ChapterShotsPage'
 import { ChapterShotEditPage } from './pages/aiStudio/shots/ChapterShotEditPage'
@@ -43,9 +40,6 @@ const App: React.FC = () => {
           <Route path="assets/props/:propId/edit" element={<PropAssetEditPage />} />
           <Route path="assets/costumes/:costumeId/edit" element={<CostumeAssetEditPage />} />
           <Route path="prompts" element={<PromptTemplateManager />} />
-          <Route path="files" element={<FileManager />} />
-          <Route path="agents/:id/edit" element={<AgentEdit />} />
-          <Route path="agents" element={<AgentManagement />} />
           <Route path="models" element={<ModelManagement />} />
           <Route path="settings" element={<Settings />} />
           <Route path="*" element={<NotFound />} />
