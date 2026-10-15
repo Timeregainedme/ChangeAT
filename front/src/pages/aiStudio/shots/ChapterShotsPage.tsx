@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Button,
   Card,
@@ -35,13 +35,19 @@ import { ScriptProcessingService, StudioChaptersService, StudioShotsService } fr
 import { executeAsyncTaskCreate, executeTaskCancel } from '../components/taskActionHelpers'
 import { Link, Navigate, useNavigate, useParams } from 'react-router-dom'
 import { getChapterShotEditPath, getChapterShotsPath, getChapterStudioPath } from '../project/ProjectWorkbench/routes'
-import { useCancelableRelationTask } from '../project/ProjectWorkbench/chapterDivisionTasks'
+import {
+  SCRIPT_EXTRACTION_RELATION_TYPE,
+  useCancelableRelationTask,
+} from '../project/ProjectWorkbench/chapterDivisionTasks'
+import type { RelationTaskState } from '../project/ProjectWorkbench/chapterDivisionTasks'
 import { useRelationTaskNotification } from '../components/taskNotificationHelpers'
 import { useTaskPageContext } from '../components/taskPageContext'
 import { createTaskSettledReloader } from '../components/taskResultHelpers'
 import { TASK_COPY } from '../components/taskCopy'
 
 const { Header, Content } = Layout
+/** 「一键提取资产」进度提示的 message key：同 key 会原地替换内容，避免连续提示刷屏。 */
+const ONE_CLICK_MESSAGE_KEY = 'chapter-shots-one-click-extract-assets'
 type ShotListFilter = 'all' | 'pending' | 'generating' | 'ready'
 
 function getErrorMessage(e: unknown) {
@@ -130,6 +136,17 @@ export function ChapterShotsPage() {
   const [createForm] = Form.useForm<{ title: string; script_excerpt?: string }>()
   const [chapterDivisionTaskLoading, setChapterDivisionTaskLoading] = useState(false)
   const [creatingAssets, setCreatingAssets] = useState(false)
+  const [extractTaskLoading, setExtractTaskLoading] = useState(false)
+  const [oneClickRunning, setOneClickRunning] = useState(false)
+  /** 「一键提取资产」链路的当前阶段：idle → after_divide → after_extract → idle。 */
+  const oneClickStageRef = useRef<'idle' | 'after_divide' | 'after_extract'>('idle')
+  /**
+   * 链路推进入口。任务 settle 回调被 hook 内部以 ref 保存、并在组件重新渲染后触发，
+   * 因此这里用可变 ref 转发：既绕开 hook 的依赖顺序问题，又保证每次都能拿到最新的 state 与服务方法。
+   */
+  const advanceOneClickRef = useRef<
+    (stage: 'after_divide' | 'after_extract', finalTask?: RelationTaskState | null) => void
+  >(() => undefined)
 
   const refresh = async () => {
     if (!chapterId) return
@@ -176,13 +193,36 @@ export function ChapterShotsPage() {
     enabled: !!chapterId,
     relationType: 'chapter_division',
     relationEntityId: chapterId,
-    onTaskSettled: reloadShotsAfterTaskSettled,
+    onTaskSettled: (_taskId, finalTask) => {
+      // 分镜切分结束：先刷新列表，再推进「一键提取资产」链路（仅当链路正处于该阶段）。
+      void reloadShotsAfterTaskSettled()
+      advanceOneClickRef.current('after_divide', finalTask)
+    },
+  })
+  const {
+    task: extractTask,
+    settledTask: extractSettledTask,
+    trackTaskData: trackExtractTaskData,
+    applyCancelData: applyExtractCancelData,
+  } = useCancelableRelationTask({
+    enabled: !!chapterId,
+    relationType: SCRIPT_EXTRACTION_RELATION_TYPE,
+    relationEntityId: chapterId,
+    onTaskSettled: (taskId, finalTask) => {
+      // 资产提取结束：只有本链路正在等待该阶段时才继续创建资产。
+      if (!taskId) return
+      advanceOneClickRef.current('after_extract', finalTask)
+    },
   })
   useTaskPageContext(
     chapterId
       ? [
           {
             relationType: 'chapter_division',
+            relationEntityId: chapterId,
+          },
+          {
+            relationType: SCRIPT_EXTRACTION_RELATION_TYPE,
             relationEntityId: chapterId,
           },
         ]
@@ -316,39 +356,237 @@ export function ChapterShotsPage() {
   }, [chapterCondensedText, chapterId, chapterRawText])
 
   /**
+   * 批量创建资产的核心逻辑（被「一键创建资产」按钮与「一键提取资产」链路共用）。
+   * 只负责请求、刷新列表并返回三态计数，提示文案交由调用方决定。
+   * 不传 types 表示处理全部待处理候选（显式传 [] 才是一个都不处理）。
+   */
+  const runBatchCreateAssets = async () => {
+    if (!chapterId) return null
+    const res =
+      await StudioShotsService.batchCreateAssetsFromCandidatesApiV1StudioShotsExtractedCandidatesBatchCreateAssetsPost(
+        {
+          requestBody: { chapter_id: chapterId, types: undefined },
+        },
+      )
+    const data = (res.data ?? {}) as Record<string, unknown>
+    const created = Array.isArray(data.created) ? data.created : []
+    const linked = Array.isArray(data.linked) ? data.linked : []
+    const skipped = Array.isArray(data.skipped) ? data.skipped : []
+    await refresh()
+    return { created: created.length, linked: linked.length, skipped: skipped.length }
+  }
+
+  /**
    * 一键创建资产：把本章节所有分镜提取出的候选（人物/场景/道具/服装）一次性落库，
    * 库里已有同名资产则直接建立项目/镜头关联；已被处理过的候选会走到 skipped。
    *
    * 为什么放在本页：原实现只挂在 ChapterPrep.tsx 上，而该页已无路由、全仓无引用，
    * 属于不可达代码；搬到分镜列表页与「一键提取分镜」并列，链路才真正可用。
-   * 不传 types 表示处理全部待处理候选（显式传 [] 才是一个都不处理）。
    */
   const handleBatchCreateAssets = async () => {
     if (!chapterId) return
     setCreatingAssets(true)
     try {
-      const res =
-        await StudioShotsService.batchCreateAssetsFromCandidatesApiV1StudioShotsExtractedCandidatesBatchCreateAssetsPost(
-          {
-            requestBody: { chapter_id: chapterId, types: undefined },
-          },
-        )
-      const data = (res.data ?? {}) as Record<string, unknown>
-      const created = Array.isArray(data.created) ? data.created : []
-      const linked = Array.isArray(data.linked) ? data.linked : []
-      const skipped = Array.isArray(data.skipped) ? data.skipped : []
-      if (created.length === 0 && linked.length === 0 && skipped.length === 0) {
+      const counts = await runBatchCreateAssets()
+      if (!counts) return
+      if (counts.created === 0 && counts.linked === 0 && counts.skipped === 0) {
         message.info('没有待处理的提取候选，请先到分镜准备页完成信息提取')
       } else {
         message.success(
-          `资产就绪：新建 ${created.length} / 关联 ${linked.length} / 跳过 ${skipped.length}`,
+          `资产就绪：新建 ${counts.created} / 关联 ${counts.linked} / 跳过 ${counts.skipped}`,
         )
       }
-      await refresh()
     } catch (err) {
       message.error(`创建资产失败：${err instanceof Error ? err.message : String(err)}`)
     } finally {
       setCreatingAssets(false)
+    }
+  }
+
+  const openOneClickMessage = (content: string) => {
+    message.open({ key: ONE_CLICK_MESSAGE_KEY, type: 'loading', content, duration: 0 })
+  }
+
+  /** 结束整条链路：复位阶段与按钮 loading，并给出终态提示。 */
+  const finishOneClickChain = (content: string, type: 'success' | 'error' | 'info') => {
+    oneClickStageRef.current = 'idle'
+    setOneClickRunning(false)
+    message.open({
+      key: ONE_CLICK_MESSAGE_KEY,
+      type,
+      content,
+      duration: type === 'success' ? 4 : 6,
+    })
+  }
+
+  /**
+   * 读取本章节全部分镜（自动翻页）。
+   * 为什么单独实现：表格只展示当前页，而提取链路必须覆盖「全部镜头」，否则资产会漏。
+   */
+  const fetchAllShots = useCallback(async () => {
+    if (!chapterId) return [] as ShotRead[]
+    const pageSize = 500
+    const maxPages = 20
+    const collected: ShotRead[] = []
+    for (let page = 1; page <= maxPages; page += 1) {
+      const res = await StudioShotsService.listShotsApiV1StudioShotsGet({
+        chapterId,
+        page,
+        pageSize,
+        order: 'index',
+        isDesc: false,
+      })
+      const items = res.data?.items ?? []
+      collected.push(...items)
+      if (items.length < pageSize) break
+    }
+    return collected
+  }, [chapterId])
+
+  /**
+   * 链路第二步：对本章节全部镜头（排除已标记「无需提取」者）发起一次资产提取。
+   * 提取是异步任务，成功后由 advanceOneClickRef 触发建资产，故这里只负责发起。
+   */
+  const startExtractStep = async (targetShots: ShotRead[]) => {
+    if (!chapterId || !projectId) {
+      finishOneClickChain('缺少项目或章节上下文，已中止', 'error')
+      return
+    }
+    const actionable = targetShots.filter((s) => !s.skip_extraction)
+    if (actionable.length === 0) {
+      finishOneClickChain('本章节所有分镜都标记为无需提取，没有可提取的资产', 'info')
+      return
+    }
+    oneClickStageRef.current = 'after_extract'
+    openOneClickMessage(`正在提取资产候选（${actionable.length} 个镜头）…`)
+    const started = await executeAsyncTaskCreate({
+      request: () =>
+        ScriptProcessingService.extractScriptAsyncApiV1ScriptProcessingExtractAsyncPost({
+          requestBody: {
+            project_id: projectId,
+            chapter_id: chapterId,
+            script_division: {
+              total_shots: actionable.length,
+              shots: actionable.map((s) => ({
+                index: s.index,
+                start_line: 1,
+                end_line: 1,
+                script_excerpt: s.script_excerpt ?? '',
+                shot_name: s.title ?? '',
+              })),
+            },
+            consistency: undefined,
+            refresh_cache: true,
+          },
+        }),
+      trackTaskData: trackExtractTaskData,
+      startedMessage: TASK_COPY.scriptExtract.startedMessage,
+      reusedMessage: TASK_COPY.scriptExtract.reusedMessage,
+      fallbackErrorMessage: '启动资产提取失败',
+      getErrorMessage: (error) => getErrorMessage(error),
+    })
+    if (!started) finishOneClickChain('启动资产提取失败，已中止', 'error')
+  }
+
+  /** 链路第三步：把提取出的候选一次性落库（同名资产走关联）。 */
+  const createAssetsStep = async () => {
+    openOneClickMessage('正在创建资产…')
+    try {
+      const counts = await runBatchCreateAssets()
+      if (!counts) {
+        finishOneClickChain('创建资产失败：缺少章节上下文', 'error')
+        return
+      }
+      if (counts.created === 0 && counts.linked === 0 && counts.skipped === 0) {
+        finishOneClickChain('资产提取已完成，但本章节没有待处理的候选', 'info')
+        return
+      }
+      finishOneClickChain(
+        `一键提取资产完成：新建 ${counts.created} / 关联 ${counts.linked} / 跳过 ${counts.skipped}`,
+        'success',
+      )
+    } catch (err) {
+      finishOneClickChain(
+        `创建资产失败：${err instanceof Error ? err.message : String(err)}`,
+        'error',
+      )
+    }
+  }
+
+  // 链路推进：任务 settle 后经 ref 转发到这里。
+  // 只有当前阶段匹配（说明这次 settle 属于本链路）才继续，避免干扰页面上其它入口触发的任务。
+  advanceOneClickRef.current = (stage, finalTask) => {
+    if (oneClickStageRef.current !== stage) return
+    void (async () => {
+      if (finalTask && finalTask.status !== 'succeeded') {
+        const cancelled = finalTask.status === 'cancelled' || finalTask.cancelRequested
+        finishOneClickChain(
+          cancelled ? '任务已取消，链路中止' : `任务未成功（${finalTask.status}），链路中止`,
+          cancelled ? 'info' : 'error',
+        )
+        return
+      }
+      if (stage === 'after_divide') {
+        openOneClickMessage('分镜已生成，正在提取资产候选…')
+        const fresh = await fetchAllShots()
+        if (fresh.length === 0) {
+          finishOneClickChain('分镜切分后仍未获得分镜，已中止', 'error')
+          return
+        }
+        await startExtractStep(fresh)
+        return
+      }
+      await createAssetsStep()
+    })()
+  }
+
+  /**
+   * 一键提取资产（全链路）：没有分镜就先切分镜 → 对全部镜头跑资产提取 → 提取任务结束后自动创建资产。
+   *
+   * 为什么做成一条链路：切分镜、提取候选、创建资产是三个独立步骤（第一步只产分镜行，
+   * 第二步才产候选），此前分散在不同页面，用户必须自己判断「现在该点哪个、有没有跑完」。
+   * 本页用任务 settle 事件把三步串起来，而不是用轮询硬等，避免无谓等待与漏步。
+   */
+  const handleOneClickExtractAssets = async () => {
+    if (!chapterId || !projectId) {
+      message.error('缺少项目或章节上下文')
+      return
+    }
+    if (oneClickRunning) return
+    setOneClickRunning(true)
+    try {
+      const current = await fetchAllShots()
+      if (current.length > 0) {
+        await startExtractStep(current)
+        return
+      }
+      const scriptText = (chapterCondensedText || chapterRawText).trim()
+      if (!scriptText) {
+        oneClickStageRef.current = 'idle'
+        setOneClickRunning(false)
+        message.error('章节没有可用文本（请先录入原文或精简文本）')
+        return
+      }
+      oneClickStageRef.current = 'after_divide'
+      openOneClickMessage('正在切分镜…')
+      const started = await executeAsyncTaskCreate({
+        request: () =>
+          ScriptProcessingService.divideScriptAsyncApiV1ScriptProcessingDivideAsyncPost({
+            requestBody: {
+              script_text: scriptText,
+              write_to_db: true,
+              chapter_id: chapterId,
+            },
+          }),
+        trackTaskData,
+        startedMessage: taskCopy.startedMessage,
+        reusedMessage: taskCopy.reusedMessage,
+        fallbackErrorMessage: '启动分镜提取失败',
+        getErrorMessage: (error) => getErrorMessage(error),
+      })
+      if (!started) finishOneClickChain('启动分镜提取失败，已中止', 'error')
+    } catch (err) {
+      finishOneClickChain(`启动失败：${err instanceof Error ? err.message : String(err)}`, 'error')
     }
   }
 
@@ -382,6 +620,43 @@ export function ChapterShotsPage() {
     cancelledDescription: taskCopy.cancelledDescription,
     failedDescription: taskCopy.failedDescription,
     onCancel: chapterDivisionTask ? () => void handleCancelChapterDivisionTask() : null,
+    onNavigate:
+      projectId && chapterId
+        ? () => navigate(getChapterShotsPath(projectId, chapterId))
+        : null,
+  })
+
+  const handleCancelExtractTask = useCallback(async () => {
+    if (!extractTask) return
+    setExtractTaskLoading(true)
+    try {
+      await executeTaskCancel({
+        taskId: extractTask.taskId,
+        reason: '用户在分镜列表页取消资产提取',
+        applyCancelData: applyExtractCancelData,
+        cancelledImmediatelyMessage: TASK_COPY.scriptExtract.cancelledImmediatelyMessage,
+        cancelRequestedMessage: TASK_COPY.scriptExtract.cancelRequestedMessage,
+        fallbackErrorMessage: '取消任务失败',
+      })
+    } catch {
+      // executeTaskCancel 已统一处理错误提示
+    } finally {
+      setExtractTaskLoading(false)
+    }
+  }, [extractTask, applyExtractCancelData])
+
+  // 资产提取任务的进度/结果通知：与分镜切分并列，取消后链路会自行中止。
+  useRelationTaskNotification({
+    task: extractTask,
+    settledTask: extractSettledTask,
+    title: TASK_COPY.scriptExtract.title,
+    sourceLabel: chapterTitle ? `章节：${chapterTitle}` : '分镜管理页',
+    runningDescription: TASK_COPY.scriptExtract.runningDescription,
+    cancellingDescription: TASK_COPY.scriptExtract.cancellingDescription,
+    successDescription: TASK_COPY.scriptExtract.successDescription,
+    cancelledDescription: TASK_COPY.scriptExtract.cancelledDescription,
+    failedDescription: TASK_COPY.scriptExtract.failedDescription,
+    onCancel: extractTask ? () => void handleCancelExtractTask() : null,
     onNavigate:
       projectId && chapterId
         ? () => navigate(getChapterShotsPath(projectId, chapterId))
@@ -671,6 +946,19 @@ export function ChapterShotsPage() {
                   </Popconfirm>
                 </>
               ) : null}
+              <Tooltip title="全链路一键：没有分镜就先切分镜，再对本章节全部镜头提取资产候选，提取完成后自动创建资产（人物/场景/道具/服装）">
+                <span>
+                  <Button
+                    type="primary"
+                    icon={<AppstoreAddOutlined />}
+                    loading={oneClickRunning}
+                    disabled={extracting || creatingAssets || oneClickRunning}
+                    onClick={() => void handleOneClickExtractAssets()}
+                  >
+                    {oneClickRunning ? '提取资产中' : '一键提取资产'}
+                  </Button>
+                </span>
+              </Tooltip>
               <Tooltip
                 title={
                   chapterDivisionTask
@@ -682,10 +970,9 @@ export function ChapterShotsPage() {
               >
                 <span>
                   <Button
-                    type={shots.length === 0 ? 'primary' : 'default'}
                     icon={<ScissorOutlined />}
                     loading={extracting}
-                    disabled={extracting || shots.length > 0 || !!chapterDivisionTask}
+                    disabled={extracting || oneClickRunning || shots.length > 0 || !!chapterDivisionTask}
                     onClick={() => void handleOneClickExtract()}
                   >
                     {chapterDivisionTask ? '分镜提取中' : shots.length === 0 ? '一键提取分镜' : '重新提取需先清空分镜'}
@@ -697,7 +984,7 @@ export function ChapterShotsPage() {
                   <Button
                     icon={<AppstoreAddOutlined />}
                     loading={creatingAssets}
-                    disabled={extracting || creatingAssets}
+                    disabled={extracting || creatingAssets || oneClickRunning}
                     onClick={() => void handleBatchCreateAssets()}
                   >
                     {creatingAssets ? '创建资产中' : '一键创建资产'}
@@ -724,6 +1011,17 @@ export function ChapterShotsPage() {
                   onClick={() => void handleCancelChapterDivisionTask()}
                 >
                   {chapterDivisionTask.cancelRequested ? '正在取消' : '取消提取'}
+                </Button>
+              ) : null}
+              {extractTask ? (
+                <Button
+                  danger
+                  icon={<CloseCircleOutlined />}
+                  loading={extractTaskLoading}
+                  disabled={extractTask.cancelRequested || extractTaskLoading}
+                  onClick={() => void handleCancelExtractTask()}
+                >
+                  {extractTask.cancelRequested ? '正在取消' : '取消资产提取'}
                 </Button>
               ) : null}
             </Space>

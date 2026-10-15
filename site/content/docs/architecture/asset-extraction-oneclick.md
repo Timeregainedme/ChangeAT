@@ -45,6 +45,26 @@ extract-async -> 候选落库(shot_extracted_candidates，含 payload.descriptio
   - 无论新建还是关联，候选都标记为 `linked`。
 - 返回：`{ created, linked, skipped }`（逐候选明细）。
 
+## 一键提取资产（全链路）
+
+前端入口：`ChapterShotsPage` 的「一键提取资产」主按钮（`front/src/pages/aiStudio/shots/ChapterShotsPage.tsx::handleOneClickExtractAssets`），排在「一键提取分镜」与「一键创建资产」之前。
+
+它把三个原本分散的步骤串成一条链路，解决「用户不知道该点哪个、也不知道上一步跑完没有」：
+
+```text
+（无分镜时）divide-async -> 轮询/通知直到 settle
+                     -> extract-async（对全部镜头）-> 直到 settle
+                     -> batch-create-assets
+```
+
+- **为什么必须在前端串联**：`app/services/worker/task_registry.py` 里没有「切分 + 提取」合并的任务类型，二者是两个独立 task_kind（`script_divide` / `script_extract`），且 `create_divide_task`（`app/services/script_processing_tasks.py:132`）与 `create_extract_task`（同文件 `:282`）都各自落一条 `GenerationTaskLink(relation_entity_id=chapter_id)`。
+- **推进方式不是轮询硬等，而是任务 settle 事件**：页面同时持有两个 `useCancelableRelationTask`（`relationType` 分别为 `'chapter_division'` 与 `SCRIPT_EXTRACTION_RELATION_TYPE`），各自的 `onTaskSettled` 经 `advanceOneClickRef` 转发到链路推进函数；`oneClickStageRef` 记录当前阶段（`idle` / `after_divide` / `after_extract`），**只有阶段匹配才继续**，避免干扰用户手动触发的其它任务。
+- **镜头范围取全量而非当前页**：`fetchAllShots`（pageSize=500、最多 20 页自动翻页）保证提取覆盖整章；`ChapterShotEditPage` 的「批量提取并刷新」受多选限制，本链路不受此限。
+- 单镜头被标记「无需提取」（`skip_extraction`）时会被过滤；全部被过滤则提示「本章节所有分镜都标记为无需提取」并中止（与 `ChapterShotEditPage` 的既有口径一致）。
+- 前置校验：无分镜且章节既无精简文本也无原文时直接报错中止，不发起任务。
+- 终态：任一阶段任务失败或被取消，链路立即中止并在同一条 message（固定 key `chapter-shots-one-click-extract-assets`，原地替换以避免刷屏）里给出原因；全部成功则提示 `新建/关联/跳过` 计数。
+- 两个子任务各自可在页面上取消（「取消提取」/「取消资产提取」按钮），取消同样会让链路中止。
+
 ## 一键批量参考图
 
 接口：`POST /api/v1/studio/image-tasks/assets/batch-image-tasks`
@@ -75,6 +95,7 @@ extract-async -> 候选落库(shot_extracted_candidates，含 payload.descriptio
 
 早先本文把 `ChapterPrep` 记为入口，但该页已**无路由、全仓无 import**（`front/src/App.tsx:31` 把 `/chapters/:chapterId/prep/*` 重定向到 `../shots`），属不可达代码。当前真实入口：
 
+- **一键提取资产（全链路）**：同在 `ChapterShotsPage`，为该页主按钮。没有分镜时先切分镜，再对本章节全部镜头跑资产提取，提取任务结束后自动创建资产；三步由任务 settle 事件串联，中途失败/取消即中止（详见上节）。
 - **一键提取分镜**：`ChapterShotsPage`（`/projects/:projectId/chapters/:chapterId/shots`）的「一键提取分镜」按钮，调 `divide-async` 落库分镜；已存在分镜时禁用（需先清空）。
 - **一键创建资产**：同在 `ChapterShotsPage`，与「一键提取分镜」并列。调用下节的 `batch-create-assets`（`types` 不传 = 处理全部 pending），完成后提示 `新建/关联/跳过` 计数并刷新分镜列表；无候选时提示先完成信息提取。
 - **逐镜候选确认**：`ChapterShotEditPage`（`.../shots/:shotId/edit`），逐候选关联/新建/忽略。
