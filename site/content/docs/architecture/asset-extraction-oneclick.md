@@ -31,6 +31,8 @@ extract-async -> 候选落库(shot_extracted_candidates，含 payload.descriptio
 
 接口：`POST /api/v1/studio/shots/extracted-candidates/batch-create-assets`
 
+前端入口：`ChapterShotsPage` 的「一键创建资产」按钮（`front/src/pages/aiStudio/shots/ChapterShotsPage.tsx::handleBatchCreateAssets`），与「一键提取分镜」并列。
+
 - 入参：`{ chapter_id, types?: [character|scene|prop|costume] }`，缺省处理该章节全部 pending 候选。
 - `types` 的两种「空」语义不同（`app/services/studio/batch_candidate_assets.py::create_assets_from_extraction_candidates`）：
   - **不传 `types`（`None`）= 不限定类型，处理全部**；
@@ -69,11 +71,16 @@ extract-async -> 候选落库(shot_extracted_candidates，含 payload.descriptio
 - 视频提示词：`build_shot_video_prompt_pack` + `_collect_asset_references` 同样按该优先级收集。
 - 结论：**只要资产图存在且 file_id 非空，关键帧与视频提示词会自动携带参考图**；前置工作（资产创建 + 批量出图）完成后即自动生效。
 
-## 页面（ChapterPrep）
+## 页面入口（真实可达）
 
-- “智能提取”：真实调用 divide-async → extract-async → 聚合分镜与候选展示。
-- “一键创建资产 / 批量生成参考图”：调用上述两个批量接口；参考图任务提交后提示前往分镜工作室/资产页查看出图与抽卡。
-- 实体编辑、从资产库选取等辅助交互仍为 Mock 占位，后续接入实体 CRUD 后可替换。
+早先本文把 `ChapterPrep` 记为入口，但该页已**无路由、全仓无 import**（`front/src/App.tsx:31` 把 `/chapters/:chapterId/prep/*` 重定向到 `../shots`），属不可达代码。当前真实入口：
+
+- **一键提取分镜**：`ChapterShotsPage`（`/projects/:projectId/chapters/:chapterId/shots`）的「一键提取分镜」按钮，调 `divide-async` 落库分镜；已存在分镜时禁用（需先清空）。
+- **一键创建资产**：同在 `ChapterShotsPage`，与「一键提取分镜」并列。调用下节的 `batch-create-assets`（`types` 不传 = 处理全部 pending），完成后提示 `新建/关联/跳过` 计数并刷新分镜列表；无候选时提示先完成信息提取。
+- **逐镜候选确认**：`ChapterShotEditPage`（`.../shots/:shotId/edit`），逐候选关联/新建/忽略。
+  - 候选不存在时弹「当前无可关联资产，是否新建？」，跳转到资产创建入口并携带上下文：角色 → `/projects/:id?tab=roles&create=1`，场景/道具/服装 → `/assets?tab=<kind>&create=1`。
+  - 库里已有同名资产时改为弹「可关联」确认，复用已有实体而非新建。
+- **批量生成参考图**：接口已就绪（见上节），但前端入口仍只在不可达的 `ChapterPrep` 里；需要时按同一方式搬到可达页面。
 
 ## 提取链路修复记录（2026-10-14）
 

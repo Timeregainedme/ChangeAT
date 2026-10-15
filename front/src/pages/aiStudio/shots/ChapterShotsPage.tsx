@@ -19,6 +19,7 @@ import {
 } from 'antd'
 import type { TableColumnsType } from 'antd'
 import {
+  AppstoreAddOutlined,
   ArrowLeftOutlined,
   CloseCircleOutlined,
   DeleteOutlined,
@@ -47,10 +48,14 @@ function getErrorMessage(e: unknown) {
   if (!e) return '请求失败'
   if (typeof e === 'string') return e
   if (typeof e === 'object') {
-    const maybeAny = e as any
-    const detail = maybeAny?.body?.detail ?? maybeAny?.detail
+    // 用 Record + 逐层收窄代替 `as any`：既满足 no-explicit-any，也保证取值前先验类型。
+    const maybe = e as Record<string, unknown>
+    const body = maybe.body
+    const bodyDetail =
+      body && typeof body === 'object' ? (body as Record<string, unknown>).detail : undefined
+    const detail = bodyDetail ?? maybe.detail
     if (typeof detail === 'string' && detail.trim()) return detail
-    const msg = maybeAny?.message
+    const msg = maybe.message
     if (typeof msg === 'string' && msg.trim()) return msg
   }
   return '请求失败'
@@ -124,6 +129,7 @@ export function ChapterShotsPage() {
   const [createSubmitting, setCreateSubmitting] = useState(false)
   const [createForm] = Form.useForm<{ title: string; script_excerpt?: string }>()
   const [chapterDivisionTaskLoading, setChapterDivisionTaskLoading] = useState(false)
+  const [creatingAssets, setCreatingAssets] = useState(false)
 
   const refresh = async () => {
     if (!chapterId) return
@@ -308,6 +314,43 @@ export function ChapterShotsPage() {
       setExtracting(false)
     }
   }, [chapterCondensedText, chapterId, chapterRawText])
+
+  /**
+   * 一键创建资产：把本章节所有分镜提取出的候选（人物/场景/道具/服装）一次性落库，
+   * 库里已有同名资产则直接建立项目/镜头关联；已被处理过的候选会走到 skipped。
+   *
+   * 为什么放在本页：原实现只挂在 ChapterPrep.tsx 上，而该页已无路由、全仓无引用，
+   * 属于不可达代码；搬到分镜列表页与「一键提取分镜」并列，链路才真正可用。
+   * 不传 types 表示处理全部待处理候选（显式传 [] 才是一个都不处理）。
+   */
+  const handleBatchCreateAssets = async () => {
+    if (!chapterId) return
+    setCreatingAssets(true)
+    try {
+      const res =
+        await StudioShotsService.batchCreateAssetsFromCandidatesApiV1StudioShotsExtractedCandidatesBatchCreateAssetsPost(
+          {
+            requestBody: { chapter_id: chapterId, types: undefined },
+          },
+        )
+      const data = (res.data ?? {}) as Record<string, unknown>
+      const created = Array.isArray(data.created) ? data.created : []
+      const linked = Array.isArray(data.linked) ? data.linked : []
+      const skipped = Array.isArray(data.skipped) ? data.skipped : []
+      if (created.length === 0 && linked.length === 0 && skipped.length === 0) {
+        message.info('没有待处理的提取候选，请先到分镜准备页完成信息提取')
+      } else {
+        message.success(
+          `资产就绪：新建 ${created.length} / 关联 ${linked.length} / 跳过 ${skipped.length}`,
+        )
+      }
+      await refresh()
+    } catch (err) {
+      message.error(`创建资产失败：${err instanceof Error ? err.message : String(err)}`)
+    } finally {
+      setCreatingAssets(false)
+    }
+  }
 
   const handleCancelChapterDivisionTask = useCallback(async () => {
     if (!chapterDivisionTask) return
@@ -646,6 +689,18 @@ export function ChapterShotsPage() {
                     onClick={() => void handleOneClickExtract()}
                   >
                     {chapterDivisionTask ? '分镜提取中' : shots.length === 0 ? '一键提取分镜' : '重新提取需先清空分镜'}
+                  </Button>
+                </span>
+              </Tooltip>
+              <Tooltip title="把本章节全部分镜提取出的候选资产（人物/场景/道具/服装）一次性落库；库里已有同名资产则直接关联">
+                <span>
+                  <Button
+                    icon={<AppstoreAddOutlined />}
+                    loading={creatingAssets}
+                    disabled={extracting || creatingAssets}
+                    onClick={() => void handleBatchCreateAssets()}
+                  >
+                    {creatingAssets ? '创建资产中' : '一键创建资产'}
                   </Button>
                 </span>
               </Tooltip>
