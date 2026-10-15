@@ -50,7 +50,7 @@ UPDATE `prompt_templates` SET `name` = '要素提取提示词', `preview` = '剧
 输出 StudioScriptExtractionDraft：
 - project_id（必填）
 - chapter_id（必填）
-- characters: [{name, description, costume_name?, prop_names[], tags[]}]
+- characters: [{name, description, voice_description?, costume_name?, prop_names[], tags[]}]
 - scenes/props/costumes: [{name, description, tags[], prompt_template_id?, view_count}]
 - shots: [{index, title, script_excerpt, scene_name?, character_names[], prop_names[], costume_names[], dialogue_lines[], actions[], semantic_suggestion?}]
   - dialogue_lines: [{index, text, line_mode, speaker_name?, target_name?}]
@@ -60,6 +60,9 @@ UPDATE `prompt_templates` SET `name` = '要素提取提示词', `preview` = '剧
 - 同名实体在输出中只出现一次（全局去重）；shots 中引用必须使用同一名称
 - shots.index 必须覆盖并对应输入分镜中的 index（不要跳号）
 - 不要输出任何 id 字段（包括 char_001 等），由导入 API 生成
+- 每个有对白（或明显发声）的角色都应输出 `voice_description`：用一两句中文描述其声音特征，
+  覆盖年龄段（如青年/中年）、声线（如清亮/低沉/沙哑/温润）、气质（如温柔/冷峻/活泼）、
+  语速与语调习惯（如语速偏快/沉稳缓慢）等；纯背景角色可省略。
 
 一致性强约束（必须严格遵守，否则导入会失败）：
 - 先输出全局 characters/scenes/props/costumes 列表，再输出 shots；并把它们视为“字典”。
@@ -91,7 +94,7 @@ INSERT INTO `prompt_templates` (`id`, `category`, `name`, `preview`, `content`, 
 输出 StudioScriptExtractionDraft：
 - project_id（必填）
 - chapter_id（必填）
-- characters: [{name, description, costume_name?, prop_names[], tags[]}]
+- characters: [{name, description, voice_description?, costume_name?, prop_names[], tags[]}]
 - scenes/props/costumes: [{name, description, tags[], prompt_template_id?, view_count}]
 - shots: [{index, title, script_excerpt, scene_name?, character_names[], prop_names[], costume_names[], dialogue_lines[], actions[], semantic_suggestion?}]
   - dialogue_lines: [{index, text, line_mode, speaker_name?, target_name?}]
@@ -101,6 +104,9 @@ INSERT INTO `prompt_templates` (`id`, `category`, `name`, `preview`, `content`, 
 - 同名实体在输出中只出现一次（全局去重）；shots 中引用必须使用同一名称
 - shots.index 必须覆盖并对应输入分镜中的 index（不要跳号）
 - 不要输出任何 id 字段（包括 char_001 等），由导入 API 生成
+- 每个有对白（或明显发声）的角色都应输出 `voice_description`：用一两句中文描述其声音特征，
+  覆盖年龄段（如青年/中年）、声线（如清亮/低沉/沙哑/温润）、气质（如温柔/冷峻/活泼）、
+  语速与语调习惯（如语速偏快/沉稳缓慢）等；纯背景角色可省略。
 
 一致性强约束（必须严格遵守，否则导入会失败）：
 - 先输出全局 characters/scenes/props/costumes 列表，再输出 shots；并把它们视为“字典”。

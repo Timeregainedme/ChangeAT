@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.models.studio import (
     Chapter,
+    Character,
     DialogueLineMode,
     Shot,
     ShotDetail,
@@ -282,6 +283,49 @@ async def _resolve_dialog_index(db: AsyncSession, *, shot_id: str, preferred_ind
     return int(max_index or 0) + 1
 
 
+async def _resolve_character_id_by_name(
+    db: AsyncSession,
+    *,
+    shot_id: str,
+    character_name: str | None,
+) -> str | None:
+    """按角色名解析镜头所属项目内的角色 ID。
+
+    对白候选只保存了角色名，接受动作必须把 ``speaker_character_id`` /
+    ``target_character_id`` 一并写入台词行：否则展示层没有可解析的角色关联，
+    角色改名后台词行会一直显示旧的提取名字（B-2）。
+
+    参数：
+        shot_id：候选所属镜头 ID，用于反查项目范围。
+        character_name：候选（或接受请求覆盖后）的角色名。
+
+    返回：
+        命中的角色 ID；名字为空、镜头/章节缺失或项目内无同名角色时返回 ``None``，
+        此时展示层回落到行内名字。
+
+    说明：
+        只在同一项目内匹配，避免不同项目的同名角色被误关联；项目内存在同名角色时
+        取 ID 最小者，保证结果稳定可复现。
+    """
+    normalized_name = str(character_name or "").strip()
+    if not normalized_name:
+        return None
+    shot = await db.get(Shot, shot_id)
+    if shot is None:
+        return None
+    chapter = await db.get(Chapter, shot.chapter_id)
+    if chapter is None:
+        return None
+    stmt = (
+        select(Character.id)
+        .where(Character.project_id == chapter.project_id)
+        .where(Character.name == normalized_name)
+        .order_by(Character.id.asc())
+        .limit(1)
+    )
+    return (await db.execute(stmt)).scalars().first()
+
+
 async def mark_accepted(
     db: AsyncSession,
     *,
@@ -302,6 +346,8 @@ async def mark_accepted(
         shot_id=row.shot_id,
         preferred_index=row.index if body.index is None else body.index,
     )
+    speaker_name = body.speaker_name if body.speaker_name is not None else row.speaker_name
+    target_name = body.target_name if body.target_name is not None else row.target_name
     line = ShotDialogLine(
         shot_detail_id=row.shot_id,
         index=line_index,
@@ -312,8 +358,14 @@ async def mark_accepted(
             if body.emotion is not None
             else _clean_emotion(row.emotion)
         ),
-        speaker_name=(body.speaker_name if body.speaker_name is not None else row.speaker_name),
-        target_name=(body.target_name if body.target_name is not None else row.target_name),
+        speaker_character_id=await _resolve_character_id_by_name(
+            db, shot_id=row.shot_id, character_name=speaker_name
+        ),
+        target_character_id=await _resolve_character_id_by_name(
+            db, shot_id=row.shot_id, character_name=target_name
+        ),
+        speaker_name=speaker_name,
+        target_name=target_name,
     )
     db.add(line)
     await db.flush()

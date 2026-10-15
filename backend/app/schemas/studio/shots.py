@@ -93,6 +93,7 @@ class BatchCreateAssetsFromCandidatesRequest(BaseModel):
     chapter_id: str = Field(..., description="章节 ID：遍历该章节下所有 pending 提取候选")
     types: list[str] | None = Field(
         None,
+        max_length=4,
         description="候选类型过滤（character/scene/prop/costume）；缺省处理全部类型",
     )
 

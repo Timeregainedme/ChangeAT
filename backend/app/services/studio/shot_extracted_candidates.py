@@ -308,6 +308,11 @@ async def mark_linked_by_name(
 
     用于真实资产关联动作发生后，将提取候选同步回写为 linked。
     若当前镜头没有匹配候选，则静默返回 None。
+
+    说明：
+        同一镜头内可能因重复提取出现多行同名同类候选，它们指向的是同一个真实实体，
+        因此这里更新**全部**匹配行（D-8）；只更新第一条会让其余候选永远停在
+        pending，把镜头状态卡在未确认。返回值保持既有契约：返回 ID 最小的匹配行。
     """
     normalized_name = str(candidate_name).strip()
     if not normalized_name:
@@ -319,17 +324,18 @@ async def mark_linked_by_name(
         .where(ShotExtractedCandidate.candidate_type == normalized_type)
         .where(ShotExtractedCandidate.candidate_name == normalized_name)
         .order_by(ShotExtractedCandidate.id.asc())
-        .limit(1)
     )
-    row = (await db.execute(stmt)).scalars().first()
-    if row is None:
+    rows = list((await db.execute(stmt)).scalars().all())
+    if not rows:
         return None
-    row.candidate_status = ShotCandidateStatus.linked
-    row.linked_entity_id = linked_entity_id
-    row.confirmed_at = _utc_now()
-    await _flush_refresh_candidate(db, row)
-    await recompute_shot_status(db, shot_id=row.shot_id)
-    return row
+    for row in rows:
+        row.candidate_status = ShotCandidateStatus.linked
+        row.linked_entity_id = linked_entity_id
+        row.confirmed_at = _utc_now()
+    for row in rows:
+        await _flush_refresh_candidate(db, row)
+    await recompute_shot_status(db, shot_id=rows[0].shot_id)
+    return rows[0]
 
 
 async def mark_pending_by_name(
@@ -339,7 +345,13 @@ async def mark_pending_by_name(
     candidate_type: ShotCandidateType | str,
     candidate_name: str,
 ) -> ShotExtractedCandidate | None:
-    """按镜头、候选类型与名称回退候选为待处理状态。"""
+    """按镜头、候选类型与名称回退候选为待处理状态。
+
+    说明：
+        与 :func:`mark_linked_by_name` 对称，回退**全部**同名同类候选；
+        否则「关联时全部置 linked、解除时只回退一条」会让剩余候选卡在 linked，
+        镜头状态再也回不到 pending。返回值保持既有契约：返回 ID 最小的匹配行。
+    """
     normalized_name = str(candidate_name).strip()
     if not normalized_name:
         return None
@@ -350,17 +362,18 @@ async def mark_pending_by_name(
         .where(ShotExtractedCandidate.candidate_type == normalized_type)
         .where(ShotExtractedCandidate.candidate_name == normalized_name)
         .order_by(ShotExtractedCandidate.id.asc())
-        .limit(1)
     )
-    row = (await db.execute(stmt)).scalars().first()
-    if row is None:
+    rows = list((await db.execute(stmt)).scalars().all())
+    if not rows:
         return None
-    row.candidate_status = ShotCandidateStatus.pending
-    row.linked_entity_id = None
-    row.confirmed_at = None
-    await _flush_refresh_candidate(db, row)
-    await recompute_shot_status(db, shot_id=row.shot_id)
-    return row
+    for row in rows:
+        row.candidate_status = ShotCandidateStatus.pending
+        row.linked_entity_id = None
+        row.confirmed_at = None
+    for row in rows:
+        await _flush_refresh_candidate(db, row)
+    await recompute_shot_status(db, shot_id=rows[0].shot_id)
+    return rows[0]
 
 
 async def mark_pending_by_linked_entity(
@@ -370,7 +383,12 @@ async def mark_pending_by_linked_entity(
     candidate_type: ShotCandidateType | str,
     linked_entity_id: str,
 ) -> ShotExtractedCandidate | None:
-    """按镜头、候选类型与已关联实体 ID 回退候选为待处理状态。"""
+    """按镜头、候选类型与已关联实体 ID 回退候选为待处理状态。
+
+    说明：
+        一个实体可能被同一镜头的多行候选共同关联，因此这里回退**全部**匹配行，
+        避免解除关联后仍有候选停在 linked。返回值保持既有契约：返回 ID 最小的匹配行。
+    """
     normalized_type = ShotCandidateType(str(candidate_type))
     stmt = (
         select(ShotExtractedCandidate)
@@ -378,17 +396,18 @@ async def mark_pending_by_linked_entity(
         .where(ShotExtractedCandidate.candidate_type == normalized_type)
         .where(ShotExtractedCandidate.linked_entity_id == linked_entity_id)
         .order_by(ShotExtractedCandidate.id.asc())
-        .limit(1)
     )
-    row = (await db.execute(stmt)).scalars().first()
-    if row is None:
+    rows = list((await db.execute(stmt)).scalars().all())
+    if not rows:
         return None
-    row.candidate_status = ShotCandidateStatus.pending
-    row.linked_entity_id = None
-    row.confirmed_at = None
-    await _flush_refresh_candidate(db, row)
-    await recompute_shot_status(db, shot_id=row.shot_id)
-    return row
+    for row in rows:
+        row.candidate_status = ShotCandidateStatus.pending
+        row.linked_entity_id = None
+        row.confirmed_at = None
+    for row in rows:
+        await _flush_refresh_candidate(db, row)
+    await recompute_shot_status(db, shot_id=rows[0].shot_id)
+    return rows[0]
 
 
 async def mark_ignored(

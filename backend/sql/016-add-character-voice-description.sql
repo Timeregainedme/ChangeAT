@@ -24,6 +24,19 @@ PREPARE stmt_add_characters_voice_description FROM @add_characters_voice_descrip
 EXECUTE stmt_add_characters_voice_description;
 DEALLOCATE PREPARE stmt_add_characters_voice_description;
 
--- MySQL 5.7 不允许 TEXT 列带 DEFAULT，应用层（SQLAlchemy）写入时总是显式传值；
--- 这里把历史行回填空串，保证 ORM 读取非空。
-UPDATE characters SET voice_description = '' WHERE voice_description IS NULL;
+-- 说明（评审 D-9 修正措辞）：MySQL 对 BLOB/TEXT 类型**一律**不允许 DEFAULT（5.7 与 8.0 相同），
+-- 不是 5.7 独有限制。因此「非空且默认空串」这一口径只能由应用层（SQLAlchemy 的客户端默认值
+-- default=""）提供，DDL 层只负责 NULL/NOT NULL；列口径的最终统一见
+-- 018-unify-character-voice-description-not-null.sql。
+--
+-- 幂等/降扫描（评审 D-9）：回填只在「本次刚建出该列」时执行 —— 此时历史行必然为 NULL，
+-- 是该 UPDATE 唯一有意义的时机。列已存在时整体跳过，避免每次执行都对全表做
+-- `WHERE voice_description IS NULL` 扫描；二次执行不报错、不改语义。
+SET @backfill_characters_voice_description = IF(
+  @has_characters_voice_description = 0,
+  "UPDATE characters SET voice_description = '' WHERE voice_description IS NULL",
+  'SELECT 1'
+);
+PREPARE stmt_backfill_characters_voice_description FROM @backfill_characters_voice_description;
+EXECUTE stmt_backfill_characters_voice_description;
+DEALLOCATE PREPARE stmt_backfill_characters_voice_description;

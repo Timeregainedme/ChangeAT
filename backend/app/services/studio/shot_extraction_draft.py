@@ -123,6 +123,8 @@ async def build_script_extraction_draft_for_shot(db: AsyncSession, shot_id: str)
                 index=index_by_character_id.get(ch.id),
                 name=ch.name,
                 description=ch.description or "",
+                # 角色音色描述来自 Character 表；不回传会导致分镜编辑页音色描述回填为空（评审 C-16）
+                voice_description=ch.voice_description or "",
                 tags=[],  # Character 表无 tags，占位与导入草稿对齐
                 costume_name=costume_name,
                 prop_names=prop_names,
@@ -159,6 +161,9 @@ async def build_script_extraction_draft_for_shot(db: AsyncSession, shot_id: str)
                     index=None,
                     name=act.name,
                     description=act.description or "",
+                    # Actor 表没有音色描述字段（音色描述只落在 Character 上），
+                    # 这里显式传空串而非省略，保证草稿字段口径完整、前后端结构稳定（评审 C-16）
+                    voice_description="",
                     tags=list(act.tags or []),
                     costume_name=None,
                     prop_names=[],

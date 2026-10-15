@@ -1,5 +1,6 @@
 """FastAPI 应用入口。"""
 
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 
@@ -75,12 +76,18 @@ async def value_error_handler(request: Request, exc: Exception) -> JSONResponse:
     return JSONResponse(status_code=code, content=body)
 
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    """应用生命周期：启动时初始化，关闭时清理。"""
-    # 启动时：供应商注册 + 任务执行器注册（幂等）
-    bootstrap_all_registries()
-    # 启动时：加载已发布的 Agent 提示词模板（模板页「发布生效」状态持久化，重启后仍生效）
+async def _prewarm_published_agent_prompts() -> None:
+    """后台预热已发布的 Agent 提示词模板。
+
+    为什么放后台：这是纯缓存预热，唯一作用是让模板页「发布生效」的状态在
+    重启后立刻可用；放在 `yield` 之前会让应用启动被一次 DB 往返拖住，
+    DB 未就绪时还会让启动失败（评审 D-4）。
+    为什么异常只记日志：预热失败不影响服务可用性 —— 真正必须读到新提示词的
+    路径是 worker 每个任务入口的刷新（`task_executor._refresh_agent_prompts_before_run`）。
+
+    注意日志级别用 warning 而非 exception：启动期 DB 未就绪属于可预期的
+    外部条件，不应该产出带堆栈的 error 噪声。
+    """
     try:
         from app.chains.agents.prompt_registry import refresh_published_agent_prompts
         from app.core.db import async_session_maker
@@ -88,8 +95,20 @@ async def lifespan(app: FastAPI):
         async with async_session_maker() as db:
             await refresh_published_agent_prompts(db)
     except Exception:  # noqa: BLE001 - 启动阶段 DB 不可用时不应阻断应用拉起
-        logger.exception("failed to load published agent prompts at startup")
+        logger.warning("failed to prewarm published agent prompts at startup", exc_info=True)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """应用生命周期：启动时初始化，关闭时清理。"""
+    # 启动时：供应商注册 + 任务执行器注册（幂等）
+    bootstrap_all_registries()
+    # 启动时：后台预热已发布的 Agent 提示词模板（不阻塞启动，失败仅告警）
+    prewarm_task = asyncio.create_task(_prewarm_published_agent_prompts())
     yield
+    # 关闭时：清理资源（未完成的预热任务不阻塞关闭）
+    if not prewarm_task.done():
+        prewarm_task.cancel()
     # 关闭时：清理资源
     pass
 

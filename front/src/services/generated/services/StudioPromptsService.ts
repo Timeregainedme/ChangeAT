@@ -121,6 +121,12 @@ export class StudioPromptsService {
     }
     /**
      * 局部更新提示词模板
+     * 局部更新提示词模板。
+     *
+     * 额外业务规则（「发布才生效」链路，评审 B-3）：
+     * - content 拒绝空 / 纯空白：空系统提示词会让 agent 静默降级为「无 system prompt」；
+     * - agent_* 模板改内容即失效：已发布模板的 content 一旦变更就把 published_at 置空，
+     * 必须重新点「发布生效」才会进入运行时（否则 worker 下个 TTL 就会吃上未发布的改动）。
      * @returns ApiResponse_PromptTemplateRead_ Successful Response
      * @throws ApiError
      */

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -41,6 +43,8 @@ from app.services.studio.image_tasks import load_provider_config, resolve_image_
 from app.services.worker.async_task_support import cancel_if_requested_async
 from app.services.worker.task_logging import log_task_event, log_task_failure
 from app.utils.files import create_file_from_url_or_b64
+
+logger = logging.getLogger(__name__)
 
 
 class _CreateOnlyTask:
@@ -243,7 +247,7 @@ async def _resolve_related_shot_id(
     return image_row.shot_detail_id
 
 
-async def create_image_task_and_link(
+async def stage_image_task_and_link(
     *,
     db: AsyncSession,
     model_id: str | None,
@@ -256,7 +260,11 @@ async def create_image_task_and_link(
     purpose: str = "generic",
     render_context: dict | None = None,
 ) -> str:
-    """创建图片生成任务，并建立任务关联。"""
+    """创建图片生成任务并建立关联，但**不提交事务、不入队**。
+
+    批量场景用：先 stage 全部任务，再一次性 commit + 入队，避免中途失败
+    留下「部分任务已入队」的半成品。提交与入队由调用方负责。
+    """
     store = SqlAlchemyTaskStore(db)
     tm = TaskManager(store=store, strategies={})
 
@@ -304,12 +312,49 @@ async def create_image_task_and_link(
     )
     if related_shot_id:
         await mark_shot_generating(db, shot_id=related_shot_id)
+    return task_record.id
+
+
+async def create_image_task_and_link(
+    *,
+    db: AsyncSession,
+    model_id: str | None,
+    relation_type: str,
+    relation_entity_id: str,
+    prompt: str,
+    images: list[dict[str, str]] | None = None,
+    target_ratio: str | None = None,
+    resolution_profile: str | None = None,
+    purpose: str = "generic",
+    render_context: dict | None = None,
+) -> str:
+    """创建图片生成任务，提交事务并入队执行（单资产入口）。"""
+    task_id = await stage_image_task_and_link(
+        db=db,
+        model_id=model_id,
+        relation_type=relation_type,
+        relation_entity_id=relation_entity_id,
+        prompt=prompt,
+        images=images,
+        target_ratio=target_ratio,
+        resolution_profile=resolution_profile,
+        purpose=purpose,
+        render_context=render_context,
+    )
     await db.commit()
 
     from app.tasks.execute_task import enqueue_task_execution
 
-    enqueue_task_execution(task_record.id)
-    return task_record.id
+    try:
+        enqueue_task_execution(task_id)
+    except Exception as exc:  # noqa: BLE001 - 入队失败必须留痕，否则任务永久 pending
+        logger.exception("failed to enqueue image generation task: task_id=%s", task_id)
+        fail_store = SqlAlchemyTaskStore(db)
+        await fail_store.set_status(task_id, TaskStatus.failed)
+        await fail_store.set_error(task_id, f"enqueue failed: {exc}")
+        await db.commit()
+        raise
+    return task_id
 
 
 async def run_image_generation_task(

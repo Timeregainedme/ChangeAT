@@ -3,6 +3,8 @@ name: Commit messages
 
 on:
   pull_request:
+  push:
+    branches: [main]
 
 permissions:
   contents: read
@@ -18,11 +20,22 @@ jobs:
 
       - name: Verify first line of each commit
         env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          # PR 用 base/head；直推 main 用 before/after
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.event.after }}
         run: |
           set -euo pipefail
           PATTERN='^\[(feat|fix|docs|style|refactor|perf|test|chore|ci|build|revert)\] .+'
+
+          if git cat-file -e "${BASE_SHA}^{commit}" 2>/dev/null \
+             && git merge-base --is-ancestor "$BASE_SHA" "$HEAD_SHA" 2>/dev/null; then
+            commits="$(git log --format=%H%x09%s "${BASE_SHA}..${HEAD_SHA}")"
+          else
+            # 新分支 / 首次推送 / 强推：基线不可用，退化为只校验 head 提交本身
+            echo "::notice title=Fallback::完整范围不可用（BASE_SHA=${BASE_SHA:-<empty>}），仅校验 head 提交"
+            commits="$(git log --format=%H%x09%s -n 1 "$HEAD_SHA")"
+          fi
+
           bad=0
           while IFS= read -r line; do
             [ -z "$line" ] && continue
@@ -36,7 +49,7 @@ jobs:
               echo "::error title=Invalid commit message::${sha:0:7} ${subject}"
               bad=1
             fi
-          done < <(git log --format=%H%x09%s "${BASE_SHA}..${HEAD_SHA}")
+          done <<< "$commits"
 
           if [ "$bad" -ne 0 ]; then
             echo ""

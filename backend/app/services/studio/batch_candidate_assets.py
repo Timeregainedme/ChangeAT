@@ -5,7 +5,12 @@ ToonFlow 式「一键提取资产」的核心落库步骤：
 - 遍历该章节下所有 pending 提取候选（人物/场景/道具/服装）；
 - 对每个候选：若项目内尚无同名实体则用候选 payload（description/voice_description 等）创建实体，
   并绑定到候选所在分镜；随后将候选标记为 linked；
-- 同名实体已存在时直接关联已有实体，不重复创建。
+- 同名实体已存在时直接关联已有实体，不重复创建；
+- 每个候选包在自己的 SAVEPOINT 中执行：单个候选失败只回滚该候选，
+  不会让 session 进入 failed 态而连累后续候选（`create_entity` 内部有 flush）。
+
+`types=None` 表示不限定类型（处理全部）；`types=[]` 表示一个类型都不处理。
+两者语义不同，避免「传空数组」被误解为「全部」。
 
 返回逐候选的处理结果，供前端展示「新建 / 已关联 / 跳过」。
 """
@@ -58,6 +63,7 @@ _ENTITY_ID_PREFIX: dict[str, str] = {
 
 
 def _new_entity_id(entity_type: str) -> str:
+    """生成形如 `char-1a2b3c4d` 的实体 ID（与前端本地创建资产的 ID 风格保持一致）。"""
     return f"{_ENTITY_ID_PREFIX[entity_type]}-{uuid.uuid4().hex[:8]}"
 
 
@@ -131,6 +137,12 @@ async def create_assets_from_extraction_candidates(
 ) -> dict[str, Any]:
     """按章节一键创建/关联提取候选资产。
 
+    参数：
+    - `chapter_id`：目标章节 ID，其下所有镜头的 pending 候选都会被处理；
+    - `types`：候选类型过滤。`None` = 不限定（处理全部）；
+      显式传空列表 `[]` = 一个类型都不处理（返回三个空列表），
+      非法类型直接抛 ValueError。
+
     返回结构：
     {
       "created": [{candidate_id, type, name, entity_id}],
@@ -143,11 +155,16 @@ async def create_assets_from_extraction_candidates(
         raise ValueError(entity_not_found("Chapter"))
     project_id = chapter.project_id
 
-    allow_types = {str(x).strip().lower() for x in (types or [])}
-    if allow_types:
+    # D-11：区分 None（不限定＝全部）与 []（一个都不处理）。
+    allow_types: set[str] | None = None
+    if types is not None:
+        allow_types = {str(x).strip().lower() for x in types}
         invalid = allow_types - set(_CANDIDATE_ENTITY_TYPE)
         if invalid:
             raise ValueError(f"unsupported candidate types: {sorted(invalid)}")
+    if allow_types is not None and not allow_types:
+        # 显式空数组：没有任何类型需要处理，直接返回空结果（而不是误当作「全部」）。
+        return {"created": [], "linked": [], "skipped": []}
 
     # 章节下所有镜头 → 所有 pending 候选（按 shot、候选类型、名称排序保证确定性）
     shot_ids_stmt = select(Shot.id).where(Shot.chapter_id == chapter_id)
@@ -173,7 +190,7 @@ async def create_assets_from_extraction_candidates(
 
     for cand in candidates:
         candidate_type = str(getattr(cand.candidate_type, "value", cand.candidate_type))
-        if allow_types and candidate_type not in allow_types:
+        if allow_types is not None and candidate_type not in allow_types:
             continue
         entity_type = _CANDIDATE_ENTITY_TYPE[candidate_type]
         name = str(cand.candidate_name or "").strip()
@@ -181,32 +198,46 @@ async def create_assets_from_extraction_candidates(
             skipped.append({"candidate_id": cand.id, "type": candidate_type, "name": name, "reason": "empty name"})
             continue
 
-        existing_id = await _find_existing_entity(db, entity_type=entity_type, project_id=project_id, name=name)
         payload = dict(cand.payload or {})
         try:
-            if existing_id is None:
-                entity_id = await _create_entity_from_candidate(
-                    db,
-                    entity_type=entity_type,
-                    project_id=project_id,
-                    name=name,
-                    payload=payload,
-                    chapter_id=chapter_id,
-                    shot_id=cand.shot_id,
+            # C-14：每个候选一个 SAVEPOINT。create_entity 内部会 db.flush()，
+            # flush 失败会让 session 进入 failed 态；不用 SAVEPOINT 隔离的话，
+            # 后续候选会全部抛 PendingRollbackError 被误记为 skipped。
+            async with db.begin_nested():
+                existing_id = await _find_existing_entity(
+                    db, entity_type=entity_type, project_id=project_id, name=name
                 )
-                created.append({"candidate_id": cand.id, "type": candidate_type, "name": name, "entity_id": entity_id})
-            else:
-                entity_id = existing_id
-                linked.append({"candidate_id": cand.id, "type": candidate_type, "name": name, "entity_id": entity_id})
+                if existing_id is None:
+                    entity_id = await _create_entity_from_candidate(
+                        db,
+                        entity_type=entity_type,
+                        project_id=project_id,
+                        name=name,
+                        payload=payload,
+                        chapter_id=chapter_id,
+                        shot_id=cand.shot_id,
+                    )
+                else:
+                    entity_id = existing_id
 
-            await mark_linked_by_name(
-                db,
-                shot_id=cand.shot_id,
-                candidate_type=candidate_type,
-                candidate_name=name,
-                linked_entity_id=entity_id,
-            )
+                await mark_linked_by_name(
+                    db,
+                    shot_id=cand.shot_id,
+                    candidate_type=candidate_type,
+                    candidate_name=name,
+                    linked_entity_id=entity_id,
+                )
         except Exception as exc:  # noqa: BLE001 - 单候选失败不阻断批量
             skipped.append({"candidate_id": cand.id, "type": candidate_type, "name": name, "reason": str(exc)})
+            continue
+
+        entry = {"candidate_id": cand.id, "type": candidate_type, "name": name, "entity_id": entity_id}
+        # C-13：登记必须放在 SAVEPOINT 成功之后。
+        # 若在 try 内提前 append，一旦随后的 mark_linked_by_name 抛错，
+        # 同一候选会既出现在 created/linked 又出现在 skipped，前端出现「新建 1 / 跳过 1」双报。
+        if existing_id is None:
+            created.append(entry)
+        else:
+            linked.append(entry)
 
     return {"created": created, "linked": linked, "skipped": skipped}

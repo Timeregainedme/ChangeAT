@@ -8,7 +8,6 @@ from app.schemas.studio.cast import ShotCharacterLinkCreate
 from app.schemas.studio.shots import ProjectAssetLinkCreate
 from app.schemas.studio.shots import (
     ActionBeatPhaseRead,
-    ShotDialogLineRead,
     ShotExtractedDialogueCandidateRead,
     ShotPreparationLinkEntityType,
     ShotPreparationStateRead,
@@ -37,10 +36,7 @@ async def build_shot_preparation_state(
         ShotExtractedDialogueCandidateRead.model_validate(row)
         for row in await list_dialogue_candidates_by_shot(db, shot_id=shot_id)
     ]
-    saved_dialogue_lines = [
-        ShotDialogLineRead.model_validate(row)
-        for row in await list_saved_dialog_lines_by_shot(db, shot_id=shot_id)
-    ]
+    saved_dialogue_lines = list(await list_saved_dialog_lines_by_shot(db, shot_id=shot_id))
     pending_confirm_count = (
         int(assets_overview.summary.pending_count or 0)
         + int(shot_read.extraction.pending_dialogue_count or 0)

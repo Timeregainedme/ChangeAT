@@ -251,6 +251,10 @@ class Character(Base, TimestampMixin):
         nullable=True,
         comment="角色默认音色来源（preset 预设音色 / custom 自定义音色；为空时按模型名推断）",
     )
+    # 音色描述口径（评审 C-3）：这里声明 NOT NULL + 客户端默认空串；DDL 侧由
+    # sql/018-unify-character-voice-description-not-null.sql 收紧为 `TEXT NOT NULL` 对齐。
+    # 之所以不在 DDL 写 DEFAULT：MySQL 对 BLOB/TEXT 一律不允许 DEFAULT（5.7/8.0 相同），
+    # 空串默认值只能由 SQLAlchemy 在 INSERT 时补，从而保证「存入非空、读出非 None」。
     voice_description: Mapped[str] = mapped_column(
         Text,
         nullable=False,

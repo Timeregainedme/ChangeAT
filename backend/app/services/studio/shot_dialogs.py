@@ -1,6 +1,18 @@
-"""镜头对白服务：ShotDialogLine 的分页查询与 CRUD。"""
+"""镜头对白服务：ShotDialogLine 的分页查询与 CRUD。
+
+显示名口径（全仓库唯一实现，分页列表 / 准备页聚合 / 时间轴字幕统一复用，
+避免各展示链路各写一套兜底后互相漂移）：
+
+- 台词行能解析到 ``speaker_character_id`` / ``target_character_id`` 时，显示角色表里的
+  **当前**名字（角色改名后立即生效，不再显示行内历史旧名）；
+- 解析不到（未关联角色、角色已删除、角色名为空）才回落到行内保存的
+  ``speaker_name`` / ``target_name``；
+- 解析只发生在展示层，不回写数据库，避免历史行内名字被静默抹掉。
+"""
 
 from __future__ import annotations
+
+from collections.abc import Iterable, Mapping, Sequence
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -21,6 +33,93 @@ from app.services.common import (
 )
 
 
+def pick_display_name(
+    name_map: Mapping[str, str],
+    *,
+    character_id: str | None,
+    fallback_name: str | None,
+) -> str | None:
+    """按「显示角色真名」口径挑选单个显示名。
+
+    参数：
+        name_map：角色 ID → 角色当前真名的映射，由 :func:`load_character_display_names` 批量查询得到。
+        character_id：台词行上关联的角色 ID，可为空。
+        fallback_name：行内保存的名字；解析不到角色时原样回落。
+
+    返回：
+        角色真名，或原样返回 ``fallback_name``。
+
+    说明：
+        这里刻意不做 ``fallback_name or ...`` 这类空串归一，否则同一字段会在
+        ``""`` 与 ``None`` 之间漂移（D-1）：入参是空串就返回空串，是 ``None``
+        就返回 ``None``，由调用方按各自契约决定空值展示。
+    """
+    resolved = name_map.get(character_id) if character_id else None
+    return resolved or fallback_name
+
+
+async def load_character_display_names(
+    db: AsyncSession,
+    *,
+    character_ids: Iterable[str | None],
+) -> dict[str, str]:
+    """批量查询角色当前真名，供展示层统一解析使用。
+
+    参数：
+        character_ids：需要查询的角色 ID 集合（允许包含 ``None`` 与重复值）。
+
+    返回：
+        角色 ID → 角色名映射；只保留名字非空的角色，查不到的角色不会出现在映射里。
+    """
+    ids = {character_id for character_id in character_ids if character_id}
+    if not ids:
+        return {}
+    rows = (
+        await db.execute(select(Character).where(Character.id.in_(ids)))
+    ).scalars().all()
+    return {row.id: row.name for row in rows if row.name}
+
+
+async def to_display_reads(
+    db: AsyncSession,
+    rows: Sequence[ShotDialogLine],
+) -> list[ShotDialogLineRead]:
+    """把台词行组装为带显示名的读模型（统一口径，不回写数据库）。
+
+    参数：
+        rows：``ShotDialogLine`` 行，通常来自分页查询或按镜头全量查询。
+
+    返回：
+        ``ShotDialogLineRead`` 列表，``speaker_name`` / ``target_name`` 已按
+        「角色真名优先、行内名字兜底」解析。
+    """
+    name_map = await load_character_display_names(
+        db,
+        character_ids=[
+            character_id
+            for row in rows
+            for character_id in (row.speaker_character_id, row.target_character_id)
+        ],
+    )
+    return [
+        ShotDialogLineRead.model_validate(row).model_copy(
+            update={
+                "speaker_name": pick_display_name(
+                    name_map,
+                    character_id=row.speaker_character_id,
+                    fallback_name=row.speaker_name,
+                ),
+                "target_name": pick_display_name(
+                    name_map,
+                    character_id=row.target_character_id,
+                    fallback_name=row.target_name,
+                ),
+            }
+        )
+        for row in rows
+    ]
+
+
 async def list_paginated(
     db: AsyncSession,
     *,
@@ -32,7 +131,7 @@ async def list_paginated(
     page_size: int,
     allow_fields: set[str],
 ) -> ApiResponse[PaginatedData[ShotDialogLineRead]]:
-    """分页查询镜头对白。"""
+    """分页查询镜头对白（显示名走统一口径）。"""
     stmt = select(ShotDialogLine)
     if shot_detail_id is not None:
         stmt = stmt.where(ShotDialogLine.shot_detail_id == shot_detail_id)
@@ -46,8 +145,7 @@ async def list_paginated(
         default="index",
     )
     items, total = await paginate(db, stmt=stmt, page=page, page_size=page_size)
-    reads = [ShotDialogLineRead.model_validate(x) for x in items]
-    reads = await _backfill_display_names(db, reads)
+    reads = await to_display_reads(db, items)
     return paginated_response(
         reads,
         page=page,
@@ -56,52 +154,23 @@ async def list_paginated(
     )
 
 
-async def _backfill_display_names(
-    db: AsyncSession,
-    reads: list[ShotDialogLineRead],
-) -> list[ShotDialogLineRead]:
-    """说话/听者显示名兜底：行内 name 为空但关联了角色时，用角色库名字填充。
-
-    与编辑页草稿（``shot_extraction_draft``）保持同一口径：
-    展示层拿到的 ``speaker_name`` / ``target_name`` 应优先反映角色真名，
-    而不是只在提取回填过的行上才有名字。仅补展示字段，不回写数据库。
-    """
-    missing_ids: set[str] = set()
-    for r in reads:
-        if r.speaker_character_id and not r.speaker_name:
-            missing_ids.add(r.speaker_character_id)
-        if r.target_character_id and not r.target_name:
-            missing_ids.add(r.target_character_id)
-    if not missing_ids:
-        return reads
-    rows = (
-        await db.execute(select(Character).where(Character.id.in_(missing_ids)))
-    ).scalars().all()
-    name_map = {c.id: c.name for c in rows}
-    return [
-        r.model_copy(
-            update={
-                "speaker_name": r.speaker_name
-                or name_map.get(r.speaker_character_id or ""),
-                "target_name": r.target_name or name_map.get(r.target_character_id or ""),
-            }
-        )
-        for r in reads
-    ]
-
-
 async def list_by_shot(
     db: AsyncSession,
     *,
     shot_id: str,
-) -> list[ShotDialogLine]:
-    """按镜头读取全部已保存对白，供准备页聚合状态复用。"""
+) -> list[ShotDialogLineRead]:
+    """按镜头读取全部已保存对白（含统一口径的显示名），供准备页聚合状态复用。
+
+    返回读模型而非 ORM 行：准备页/时间轴等展示链路必须与分页列表走同一显示名口径，
+    避免出现「列表显示真名、准备页显示未知」的分裂。
+    """
     stmt = (
         select(ShotDialogLine)
         .where(ShotDialogLine.shot_detail_id == shot_id)
         .order_by(ShotDialogLine.index.asc(), ShotDialogLine.id.asc())
     )
-    return list((await db.execute(stmt)).scalars().all())
+    rows = list((await db.execute(stmt)).scalars().all())
+    return await to_display_reads(db, rows)
 
 
 async def create(

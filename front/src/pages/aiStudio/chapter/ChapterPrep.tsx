@@ -1,5 +1,5 @@
 import type React from 'react'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   Badge,
   Button,
@@ -12,6 +12,7 @@ import {
   Layout,
   List,
   Modal,
+  Progress,
   Skeleton,
   Space,
   Steps,
@@ -43,9 +44,15 @@ import {
   StudioImageTasksService,
   StudioShotsService,
 } from '../../../services/generated'
-import type { ChapterRead, ScriptExtractRequest, ScriptDividerRequest } from '../../../services/generated'
+import type {
+  ChapterRead,
+  ScriptExtractRequest,
+  ScriptDividerRequest,
+  ShotCandidateStatus,
+} from '../../../services/generated'
 import type { Chapter } from '../../../mocks/data'
 import { ChapterRawTextEditorModal } from './components/ChapterRawTextEditorModal'
+import { useTaskUiStore } from '../components/taskUiStore'
 
 const { Header, Content } = Layout
 
@@ -72,6 +79,8 @@ type RoleItem = {
   firstSeen: string
   description: string
   primary: boolean
+  /** C-9：候选确认状态，用于区分「待处理」与已「已关联 / 已忽略」。 */
+  candidateStatus: ShotCandidateStatus
 }
 
 type SceneItem = {
@@ -80,6 +89,8 @@ type SceneItem = {
   indoorOutdoor: '室内' | '室外' | '未知'
   time: '白天' | '夜晚' | '未知'
   keywords: string[]
+  /** C-9：候选确认状态，用于区分「待处理」与已「已关联 / 已忽略」。 */
+  candidateStatus: ShotCandidateStatus
 }
 
 type PropItem = {
@@ -88,6 +99,8 @@ type PropItem = {
   owner?: string
   count: number
   key: boolean
+  /** C-9：候选确认状态，用于区分「待处理」与已「已关联 / 已忽略」。 */
+  candidateStatus: ShotCandidateStatus
 }
 
 type SceneDraft = SceneItem & { description?: string; imageUrl?: string }
@@ -103,11 +116,44 @@ type ExtractResults = {
   props: PropItem[]
 }
 
+// 批量参考图接口支持的资产类型（与后端 batch-image-tasks 的 asset_type 白名单一致）。
+type BatchAssetType = 'character' | 'scene' | 'prop' | 'costume'
+
+// ---------------------------------------------------------------------------
+// D-6：把原先散落在实现里的魔法数字统一提为具名常量，便于调整与在界面上说明。
+// ---------------------------------------------------------------------------
+
+/** 单次异步任务轮询的最大次数。 */
+const TASK_POLL_MAX_ATTEMPTS = 120
+/** 异步任务轮询间隔（毫秒）。 */
+const TASK_POLL_INTERVAL_MS = 1200
+/** 轮询总超时（毫秒）= 次数 × 间隔，用于界面提示最长等待时间。 */
+const TASK_POLL_TIMEOUT_MS = TASK_POLL_MAX_ATTEMPTS * TASK_POLL_INTERVAL_MS
+/** 章节镜头列表单页拉取条数。 */
+const SHOT_LIST_PAGE_SIZE = 500
+/** 分镜预览文本的最大截断长度。 */
+const STORYBOARD_PREVIEW_MAX_LENGTH = 60
+/** 聚合各镜头提取候选时的并发度：避免 500 镜串行 N+1，同时不过度压后端。 */
+const CANDIDATE_FETCH_CONCURRENCY = 6
+/** 批量参考图任务结果在界面上最多逐条展示的条数。 */
+const BATCH_TASK_PREVIEW_LIMIT = 5
+/** 批量参考图接口的资产类型中文名。 */
+const BATCH_ASSET_TYPE_LABEL: Record<BatchAssetType, string> = {
+  character: '角色',
+  scene: '场景',
+  prop: '道具',
+  costume: '服装',
+}
+
+/** 提取/聚合进度：label 为阶段名，percent 为 0-100 的百分比。 */
+type ExtractProgress = { label: string; percent: number }
+
 // TODO: 后续可移除本页面的 Mock 辅助交互（实体编辑/从资产库选取等），核心提取与生成已接真实接口。
 
 // 轮询异步任务直至终态（succeeded/failed/cancelled），返回最终 TaskStatusRead。
+// 超过 TASK_POLL_TIMEOUT_MS 仍未到终态时抛错，错误文案带出实际等待时长，便于界面提示。
 async function pollTaskUntilDone(taskId: string, onProgress?: (p: number) => void): Promise<string> {
-  for (let i = 0; i < 120; i += 1) {
+  for (let i = 0; i < TASK_POLL_MAX_ATTEMPTS; i += 1) {
     const res = await FilmService.getTaskStatusApiV1FilmTasksTaskIdStatusGet({ taskId })
     const data = res.data ?? null
     const status = data?.status ?? 'pending'
@@ -118,9 +164,9 @@ async function pollTaskUntilDone(taskId: string, onProgress?: (p: number) => voi
       }
       return status
     }
-    await new Promise((r) => setTimeout(r, 1200))
+    await new Promise((r) => setTimeout(r, TASK_POLL_INTERVAL_MS))
   }
-  throw new Error('任务轮询超时')
+  throw new Error(`任务轮询超时（已等待约 ${Math.round(TASK_POLL_TIMEOUT_MS / 1000)} 秒，可稍后重试）`)
 }
 
 // 剧本 -> 分镜（divide-async）-> 项目级提取（extract-async）真实链路。
@@ -161,15 +207,33 @@ async function fetchPrepExtract(opts: {
   }
   await pollTaskUntilDone(extractTaskId, (p) => onProgress?.('智能提取', p))
 
-  return await collectExtractionResults(chapterId)
+  // C-8：聚合阶段按镜头逐个拉取候选，原本没有进度反馈，这里按「已完成 / 总数」回报。
+  return await collectExtractionResults(chapterId, (doneCount, totalCount) => {
+    const percent = totalCount > 0 ? Math.round((doneCount / totalCount) * 100) : 100
+    onProgress?.(`汇总镜头候选（${doneCount}/${totalCount}）`, percent)
+  })
 }
 
 // 聚合章节下各镜头的提取候选 + 分镜，映射为页面 ExtractResults 结构。
-async function collectExtractionResults(chapterId: string): Promise<ExtractResults> {
+//
+// C-8：候选拉取由「逐镜头串行 await」改为「按 CANDIDATE_FETCH_CONCURRENCY 限流并发」，
+//      避免镜头多时退化成 N 次串行 HTTP；单个镜头失败只跳过该镜头，不阻断整章聚合；
+//      并发过程中通过 onProgress(done, total) 回报进度，供界面展示。
+// C-9：读取 candidate_status，把 linked / ignored 标记到实体上（同名候选只要还有
+//      一个是 pending，就按「待处理」展示），避免已确认候选被误显示成待处理。
+// B-7：实体 id 由名称派生（`role:名称` 等），不再按数组下标派生，保证同一实体在
+//      两次提取之间 id 稳定，草稿合并时不会把旧实体的草稿套到新实体上。
+//
+// 参数 chapterId：章节 id；onProgress：聚合进度回调（已处理镜头数 / 镜头总数）。
+// 返回值：页面渲染用的分镜与实体列表。
+async function collectExtractionResults(
+  chapterId: string,
+  onProgress?: (done: number, total: number) => void,
+): Promise<ExtractResults> {
   const shotsRes = await StudioShotsService.listShotsApiV1StudioShotsGet({
     chapterId,
     page: 1,
-    pageSize: 500,
+    pageSize: SHOT_LIST_PAGE_SIZE,
   })
   const shotRows = shotsRes.data?.items ?? []
 
@@ -177,7 +241,7 @@ async function collectExtractionResults(chapterId: string): Promise<ExtractResul
     id: s.id ?? `shot-${i}`,
     index: s.index ?? i + 1,
     title: s.title ?? '',
-    preview: (s.script_excerpt ?? '').slice(0, 60),
+    preview: (s.script_excerpt ?? '').slice(0, STORYBOARD_PREVIEW_MAX_LENGTH),
     paragraphRange: '',
     duration: '',
     actions: [],
@@ -189,38 +253,116 @@ async function collectExtractionResults(chapterId: string): Promise<ExtractResul
   const roles: RoleItem[] = []
   const scenes: SceneItem[] = []
   const props: PropItem[] = []
-  const seen = { role: new Set<string>(), scene: new Set<string>(), prop: new Set<string>() }
+  // 名称 -> 已收录实体：既用于去重，也用于在遇到同名 pending 候选时把状态提升回待处理。
+  const roleByName = new Map<string, RoleItem>()
+  const sceneByName = new Map<string, SceneItem>()
+  const propByName = new Map<string, PropItem>()
 
-  for (const shot of shotRows) {
-    const shotId = shot.id
-    if (!shotId) continue
-    const candRes = await StudioShotsService.getShotExtractedCandidatesApiV1StudioShotsShotIdExtractedCandidatesGet({
-      shotId,
-    })
-    for (const c of candRes.data ?? []) {
-      const type = c.candidate_type
-      const name = c.candidate_name
-      const description = c.payload?.description ?? ''
-      if (type === 'character' && !seen.role.has(name)) {
-        seen.role.add(name)
-        roles.push({ id: `role-${roles.length + 1}`, name, aliases: [], firstSeen: '', description, primary: true })
-      } else if (type === 'scene' && !seen.scene.has(name)) {
-        seen.scene.add(name)
-        scenes.push({
-          id: `scene-${scenes.length + 1}`,
-          name,
-          indoorOutdoor: '未知',
-          time: '未知',
-          keywords: [],
-        })
-      } else if (type === 'prop' && !seen.prop.has(name)) {
-        seen.prop.add(name)
-        props.push({ id: `prop-${props.length + 1}`, name, owner: undefined, count: 1, key: false })
+  const shotIds = shotRows.map((s) => s.id).filter((id): id is string => Boolean(id))
+  const total = shotIds.length
+  let done = 0
+  onProgress?.(0, total)
+
+  // 限流并发：批内并发、批间串行，把峰值并发控制在 CANDIDATE_FETCH_CONCURRENCY。
+  for (let start = 0; start < total; start += CANDIDATE_FETCH_CONCURRENCY) {
+    const batch = shotIds.slice(start, start + CANDIDATE_FETCH_CONCURRENCY)
+    const batchCandidates = await Promise.all(
+      batch.map(async (shotId) => {
+        try {
+          const candRes =
+            await StudioShotsService.getShotExtractedCandidatesApiV1StudioShotsShotIdExtractedCandidatesGet({ shotId })
+          return candRes.data ?? []
+        } catch {
+          // 单个镜头的候选拉取失败不阻断整章聚合，跳过该镜头即可。
+          return []
+        }
+      }),
+    )
+
+    for (const candidates of batchCandidates) {
+      for (const c of candidates) {
+        const type = c.candidate_type
+        const name = (c.candidate_name ?? '').trim()
+        if (!name) continue
+        // candidate_status 缺省时按待处理处理，避免误把候选整体判定为已确认。
+        const status: ShotCandidateStatus = c.candidate_status ?? 'pending'
+        const description = c.payload?.description ?? ''
+
+        if (type === 'character') {
+          const existing = roleByName.get(name)
+          if (!existing) {
+            const item: RoleItem = {
+              id: `role:${name}`,
+              name,
+              aliases: [],
+              firstSeen: '',
+              description,
+              primary: true,
+              candidateStatus: status,
+            }
+            roleByName.set(name, item)
+            roles.push(item)
+          } else if (existing.candidateStatus !== 'pending' && status === 'pending') {
+            // 同名角色在其它镜头仍有待处理候选 → 按「待处理」展示
+            existing.candidateStatus = status
+          }
+        } else if (type === 'scene') {
+          const existing = sceneByName.get(name)
+          if (!existing) {
+            const item: SceneItem = {
+              id: `scene:${name}`,
+              name,
+              indoorOutdoor: '未知',
+              time: '未知',
+              keywords: [],
+              candidateStatus: status,
+            }
+            sceneByName.set(name, item)
+            scenes.push(item)
+          } else if (existing.candidateStatus !== 'pending' && status === 'pending') {
+            existing.candidateStatus = status
+          }
+        } else if (type === 'prop') {
+          const existing = propByName.get(name)
+          if (!existing) {
+            const item: PropItem = {
+              id: `prop:${name}`,
+              name,
+              owner: undefined,
+              count: 1,
+              key: false,
+              candidateStatus: status,
+            }
+            propByName.set(name, item)
+            props.push(item)
+          } else if (existing.candidateStatus !== 'pending' && status === 'pending') {
+            existing.candidateStatus = status
+          }
+        }
       }
     }
+
+    done += batch.length
+    onProgress?.(done, total)
   }
 
   return { storyboards, roles, scenes, props }
+}
+
+/**
+ * 候选确认状态 -> 界面标签文案与颜色。
+ * C-9：linked / ignored 的候选此前会被统一显示成「待处理」，这里给出明确区分。
+ */
+function candidateStatusTag(status: ShotCandidateStatus): { text: string; color: string } {
+  if (status === 'linked') return { text: '已关联资产', color: 'blue' }
+  if (status === 'ignored') return { text: '已忽略', color: 'default' }
+  return { text: '待处理', color: 'gold' }
+}
+
+/** C-9：候选确认状态标签组件，供提取结果列表与回显浮窗复用。 */
+const CandidateStatusTag: React.FC<{ status: ShotCandidateStatus }> = ({ status }) => {
+  const tag = candidateStatusTag(status)
+  return <Tag color={tag.color}>{tag.text}</Tag>
 }
 
 type EntityKind = 'roles' | 'scenes' | 'props'
@@ -266,7 +408,26 @@ const ChapterPrep: React.FC = () => {
   const [extracting, setExtracting] = useState(false)
   const [creatingAssets, setCreatingAssets] = useState(false)
   const [generatingImages, setGeneratingImages] = useState(false)
+  // C-10：把提取链路的阶段名 / 百分比写入 state 并渲染，避免用户只看到按钮 loading。
+  const [extractProgress, setExtractProgress] = useState<ExtractProgress | null>(null)
+  // D-6：除数量外还保留 task_id / asset_id / prompt，供界面逐条查看与跳转。
   const [lastImageTasks, setLastImageTasks] = useState<Array<{ asset_id?: string; task_id?: string; prompt?: string }>>([])
+  /** 批量参考图最近一次提交的资产类型，用于把 asset_id 映射到对应资产编辑页。 */
+  const [lastImageAssetType, setLastImageAssetType] = useState<BatchAssetType | null>(null)
+
+  // B-6：请求序号守卫。切换章节后旧请求的响应可能后到，序号不一致时直接丢弃，
+  // 避免旧章节数据覆盖新章节；同时用它判断组件是否已卸载。
+  const extractionRequestSeqRef = useRef(0)
+  const mountedRef = useRef(true)
+  useEffect(() => {
+    mountedRef.current = true
+    return () => {
+      mountedRef.current = false
+    }
+  }, [])
+
+  // D-6：任务中心是全局浮层，已提交的参考图任务可在其中查看进度与状态。
+  const setTaskCenterOpen = useTaskUiStore((s) => s.setOpen)
   const [results, setResults] = useState<ExtractResults>({ storyboards: [], roles: [], scenes: [], props: [] })
   const [extractReviewOpen, setExtractReviewOpen] = useState(false)
   const [extractReviewTab, setExtractReviewTab] = useState<EntityKind>('roles')
@@ -319,8 +480,12 @@ const ChapterPrep: React.FC = () => {
 
   useEffect(() => {
     if (!chapterId) return
+    // B-6：每次章节变化都自增请求序号；旧章节的响应回来时序号已过期，直接丢弃，
+    // 避免快速切换章节时旧章节数据覆盖新章节。
+    const reqSeq = (extractionRequestSeqRef.current += 1)
     StudioChaptersService.getChapterApiV1StudioChaptersChapterIdGet({ chapterId })
       .then((res) => {
+        if (!mountedRef.current || reqSeq !== extractionRequestSeqRef.current) return
         const data = res.data
         if (!data) {
           setChapter(null)
@@ -337,32 +502,45 @@ const ChapterPrep: React.FC = () => {
         // 进入页面时若已有分镜/候选，直接聚合展示，避免整页空白。
         if (data.project_id) {
           void collectExtractionResults(chapterId)
-            .then(setResults)
-            .catch(() => undefined)
+            .then((next) => {
+              // B-6：响应落地前再校验一次请求序号与挂载状态。
+              if (!mountedRef.current || reqSeq !== extractionRequestSeqRef.current) return
+              setResults(next)
+            })
+            .catch((err) => {
+              if (!mountedRef.current || reqSeq !== extractionRequestSeqRef.current) return
+              // B-6：不再静默吞错，把失败原因提示给用户。
+              message.error(`加载已有提取结果失败：${err instanceof Error ? err.message : String(err)}`)
+            })
         }
       })
       .catch(() => {
+        if (!mountedRef.current || reqSeq !== extractionRequestSeqRef.current) return
         setChapter(null)
       })
   }, [chapterId])
 
   useEffect(() => {
-    // 将提取结果映射为各 step 的可编辑草稿（尽量保留用户编辑/生成状态）
+    // 将提取结果映射为各 step 的可编辑草稿（尽量保留用户编辑/生成状态）。
+    // B-7：合并顺序必须是「旧草稿在前、新结果在后」，让本次提取结果覆盖旧草稿的同名字段；
+    //      旧写法 `{ ...新结果, ...旧草稿 }` 会让旧草稿反向覆盖新结果。
+    //      草稿独有字段（description / imageUrl）在新结果里不存在，因此仍会保留。
+    //      同时实体 id 已改为由名称派生，跨次提取同一实体 id 稳定，不会串档。
     setSceneDrafts((prev) => {
       const prevMap = new Map(prev.map((x) => [x.id, x]))
-      return results.scenes.map((s) => ({ ...s, ...(prevMap.get(s.id) ?? {}) }))
+      return results.scenes.map((s) => ({ ...(prevMap.get(s.id) ?? {}), ...s }))
     })
     setPropDrafts((prev) => {
       const prevMap = new Map(prev.map((x) => [x.id, x]))
-      return results.props.map((p) => ({ ...p, ...(prevMap.get(p.id) ?? {}) }))
+      return results.props.map((p) => ({ ...(prevMap.get(p.id) ?? {}), ...p }))
     })
     setRoleDrafts((prev) => {
       const prevMap = new Map(prev.map((x) => [x.id, x]))
-      return results.roles.map((r) => ({ ...r, ...(prevMap.get(r.id) ?? {}) }))
+      return results.roles.map((r) => ({ ...(prevMap.get(r.id) ?? {}), ...r }))
     })
     setStoryboardDrafts((prev) => {
       const prevMap = new Map(prev.map((x) => [x.id, x]))
-      return results.storyboards.map((sb) => ({ ...sb, ...(prevMap.get(sb.id) ?? {}) }))
+      return results.storyboards.map((sb) => ({ ...(prevMap.get(sb.id) ?? {}), ...sb }))
     })
   }, [results.scenes, results.props, results.roles, results.storyboards])
 
@@ -403,13 +581,19 @@ const ChapterPrep: React.FC = () => {
       return
     }
     setExtracting(true)
+    setExtractProgress({ label: '准备提取', percent: 0 })
+    // B-6：记录发起时的请求序号，响应回来时若章节已切换则丢弃，避免旧响应覆盖新章节数据。
+    const reqSeq = extractionRequestSeqRef.current
     try {
       const next = await fetchPrepExtract({
         projectId,
         chapterId,
         scriptText: rawText,
-        onProgress: (_label, _p) => undefined,
+        // C-10：把提取链路的阶段名与百分比写入 state 并在界面渲染，不再丢弃进度产出。
+        onProgress: (label, p) =>
+          setExtractProgress({ label, percent: Math.max(0, Math.min(100, Math.round(p))) }),
       })
+      if (!mountedRef.current || reqSeq !== extractionRequestSeqRef.current) return
       setResults((prev) => {
         if (kind === 'all') return next
         switch (kind) {
@@ -439,6 +623,7 @@ const ChapterPrep: React.FC = () => {
       message.error(`提取失败：${err instanceof Error ? err.message : String(err)}`)
     } finally {
       setExtracting(false)
+      setExtractProgress(null)
     }
   }
 
@@ -456,9 +641,9 @@ const ChapterPrep: React.FC = () => {
         },
       )
       const data = (res.data ?? {}) as Record<string, unknown>
-      const created = data.created ?? []
-      const linked = data.linked ?? []
-      const skipped = data.skipped ?? []
+      const created = Array.isArray(data.created) ? data.created : []
+      const linked = Array.isArray(data.linked) ? data.linked : []
+      const skipped = Array.isArray(data.skipped) ? data.skipped : []
       message.success(`资产就绪：新建 ${created.length} / 关联 ${linked.length} / 跳过 ${skipped.length}`)
       // 刷新候选展示（新资产已关联，重新聚合以保持最新状态）
       const next = await collectExtractionResults(chapterId)
@@ -470,27 +655,55 @@ const ChapterPrep: React.FC = () => {
     }
   }
 
-  // 一键批量生成资产参考图（人物/场景/道具/服装），任务提交后由工作室/资产页出图与抽卡。
-  const batchGenerateAssetImages = async (assetType: 'character' | 'scene' | 'prop' | 'costume') => {
+  // 一键批量生成资产参考图（角色/场景/道具/服装），任务提交后由工作室/资产页出图与抽卡。
+  // C-12：签名与后端 asset_type 白名单对齐，界面补齐 prop / costume 两个入口；
+  //       提交期间由 generatingImages 锁定，避免重复提交造成并发冲突。
+  const batchGenerateAssetImages = async (assetType: BatchAssetType) => {
+    if (!projectId) {
+      message.warning('缺少项目上下文')
+      return
+    }
+    if (generatingImages) return
     setGeneratingImages(true)
     try {
       const res = await StudioImageTasksService.createBatchAssetImageTasksApiV1StudioImageTasksAssetsBatchImageTasksPost({
-        requestBody: { asset_type: assetType, asset_ids: undefined },
+        requestBody: { project_id: projectId, asset_type: assetType, asset_ids: undefined },
       })
       const body = (res.data ?? {}) as Record<string, unknown>
       const tasks = Array.isArray(body.tasks) ? (body.tasks as Array<Record<string, unknown>>) : []
       const skipped = Array.isArray(body.skipped) ? body.skipped : []
-      const typeLabel = { character: '角色', scene: '场景', prop: '道具', costume: '服装' }[assetType]
+      const typeLabel = BATCH_ASSET_TYPE_LABEL[assetType]
       message.success(
         skipped.length > 0
           ? `${typeLabel}参考图：已提交 ${tasks.length} 个任务，跳过 ${skipped.length}（无图片槽位）`
           : `${typeLabel}参考图：已提交 ${tasks.length} 个生成任务`,
       )
       setLastImageTasks(tasks)
+      setLastImageAssetType(assetType)
     } catch (err) {
       message.error(`批量生成参考图失败：${err instanceof Error ? err.message : String(err)}`)
     } finally {
       setGeneratingImages(false)
+    }
+  }
+
+  /**
+   * D-6：把批量参考图任务里的 asset_id 映射到对应资产的编辑页，
+   * 便于用户从本页直接跳过去查看生成结果；无法映射时返回 null。
+   */
+  const assetEditPathOf = (assetId?: string): string | null => {
+    if (!projectId || !assetId || !lastImageAssetType) return null
+    switch (lastImageAssetType) {
+      case 'character':
+        return `/projects/${projectId}/roles/${assetId}/edit`
+      case 'scene':
+        return `/assets/scenes/${assetId}/edit`
+      case 'prop':
+        return `/assets/props/${assetId}/edit`
+      case 'costume':
+        return `/assets/costumes/${assetId}/edit`
+      default:
+        return null
     }
   }
 
@@ -610,12 +823,21 @@ const ChapterPrep: React.FC = () => {
           time: '未知' as const,
           keywords: [] as string[],
           description: addEntityDesc,
+          // 本地手工新增的实体尚未与候选关联，按「待处理」展示。
+          candidateStatus: 'pending' as const,
         },
       ])
     } else if (addEntityKind === 'prop') {
       setPropDrafts((prev) => [
         ...prev,
-        { id, name: addEntityName.trim(), count: 1, key: false, description: addEntityDesc },
+        {
+          id,
+          name: addEntityName.trim(),
+          count: 1,
+          key: false,
+          description: addEntityDesc,
+          candidateStatus: 'pending' as const,
+        },
       ])
     } else {
       setRoleDrafts((prev) => [
@@ -627,6 +849,7 @@ const ChapterPrep: React.FC = () => {
           firstSeen: '',
           description: addEntityDesc,
           primary: true,
+          candidateStatus: 'pending' as const,
         },
       ])
     }
@@ -655,6 +878,7 @@ const ChapterPrep: React.FC = () => {
           time: '未知' as const,
           keywords: [] as string[],
           description: '来自资产库（Mock）',
+          candidateStatus: 'pending' as const,
         })),
       ])
     } else if (pickFromAssetsKind === 'prop') {
@@ -666,6 +890,7 @@ const ChapterPrep: React.FC = () => {
           count: 1,
           key: false,
           description: '来自资产库（Mock）',
+          candidateStatus: 'pending' as const,
         })),
       ])
     } else {
@@ -678,6 +903,7 @@ const ChapterPrep: React.FC = () => {
           firstSeen: '',
           description: '来自资产库（Mock）',
           primary: true,
+          candidateStatus: 'pending' as const,
         })),
       ])
     }
@@ -729,6 +955,9 @@ const ChapterPrep: React.FC = () => {
       props: results.props.length,
     }
   }, [results])
+
+  // C-12：提取 / 创建资产 / 批量出图都是长任务，期间按钮互斥禁用，避免并发重复提交。
+  const longTaskRunning = extracting || creatingAssets || generatingImages
 
   const selectedStoryboard = useMemo(
     () => results.storyboards.find((x) => x.id === selectedId) ?? null,
@@ -849,25 +1078,34 @@ const ChapterPrep: React.FC = () => {
             <Card size="small">
               <div className="flex items-center justify-between gap-2 flex-wrap">
                 <Space wrap>
-                  <Button icon={<FileTextOutlined />} onClick={() => setEditorModalOpen(true)}>
+                  <Button icon={<FileTextOutlined />} onClick={() => setEditorModalOpen(true)} disabled={extracting}>
                     编辑原文
                   </Button>
-                  <Button type="primary" loading={extracting} icon={<ThunderboltOutlined />} onClick={() => void runExtract('all')}>
+                  <Button
+                    type="primary"
+                    loading={extracting}
+                    icon={<ThunderboltOutlined />}
+                    onClick={() => void runExtract('all')}
+                    disabled={creatingAssets || generatingImages}
+                  >
                     一键提取全部
                   </Button>
                   <Button
                     loading={creatingAssets}
                     icon={<CheckCircleOutlined />}
                     onClick={() => void batchCreateAssets()}
-                    disabled={currentItemsCount.roles + currentItemsCount.scenes + currentItemsCount.props === 0}
+                    disabled={
+                      longTaskRunning || currentItemsCount.roles + currentItemsCount.scenes + currentItemsCount.props === 0
+                    }
                   >
                     一键创建资产
                   </Button>
+                  {/* C-12：补齐 prop / costume 两个入口，与后端 asset_type 白名单保持一致。 */}
                   <Button
                     loading={generatingImages}
                     icon={<VideoCameraOutlined />}
                     onClick={() => void batchGenerateAssetImages('character')}
-                    disabled={currentItemsCount.roles === 0}
+                    disabled={longTaskRunning || currentItemsCount.roles === 0}
                   >
                     批量生成角色参考图
                   </Button>
@@ -875,17 +1113,76 @@ const ChapterPrep: React.FC = () => {
                     loading={generatingImages}
                     icon={<VideoCameraOutlined />}
                     onClick={() => void batchGenerateAssetImages('scene')}
-                    disabled={currentItemsCount.scenes === 0}
+                    disabled={longTaskRunning || currentItemsCount.scenes === 0}
                   >
                     批量生成场景参考图
+                  </Button>
+                  <Button
+                    loading={generatingImages}
+                    icon={<VideoCameraOutlined />}
+                    onClick={() => void batchGenerateAssetImages('prop')}
+                    disabled={longTaskRunning || currentItemsCount.props === 0}
+                  >
+                    批量生成道具参考图
+                  </Button>
+                  <Button
+                    loading={generatingImages}
+                    icon={<VideoCameraOutlined />}
+                    onClick={() => void batchGenerateAssetImages('costume')}
+                    disabled={longTaskRunning}
+                  >
+                    批量生成服装参考图
                   </Button>
                   <span className="text-xs text-gray-500">
                     {currentItemsCount.roles + currentItemsCount.scenes + currentItemsCount.props > 0 ? '已提取，可重新提取' : '尚未提取'}
                   </span>
                 </Space>
+                {/* C-10：提取链路的阶段与进度实时展示，避免用户只看到按钮 loading。 */}
+                {extractProgress && (
+                  <div className="w-full mt-1">
+                    <div className="text-xs text-gray-500">
+                      {extractProgress.label} · {extractProgress.percent}%
+                    </div>
+                    <Progress percent={extractProgress.percent} size="small" status="active" showInfo={false} />
+                  </div>
+                )}
+                {/* D-6：除数量外，把已提交任务的 asset_id / task_id / prompt 也暴露出来，支持跳转与查看。 */}
                 {lastImageTasks.length > 0 && (
-                  <div className="text-xs text-gray-500 w-full mt-1">
-                    最近提交 {lastImageTasks.length} 个参考图任务，提示词已下发（前往分镜工作室或资产页查看出图/抽卡）。
+                  <div className="text-xs text-gray-500 w-full mt-1 space-y-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span>
+                        最近提交 {lastImageTasks.length} 个
+                        {lastImageAssetType ? BATCH_ASSET_TYPE_LABEL[lastImageAssetType] : ''}
+                        参考图任务。任务为异步执行，最长约 {Math.round(TASK_POLL_TIMEOUT_MS / 1000)} 秒内可在任务中心看到进度，
+                        完成后到资产页查看出图 / 抽卡。
+                      </span>
+                      <Button size="small" type="link" className="!px-0" onClick={() => setTaskCenterOpen(true)}>
+                        打开任务中心
+                      </Button>
+                    </div>
+                    <Space wrap size={4}>
+                      {lastImageTasks.slice(0, BATCH_TASK_PREVIEW_LIMIT).map((t, idx) => {
+                        const path = assetEditPathOf(t.asset_id)
+                        const label = t.asset_id ? `查看资产 ${t.asset_id.slice(0, 8)}` : `查看任务 ${idx + 1}`
+                        return (
+                          <Tooltip
+                            key={t.task_id ?? t.asset_id ?? String(idx)}
+                            title={`任务 ${t.task_id ?? '-'}｜资产 ${t.asset_id ?? '-'}｜提示词：${t.prompt ?? '（无）'}`}
+                          >
+                            {path ? (
+                              <Button size="small" type="link" className="!px-0" onClick={() => navigate(path)}>
+                                {label}
+                              </Button>
+                            ) : (
+                              <Tag>{label}</Tag>
+                            )}
+                          </Tooltip>
+                        )
+                      })}
+                      {lastImageTasks.length > BATCH_TASK_PREVIEW_LIMIT && (
+                        <span>等 {lastImageTasks.length} 项</span>
+                      )}
+                    </Space>
                   </div>
                 )}
               </div>
@@ -972,6 +1269,8 @@ const ChapterPrep: React.FC = () => {
                               <div className="min-w-0">
                                 <div className="text-sm font-medium truncate">{it.name}</div>
                                 <div className="text-xs text-gray-500 truncate">{it.description}</div>
+                                {/* C-9：区分待处理与已关联 / 已忽略，避免已确认候选仍显示「待处理」。 */}
+                                <CandidateStatusTag status={it.candidateStatus} />
                               </div>
                             </List.Item>
                           )}
@@ -1004,6 +1303,8 @@ const ChapterPrep: React.FC = () => {
                               <div className="min-w-0">
                                 <div className="text-sm font-medium truncate">{it.name}</div>
                                 <div className="text-xs text-gray-500 truncate">{it.indoorOutdoor} · {it.time}</div>
+                                {/* C-9：区分待处理与已关联 / 已忽略。 */}
+                                <CandidateStatusTag status={it.candidateStatus} />
                               </div>
                             </List.Item>
                           )}
@@ -1036,6 +1337,8 @@ const ChapterPrep: React.FC = () => {
                               <div className="min-w-0">
                                 <div className="text-sm font-medium truncate">{it.name}</div>
                                 <div className="text-xs text-gray-500 truncate">出现 {it.count} 次{it.key ? ' · 关键道具' : ''}</div>
+                                {/* C-9：区分待处理与已关联 / 已忽略。 */}
+                                <CandidateStatusTag status={it.candidateStatus} />
                               </div>
                             </List.Item>
                           )}
@@ -1538,7 +1841,11 @@ const ChapterPrep: React.FC = () => {
                                   <span className="text-xs text-gray-500 ml-2">别名：{it.aliases.join('、')}</span>
                                 ) : null}
                               </Checkbox>
-                              {existed ? <Tag color="default">已存在</Tag> : <Tag color="green">新</Tag>}
+                              <Space size={4}>
+                                {/* C-9：区分待处理与已关联 / 已忽略。 */}
+                                <CandidateStatusTag status={it.candidateStatus} />
+                                {existed ? <Tag color="default">已存在</Tag> : <Tag color="green">新</Tag>}
+                              </Space>
                             </div>
                           </List.Item>
                         )
@@ -1583,7 +1890,11 @@ const ChapterPrep: React.FC = () => {
                                   {it.indoorOutdoor} · {it.time}
                                 </span>
                               </Checkbox>
-                              {existed ? <Tag color="default">已存在</Tag> : <Tag color="green">新</Tag>}
+                              <Space size={4}>
+                                {/* C-9：区分待处理与已关联 / 已忽略。 */}
+                                <CandidateStatusTag status={it.candidateStatus} />
+                                {existed ? <Tag color="default">已存在</Tag> : <Tag color="green">新</Tag>}
+                              </Space>
                             </div>
                           </List.Item>
                         )
@@ -1628,7 +1939,11 @@ const ChapterPrep: React.FC = () => {
                                   出现 {it.count} 次{it.key ? ' · 关键道具' : ''}
                                 </span>
                               </Checkbox>
-                              {existed ? <Tag color="default">已存在</Tag> : <Tag color="green">新</Tag>}
+                              <Space size={4}>
+                                {/* C-9：区分待处理与已关联 / 已忽略。 */}
+                                <CandidateStatusTag status={it.candidateStatus} />
+                                {existed ? <Tag color="default">已存在</Tag> : <Tag color="green">新</Tag>}
+                              </Space>
                             </div>
                           </List.Item>
                         )

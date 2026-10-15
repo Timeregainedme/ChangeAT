@@ -100,6 +100,10 @@
    - 任务中心只展示通用任务信息
    - 业务上下文与调试信息留在具体业务界面
    - 不把任务中心演化成新的业务详情页
+7. 提交说明首行须为 `[类型] 摘要`（类型小写，枚举见 `.githooks/commit-msg`）：
+   - 该规则同时由本地 hook 与 CI（`.github/workflows/commit-messages.yml`，覆盖 PR 与直推 `main`）校验
+   - 本地需执行一次 `git config core.hooksPath .githooks` 才会启用 hook
+   - 三类文件的 `PATTERN` 必须保持一致，禁止只改其中一处
 
 ## 文档更新约定
 

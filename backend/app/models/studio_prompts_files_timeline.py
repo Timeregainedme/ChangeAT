@@ -29,9 +29,14 @@ class PromptTemplate(Base,TimestampMixin):
     is_default: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, comment="是否为默认提示词（同类别唯一，应用层保证）")
     is_system: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, comment="是否为系统预置（仅初始化脚本写入，接口层禁止删改）")
     published_at: Mapped[datetime | None] = mapped_column(
-        DateTime,
+        DateTime(timezone=True),
         nullable=True,
-        comment="发布时间（非空 = 已发布到运行时；仅 agent_* 分类使用，见 prompt_registry）",
+        comment=(
+            "发布时间（非空 = 已发布到运行时；仅 agent_* 分类使用，见 prompt_registry）。"
+            "写入值统一为 UTC（datetime.now(UTC)），必须带时区：无时区列 + pymysql "
+            "会被转成 naive 墙钟，与同表 created_at/updated_at（timezone=True）相差"
+            "会话时区偏移（Asia/Shanghai = 8 小时，评审 D-5）"
+        ),
     )
 
     __table_args__ = (

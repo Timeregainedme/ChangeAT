@@ -20,7 +20,7 @@ weight: 11
 | `variables` | `json` | 本模板声明的变量列表 |
 | `is_default` | `tinyint(1)` | 是否默认模板 |
 | `is_system` | `tinyint(1)` | 是否系统内置 |
-| `published_at` | `datetime` | 发布时间（非空 = 已发布到运行时；仅 `agent_*` 分类使用） |
+| `published_at` | `datetime(6)` | 发布时间（非空 = 已发布到运行时；仅 `agent_*` 分类使用），写入语义固定为 **UTC**（迁移 017） |
 
 索引为 `ix_prompt_templates_category`、`ix_prompt_templates_name`。注意 **`category` 上没有唯一键**，因此写入迁移必须是幂等的 `UPDATE ... WHERE category = 'x'` 配合
 `INSERT INTO ... SELECT ... FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM prompt_templates WHERE category = 'x')`。
@@ -61,6 +61,10 @@ cd backend && .venv/bin/python scripts/gen_prompt_templates_sql.py
 
 Agent 提示词种子同样由生成器产出（`backend/scripts/gen_agent_prompt_templates_sql.py` → `backend/sql/015-add-agent-prompt-templates.sql`），直接 `import` 各 Agent 的 `_*_SYSTEM_PROMPT` 常量，避免手抄漂移。
 
+生成物与代码的一致性由一个只读校验脚本把关：`backend/scripts/check_agent_prompt_templates_sql.py` 解析 015 里的 `UPDATE` 语句、还原被转义的内容，再与生成器内存中的 `AGENT_TEMPLATES` 逐字比对；它**不写文件**，退出码 `0` = 完全一致、`1` = 存在差异或解析失败（可直接挂进 CI）。
+
+> 为什么必须校验：如果只改代码不改 SQL，用户在模板页**不改内容直接点「发布生效」**，就会把 015 里的**旧提示词**写进运行时。
+
 应用方式：
 
 ```bash
@@ -78,16 +82,23 @@ docker exec -i compose-mysql-1 mysql -uroot -p"$DB_PASS" --default-character-set
 
 | 动作 | 效果 |
 | --- | --- |
-| 模板页「发布生效」 | 写 `published_at`，并更新**当前进程**缓存；下一次生成任务（API 进程直接触发）即用新提示词 |
-| Celery worker 任务执行 | 每次任务在 `_execute_phase` 前调用 `refresh_published_agent_prompts_sync`，从 DB 拉已发布模板，保证跨进程一致 |
-| API 启动 | lifespan 中调用 `refresh_published_agent_prompts` 加载已发布模板，重启后仍生效 |
+| 模板页「发布生效」 | 写 `published_at`（UTC），并更新**当前进程**缓存；下一次生成任务（API 进程直接触发）即用新提示词 |
+| 「发布生效」的前置校验 | 内容为空 / 纯空白时**拒绝发布**（否则 agent 会静默降级为「无 system prompt」） |
+| 「发布生效」的分类去重 | 发布时把**同分类其他行**的 `published_at` 一并置空，保证「同一分类下至多一条已发布」 |
+| 编辑**已发布**模板的内容 | `published_at` 被置空（退回未发布），同时清掉本进程缓存里该 agent 的旧内容——**改了就自动下线，必须重新发布才生效**；未发布的模板只改内容，不涉及 `published_at` |
+| 编辑接口传入空内容 | 直接拒绝（与发布同一套空内容校验） |
+| Celery worker 任务执行 | 每个任务在执行前统一调用刷新钩子，从 DB 拉已发布模板，保证跨进程一致（见[任务执行架构](/docs/architecture/task-execution/)） |
+| API 启动 | lifespan 中把加载已发布模板改为**后台任务**，不再阻塞启动；预热失败只记 warning，不影响服务可用性 |
 | 模板页「恢复默认」 | 清 `published_at` 并移除缓存，回落代码内置默认 |
 
 关键实现：
 
 - `backend/app/chains/agents/prompt_registry.py`：`agent_key ↔ PromptCategory` 映射、进程内缓存（`_cache: dict[str, str]`）、发布/恢复/刷新函数（含同步版供 Celery worker 使用）。
+- **刷新的「是否需要重新拉取」判据**：用显式的一次性标记 `_loaded_once`（本进程是否已成功拉取过一次，无论结果是否为空），**不再用「缓存是否为空」**。否则所有模板都「恢复默认」时缓存被清空，每个任务入口都会判为「需要刷新」，TTL 形同失效、每次都查库。TTL 为 `_CACHE_TTL_SECONDS = 10.0`，发布/恢复默认走 publish/reset 直接精确更新本进程缓存，不受 TTL 延迟。
+- **刷新查询有确定的排序**：按 `published_at ASC, id DESC`（`_published_order_by()`）加载，同分类存在多行已发布时由「后写入者覆盖前者」决定最终生效内容，`id` 作为同秒并列时的稳定 tiebreaker；行为不再依赖数据库返回顺序。正常路径下发布已清空同分类其它行，该排序只是兜底。
 - `AgentBase.system_prompt`：`registry.get_agent_prompt(agent_key)` 命中则返回发布内容，否则回落子类 `_default_system_prompt()`；子类只需声明 `agent_key` 并把原 `system_prompt` 改名 `_default_system_prompt`。
 - `published_at` 只表达「已发布」，与 `is_default`（生成类模板的默认选择）解耦；`agent_*` 模板 `is_system=0`，允许编辑（发布后才影响运行时）。
+- 迁移 `backend/sql/017-normalize-prompt-template-published-at-timezone.sql` 把 `published_at` 由 `DATETIME` 统一为 **`DATETIME(6)`**（与 SQLAlchemy `DateTime(timezone=True)` 在 MySQL 上的实际类型一致，并保留微秒精度），写入值语义固定为 **UTC 墙钟**；读取路径只判断 `IS NOT NULL` 与相对排序，不依赖绝对时区偏移，因此历史行无需回填（回填反而会破坏「已发布」语义）。该迁移只做无条件 `MODIFY COLUMN`，可重复执行。
 
 ## 变量契约
 

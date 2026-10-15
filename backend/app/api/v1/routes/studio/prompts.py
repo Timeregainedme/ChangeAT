@@ -205,6 +205,18 @@ async def update_prompt_template(
     body: PromptTemplateUpdate,
     db: AsyncSession = Depends(get_db),
 ) -> ApiResponse[PromptTemplateRead]:
+    """局部更新提示词模板。
+
+    额外业务规则（「发布才生效」链路，评审 B-3）：
+    - content 拒绝空 / 纯空白：空系统提示词会让 agent 静默降级为「无 system prompt」；
+    - agent_* 模板改内容即失效：已发布模板的 content 一旦变更就把 published_at 置空，
+      必须重新点「发布生效」才会进入运行时（否则 worker 下个 TTL 就会吃上未发布的改动）。
+    """
+    from app.chains.agents.prompt_registry import (
+        _assert_content_not_blank,
+        update_agent_prompt_content,
+    )
+
     obj = await db.get(PromptTemplate, template_id)
     if obj is None:
         raise HTTPException(status_code=404, detail=entity_not_found("PromptTemplate"))
@@ -217,6 +229,11 @@ async def update_prompt_template(
 
     update_data = body.model_dump(exclude_unset=True)
     for field, value in update_data.items():
+        if field == "content":
+            # content 走专用路径：空内容校验 + 已发布模板失效
+            _assert_content_not_blank(value)
+            await update_agent_prompt_content(db, obj, value)
+            continue
         setattr(obj, field, value)
 
     await db.flush()
@@ -243,8 +260,12 @@ async def delete_prompt_template(
     if obj.is_default:
         raise HTTPException(status_code=403, detail="默认提示词不可删除，请先将其他提示词设为默认")
     # 注意：不能用 str(obj.category)，Python 3.12 下 str(枚举) 返回
-    # "PromptCategory.xxx" 而非值，需取 .value（兼容 str / 枚举两种形态）
-    if PromptCategory(obj.category).value.startswith("agent_"):
+    # "PromptCategory.xxx" 而非值，需取 .value（兼容 str / 枚举两种形态）。
+    # 这里还必须用「安全取值」而不是 PromptCategory(obj.category)：库中可能存在
+    # 枚举外的历史 category（例如早期版本写入的自定义分类），严格转换会抛
+    # ValueError 让删除接口返回 400 —— 那是行为回归（评审 D-3）。
+    category_value = str(getattr(obj.category, "value", obj.category))
+    if category_value.startswith("agent_"):
         raise HTTPException(
             status_code=403,
             detail="Agent 提示词模板不可删除，可通过编辑内容或恢复默认调整",

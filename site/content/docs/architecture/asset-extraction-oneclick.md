@@ -25,12 +25,17 @@ extract-async -> 候选落库(shot_extracted_candidates，含 payload.descriptio
 - `ElementExtractorAgent` 输出全局 characters/scenes/props/costumes 与逐镜引用（name-based）。
 - 提取候选写入 `shot_extracted_candidates`（status: pending/linked/ignored），并随 `payload` 保留 description 与 voice_description。
 - 角色音色：有对白的角色输出 `voice_description`（年龄段/声线/气质/语速），落库到 `characters.voice_description`（迁移 016）。
+- 迁移 018（`backend/sql/018-unify-character-voice-description-not-null.sql`）把该列从 `TEXT NULL` 收紧为 `TEXT NOT NULL`，使 DDL 与 ORM（`Character.voice_description`，`nullable=False`）口径一致：收紧前先回填历史 NULL 为空串，列已是 NOT NULL 时整体跳过（幂等，可重复执行）。
 
 ## 一键创建资产
 
 接口：`POST /api/v1/studio/shots/extracted-candidates/batch-create-assets`
 
 - 入参：`{ chapter_id, types?: [character|scene|prop|costume] }`，缺省处理该章节全部 pending 候选。
+- `types` 的两种「空」语义不同（`app/services/studio/batch_candidate_assets.py::create_assets_from_extraction_candidates`）：
+  - **不传 `types`（`None`）= 不限定类型，处理全部**；
+  - **显式传空数组 `[]` = 一个类型都不处理**，直接返回三个空列表；
+  - 传入 `character/scene/prop/costume` 之外的取值直接报错。
 - 服务：`app/services/studio/batch_candidate_assets.py::create_assets_from_extraction_candidates`
   - 同名实体查重：character 按 `project_id + name`；scene/prop/costume 通过项目关联表限定项目后按 `name` 查重。
   - 不存在 → 用候选 payload（description/voice_description）创建实体，并绑定候选所在分镜（复用 `create_entity`）。
@@ -42,12 +47,21 @@ extract-async -> 候选落库(shot_extracted_candidates，含 payload.descriptio
 
 接口：`POST /api/v1/studio/image-tasks/assets/batch-image-tasks`
 
-- 入参：`{ asset_type, asset_ids?: [...] }`，缺省为该类型全部资产。
+- 入参：`{ project_id, asset_type, asset_ids?: [...] }`。
+  - **`project_id` 必填**：批量任务只处理该项目下的资产。服务先校验项目存在，不存在则 404（`entity_not_found("Project")`）；此前不限定项目会把全库资产都扫进来，是跨项目缺陷。
+  - `asset_ids` 可选、**最多 200 条**（`BatchAssetImageTaskRequest.asset_ids` 的 `max_length=200`）；缺省为该类型在**当前项目**下的全部资产。传入但不属于该项目的 ID 不会报错，而是逐条记入 `skipped`（reason = `not in project`）。
+  - 服务侧另有 `MAX_BATCH_ASSETS = 200` 上限（`app/services/studio/batch_asset_images.py`）：目标资产数超限**直接报错**，不做截断，避免对全库资产提交无界生成任务（成本保护）。该错误是 `ValueError`，经全局 `ValueError` handler 归一为 `code=400`。
 - 服务：`app/services/studio/batch_asset_images.py::create_batch_asset_image_tasks`
   - 每个资产自动选取 front 优先的图片槽位（`pick_primary_image_id`；`is_primary` 仅 CharacterImage 有，其他表按视角+id 排序）。
-  - 复用资产图片的 base draft + derive preview 生成提示词，再 `create_image_task_and_link` 建任务。
-  - 单个资产失败不阻断批量（记入 skipped）。
-- 返回：`{ tasks: [{asset_id, task_id, prompt}], skipped: [...] }`。
+  - 角色没有图片槽位时**按需补一个 front 空槽位**（`_ensure_asset_image_slot`，`is_primary=True`）；其他类型补不了，才记入 skipped（reason = `no image slot`）。
+  - 复用资产图片的 base draft + derive preview 生成提示词，再 stage 图片生成任务与关联关系（`stage_image_task_and_link`，不提交、不入队）。
+  - **单个资产的 stage 包在 SAVEPOINT（`db.begin_nested()`）里**：单个失败只回滚自己并记入 `skipped`（reason = 异常文本），不污染会话、不阻断批量。
+  - **两阶段提交**：先把全部资产的 stage 结果收集完，再 `db.commit()` **一次性提交**；提交成功后才逐个入队（`enqueue_task_execution`），避免中途失败留下「部分任务已入队」的半成品。
+  - 入队失败的任务会被显式标记为 **failed** 并写入错误原因（`enqueue failed: ...`），不会永久停在 pending，同时记入返回值的 `enqueue_failed`；其余任务继续入队。
+- 返回：`{ tasks, skipped, enqueue_failed }`。
+  - `tasks`：`[{asset_id, task_id, prompt}]`，**只含已成功入队的任务**。
+  - `skipped`：`[{asset_id, reason}]`，含 `not in project` / `no image slot` / stage 异常三类。
+  - `enqueue_failed`：`[{asset_id, task_id, reason}]`，已落库但未能入队（对应任务行已被标记 failed）。
 
 ## 参考图回链（已有机制，无需额外维护）
 

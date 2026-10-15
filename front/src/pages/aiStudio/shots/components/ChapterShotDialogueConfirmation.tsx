@@ -1,15 +1,23 @@
 import { Button, Input, Spin, Tooltip } from 'antd'
 import { DeleteOutlined, FireOutlined, PlusOutlined, SmileOutlined } from '@ant-design/icons'
 import type {
+  DialogueLineMode,
   ShotDialogLineRead,
   ShotExtractionSummaryRead,
   ShotExtractedDialogueCandidateRead,
 } from '../../../../services/generated'
 
-function dialogTitle(speaker?: string | null, target?: string | null) {
-  const s = (speaker ?? '').trim() || '未知'
-  const t = (target ?? '').trim() || '未知'
-  return `${s} → ${t}`
+/** 对白标题：角色名缺失时按对白模式回落，旁白显式显示「旁白」而不是含混的「未知」。 */
+function dialogTitle(
+  speaker?: string | null,
+  target?: string | null,
+  lineMode?: DialogueLineMode | null,
+) {
+  const s = (speaker ?? '').trim()
+  const t = (target ?? '').trim()
+  // 旁白（VOICE_OVER）没有具体说话角色：显式回落「旁白」，与真正的「未知说话人」区分开。
+  const speakerLabel = s || (lineMode === 'VOICE_OVER' ? '旁白' : '未知')
+  return `${speakerLabel} → ${t || '未知'}`
 }
 
 type ChapterShotDialogueConfirmationProps = {
@@ -152,7 +160,7 @@ export function ChapterShotDialogueConfirmation({
                     onClick={() => onDeleteSavedDialogLine(l.id)}
                   />
                   <div className="w-36 shrink-0 text-xs text-gray-700 mt-1 truncate">
-                    {dialogTitle(l.speaker_name, l.target_name)}
+                    {dialogTitle(l.speaker_name, l.target_name, l.line_mode)}
                   </div>
                   <Input.TextArea
                     value={l.text ?? ''}
@@ -197,7 +205,7 @@ export function ChapterShotDialogueConfirmation({
                   onClick={() => onIgnoreExtractedDialogLine(l)}
                 />
                 <div className="w-36 shrink-0 text-xs text-gray-700 mt-1 truncate">
-                  {dialogTitle(l.speaker_name, l.target_name)}
+                  {dialogTitle(l.speaker_name, l.target_name, l.line_mode)}
                 </div>
                 <Input.TextArea
                   value={l.text ?? ''}

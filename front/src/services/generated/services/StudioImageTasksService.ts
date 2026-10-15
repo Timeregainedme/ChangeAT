@@ -182,10 +182,15 @@ export class StudioImageTasksService {
     }
     /**
      * 一键批量生成资产参考图（人物/场景/道具/服装）
-     * 为指定类型资产（缺省全部）批量创建图片生成任务。
+     * 为指定项目下指定类型资产（缺省全部）批量创建图片生成任务。
      *
      * 对每个资产自动选取 front 优先的图片槽位并生成提示词（复用资产图渲染逻辑），
      * 返回 {"tasks": [{asset_id, task_id, prompt}], "skipped": [...]}。
+     *
+     * 响应语义（评审 D-12）：本端点声明 `status_code=201`（批量创建了资源），因此必须用
+     * `created_response` 让响应体 `code=201` 与 HTTP 状态码一致；此前误用 `success_response`
+     * （固定 `code=200`）会出现「201 状态 + 200 业务码」的自相矛盾。
+     * `success_response` 是全局公共函数，保持其默认 `code=200` 不动，避免影响其它 200 路由。
      * @returns ApiResponse_dict_str__Any__ Successful Response
      * @throws ApiError
      */

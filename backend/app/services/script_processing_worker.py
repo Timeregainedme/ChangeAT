@@ -274,9 +274,14 @@ def apply_division_result(
 def _rebuild_script_division_from_shots(db: Session, chapter_id: str) -> dict[str, Any]:
     """从库内分镜重建 script_division。
 
-    extract-async 契约允许前端传空 ``script_division``（见 ChapterPrep 注释
-    「服务端从库内分镜重建」）；此前后端直接透传空 dict，导致 LLM 提取
-    拿到空输入、候选/资产全为空。这里按 divide 落库的 shots 重建分镜结构。
+    做什么：按章节内 ``Shot.index`` 顺序，把已落库的分镜还原成 ``ScriptDivisionResult``
+    形状的 dict（``shots`` + ``total_shots``），供 ``ElementExtractorAgent`` 提取使用。
+    为什么存在：extract-async 契约允许调用方不传 ``script_division``（前端 ChapterPrep
+    恒传 ``{}``）；若原样透传空输入，LLM 会拿到空分镜，候选与资产全为空。
+
+    行号口径：库内不保存剧本原始行号，这里按摘录文本行数累加出**连续且 >= 1** 的
+    ``start_line/end_line``，既满足 ``ShotDivision`` 的 ``ge=1`` 契约（评审 C-17），
+    也保留「越靠后的分镜行号越大」的单调顺序；LLM 提取本身主要依赖 ``script_excerpt``。
     """
 
     shots = db.execute(
@@ -284,14 +289,21 @@ def _rebuild_script_division_from_shots(db: Session, chapter_id: str) -> dict[st
     ).scalars().all()
     if not shots:
         return {"shots": [], "total_shots": 0}
-    division_shots = []
+    division_shots: list[dict[str, Any]] = []
+    next_line = 1
     for shot in shots:
+        excerpt = shot.script_excerpt or ""
+        # 摘录为空时至少占 1 行，避免出现 end_line < start_line 或 0 这种违反契约的行号
+        line_count = max(1, len(excerpt.splitlines()))
+        start_line = next_line
+        end_line = start_line + line_count - 1
+        next_line = end_line + 1
         division_shots.append(
             {
                 "index": shot.index,
-                "start_line": shot.index,  # 库内不存原始行号，用序号近似（LLM 提取主要依赖 script_excerpt）
-                "end_line": shot.index,
-                "script_excerpt": shot.script_excerpt or "",
+                "start_line": start_line,
+                "end_line": end_line,
+                "script_excerpt": excerpt,
                 "shot_name": shot.title or "",
             }
         )
@@ -307,9 +319,23 @@ def generate_extraction_result(
     consistency: dict[str, Any] | None,
     refresh_cache: bool,
 ) -> tuple[Any, bool]:
-    # 前端契约：script_division 可为空，服务端从库内分镜重建后再提取。
-    if not script_division.get("shots"):
+    # 前端契约：script_division 可为空对象（ChapterPrep 恒传 {}），此时服务端从库内分镜重建。
+    # 判定用「字段是否存在」而非「shots 是否为真值」：显式传 shots=[] 是调用方的明确意图
+    # （空分镜提取），不能静默回退到库内分镜 —— 否则用户刚切换剧本、库内还是旧分镜时，会
+    # 基于旧分镜产出候选而没有任何日志或响应信号（评审 C-17）。回退时记日志，让「本次沿用
+    # 库内分镜」这件事可被察觉。
+    if "shots" not in script_division:
         script_division = _rebuild_script_division_from_shots(db, chapter_id)
+        logger.info(
+            "script_division.shots 字段缺失，本次沿用库内分镜重建后提取：chapter_id=%s shots=%d",
+            chapter_id,
+            len(script_division.get("shots") or []),
+        )
+    elif not script_division.get("shots"):
+        logger.info(
+            "script_division.shots 为显式空列表，按调用方意图执行空分镜提取（不回退库内分镜）：chapter_id=%s",
+            chapter_id,
+        )
 
     cache_key = build_script_extract_cache_key(
         project_id=project_id,

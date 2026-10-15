@@ -104,16 +104,27 @@ class AbstractWorkerTaskExecutor(ABC):
             db.commit()
             return self.load_run_args(ctx)
 
+    def _refresh_agent_prompts_before_run(self, db: Session) -> None:
+        """任务执行前刷新已发布的 Agent 提示词（模板页「发布生效」）。
+
+        为什么放在这一层：Celery 是 prefork，每个子进程各持
+        `prompt_registry._cache` 的模块级缓存，模板发布发生在 API 进程 → worker
+        必须在自己进程内、每个任务开始前刷新一次才能读到新内容（评审 B-4）。
+        TTL（10s）保证同一 worker 内高频任务不会每次都查库。
+
+        刷新失败不阻断任务：沿用上一份缓存（或代码默认），任务照常执行。
+        """
+        from app.chains.agents.prompt_registry import refresh_published_agent_prompts_sync
+
+        try:
+            refresh_published_agent_prompts_sync(db)
+        except Exception:  # noqa: BLE001
+            logger.exception("%s task agent prompt refresh failed, continuing with cached prompts", self.task_kind)
+
     def _execute_phase(self, task_id: str, run_args: dict[str, Any]) -> Any | None:
         with self._session_maker() as db:
             # 任务执行前刷新已发布的 Agent 提示词（模板页「发布生效」后跨进程生效）。
-            # 刷新失败不阻断任务：提示词保持上一份缓存（或代码默认），任务照常执行。
-            from app.chains.agents.prompt_registry import refresh_published_agent_prompts_sync
-
-            try:
-                refresh_published_agent_prompts_sync(db)
-            except Exception:  # noqa: BLE001
-                logger.exception("%s task agent prompt refresh failed, continuing with cached prompts", self.task_kind)
+            self._refresh_agent_prompts_before_run(db)
             ctx = self._load_context(db, task_id)
             if ctx is None:
                 return None
@@ -228,6 +239,10 @@ class AbstractAsyncDelegatingExecutor(AbstractWorkerTaskExecutor):
         if self._mark_cancelled_if_requested(task_id):
             self._log_event("cancelled", task_id, elapsed_ms=self._elapsed_ms(started_at))
             return
+        # 本类不复用基类 run()/_execute_phase()，因此必须在这里显式刷新已发布
+        # Agent 提示词，否则图片/视频/音频生成任务永远读不到新发布的模板（评审 B-4）。
+        with self._session_maker() as db:
+            self._refresh_agent_prompts_before_run(db)
         reset_db_runtime()
         try:
             run_args = self._load_run_args(task_id)

@@ -106,6 +106,14 @@ class CharacterCreate(CharacterBase):
 
 
 class CharacterUpdate(BaseModel):
+    """角色 PATCH 请求体：只声明「允许修改」的字段，全部可选。
+
+    为什么存在：与 `CharacterBase` 解耦，避免把 `id` 等不可改字段暴露成可更新项。
+    注意本类**不继承** `CharacterBase`，因此每个可改字段都必须在此显式声明；
+    漏声明会让该字段在 PATCH 时被静默忽略（评审 C-3：`voice_description` 曾因此改不动，
+    与「角色音色描述可查看与修改」的口径不符）。
+    """
+
     project_id: str | None = None
     name: str | None = None
     description: str | None = None
@@ -115,6 +123,10 @@ class CharacterUpdate(BaseModel):
     costume_id: str | None = None
     voice_id: str | None = None
     voice_source: AudioVoiceSource | None = None
+    voice_description: str | None = Field(
+        None,
+        description="角色音色描述（剧本提取产出：年龄段/声线/气质/语速等）；留空表示不改动该字段",
+    )
 
 
 class CharacterRead(CharacterBase):

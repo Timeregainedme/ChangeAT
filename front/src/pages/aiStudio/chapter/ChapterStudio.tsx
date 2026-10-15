@@ -401,6 +401,89 @@ function uniqueNames(values: Array<string | null | undefined>) {
   return result
 }
 
+/**
+ * 从关联资产条目的缩略图地址中解析出文件 ID。
+ *
+ * 存在原因：`thumbnail` 有三种形态 —— 直接的 file_id（既不含 `/` 也不含 `:`）、
+ * `/api/v1/studio/files/{file_id}/download` 形式的下载地址、以及无法解析的 URL。
+ * 该解析逻辑原先在批量生成与单镜头生成两处各写了一份局部 lambda（D-7 重复代码），
+ * 这里抽出为公共函数以保证两条路径的解析口径一致。
+ *
+ * @param thumbnail 关联资产条目的缩略图字段，可为空。
+ * @returns 解析出的 file_id；无法解析时返回 null（调用方会跳过该条目）。
+ */
+function resolveThumbnailFileId(thumbnail?: string | null): string | null {
+  const v = (thumbnail || '').trim()
+  if (!v) return null
+  if (!v.includes('/') && !v.includes(':')) return v
+  try {
+    const url = new URL(v, typeof window !== 'undefined' ? window.location.origin : 'http://localhost')
+    const m = url.pathname.match(/\/api\/v1\/studio\/files\/([^/]+)\/download\/?$/)
+    if (m?.[1]) return decodeURIComponent(m[1])
+  } catch {
+    // URL 非法或解析失败：按「无参考图」处理。
+  }
+  return null
+}
+
+/**
+ * 把镜头关联资产转换为关键帧生成接口所需的参考图条目。
+ *
+ * 存在原因：批量生成与单镜头生成原先各自内联了同一段 map + 类型收窄逻辑（D-7）。
+ * 优先使用条目自带的 `file_id`，缺失时回退到从 `thumbnail` 解析；
+ * 两者都拿不到的条目会被丢弃（后端同样会跳过无效条目）。
+ *
+ * @param items 镜头关联资产列表。
+ * @returns 可直接作为 `ShotFrameImageTaskRequest.images` 的参考图条目列表。
+ */
+function buildShotFrameImagePayload(items: ShotLinkedAssetItem[]): ShotLinkedAssetItem[] {
+  return items
+    .map((x) => {
+      const fileId =
+        typeof x?.file_id === 'string' && x.file_id.trim() ? x.file_id.trim() : resolveThumbnailFileId(x?.thumbnail)
+      return fileId
+        ? {
+            type: x.type,
+            id: String(x?.id ?? ''),
+            name: String(x?.name ?? x?.id ?? ''),
+            file_id: fileId,
+          }
+        : null
+    })
+    .filter((x): x is NonNullable<typeof x> => x !== null)
+}
+
+/**
+ * 组装关键帧图片生成任务的请求体。
+ *
+ * 存在原因：批量生成（runBatchGenerate）与单镜头生成两条路径原先各自内联拼装
+ * 完全相同的请求体，连 `target_ratio` 的类型收窄也一样（D-7）。
+ * 抽到一处后，字段增删只需改这里，避免两条路径行为漂移。
+ *
+ * @param params.frameType 关键帧类型（first/last/key）。
+ * @param params.prompt 提示词。
+ * @param params.images 参考图条目列表。
+ * @param params.targetRatio 目标视频画幅比例（运行时兜底得到的字符串）。
+ * @param params.resolutionProfile 关键帧输出分辨率档位。
+ * @returns 创建关键帧图片生成任务接口所需的请求体。
+ */
+function buildShotFrameImageRequestBody(params: {
+  frameType: ShotFrameImageTaskRequest['frame_type']
+  prompt: string
+  images: ShotLinkedAssetItem[]
+  targetRatio: string
+  resolutionProfile: KeyframeResolutionProfile
+}): ShotFrameImageTaskRequest {
+  return {
+    frame_type: params.frameType,
+    model_id: null,
+    prompt: params.prompt,
+    images: params.images,
+    target_ratio: params.targetRatio as ShotFrameImageTaskRequest['target_ratio'],
+    resolution_profile: params.resolutionProfile,
+  }
+}
+
 function isTypingTarget(target: EventTarget | null) {
   if (!(target instanceof HTMLElement)) return false
   const tag = target.tagName.toLowerCase()
@@ -888,7 +971,11 @@ const ChapterStudio: React.FC = () => {
         setShotCharacterLinks(shotCharacters)
         setShotCandidateItems(candidates as ShotExtractedCandidateRead[])
         setShotDialogueCandidateItems(dialogueCandidates as ShotExtractedDialogueCandidateRead[])
-        if (detail && detail.duration !== null) {
+        // C-11：等价于 `detail.duration != null`。旧写法 `!== null` 对 undefined 也为真，
+        // 会把没有时长的镜头的 shotDurations 写成 0，导致后续 `?? 1` 兜底失效、
+        // 界面显示 0.0s 与最窄进度条。此处显式同时排除 null 与 undefined
+        //（仓库 eslint 配置 eqeqeq=error，不允许直接写 `!= null`）。
+        if (detail && detail.duration !== null && detail.duration !== undefined) {
           setShotDurations((prev) => ({ ...prev, [selectedShotId]: detail.duration ?? 0 }))
         }
       })
@@ -1156,45 +1243,20 @@ const ChapterStudio: React.FC = () => {
           page: 1,
           pageSize: 100,
         })
+        // D-7：关联资产 -> 参考图条目、请求体拼装统一走公共函数，与单镜头生成路径共用同一份逻辑。
         const items = linked.data?.items ?? []
-        const extractFileId = (thumbnail?: string | null): string | null => {
-          const v = (thumbnail || '').trim()
-          if (!v) return null
-          if (!v.includes('/') && !v.includes(':')) return v
-          try {
-            const url = new URL(v, typeof window !== 'undefined' ? window.location.origin : 'http://localhost')
-            const m = url.pathname.match(/\/api\/v1\/studio\/files\/([^/]+)\/download\/?$/)
-            if (m?.[1]) return decodeURIComponent(m[1])
-          } catch {
-            // ignore
-          }
-          return null
-        }
-        const imagesPayload = items
-          .map((x) => {
-            const fileId = typeof x?.file_id === 'string' && x.file_id.trim() ? x.file_id.trim() : extractFileId(x?.thumbnail)
-            return fileId
-              ? {
-                  type: x.type,
-                  id: String(x?.id ?? ''),
-                  name: String(x?.name ?? x?.id ?? ''),
-                  file_id: fileId,
-                }
-              : null
-          })
-          .filter((x): x is NonNullable<typeof x> => x !== null)
+        const imagesPayload = buildShotFrameImagePayload(items)
         const targetRatio = resolveShotVideoRatio(d)
         if (!targetRatio) continue
         await StudioImageTasksService.createShotFrameImageGenerationTaskApiV1StudioImageTasksShotShotIdFrameImageTasksPost({
           shotId: id,
-          requestBody: {
-            frame_type: target.frame_type,
-            model_id: null,
+          requestBody: buildShotFrameImageRequestBody({
+            frameType: target.frame_type,
             prompt,
             images: imagesPayload,
-            target_ratio: targetRatio as ShotFrameImageTaskRequest['target_ratio'],
-            resolution_profile: keyframeResolutionProfile,
-          },
+            targetRatio,
+            resolutionProfile: keyframeResolutionProfile,
+          }),
         })
       }
     },
@@ -1333,33 +1395,9 @@ const ChapterStudio: React.FC = () => {
         page: 1,
         pageSize: 100,
       })
+      // D-7：与批量生成路径共用参考图条目与请求体拼装逻辑。
       const items = linked.data?.items ?? []
-      const extractFileId = (thumbnail?: string | null): string | null => {
-        const v = (thumbnail || '').trim()
-        if (!v) return null
-        if (!v.includes('/') && !v.includes(':')) return v
-        try {
-          const url = new URL(v, typeof window !== 'undefined' ? window.location.origin : 'http://localhost')
-          const m = url.pathname.match(/\/api\/v1\/studio\/files\/([^/]+)\/download\/?$/)
-          if (m?.[1]) return decodeURIComponent(m[1])
-        } catch {
-          // ignore
-        }
-        return null
-      }
-      const imagesPayload = items
-        .map((x) => {
-          const fileId = typeof x?.file_id === 'string' && x.file_id.trim() ? x.file_id.trim() : extractFileId(x?.thumbnail)
-          return fileId
-            ? {
-                type: x.type,
-                id: String(x?.id ?? ''),
-                name: String(x?.name ?? x?.id ?? ''),
-                file_id: fileId,
-              }
-            : null
-        })
-        .filter((x): x is NonNullable<typeof x> => x !== null)
+      const imagesPayload = buildShotFrameImagePayload(items)
       const targetRatio = resolveShotVideoRatio(shotDetail)
       if (!targetRatio) {
         message.warning('请先设置视频比例')
@@ -1367,14 +1405,13 @@ const ChapterStudio: React.FC = () => {
       }
       await StudioImageTasksService.createShotFrameImageGenerationTaskApiV1StudioImageTasksShotShotIdFrameImageTasksPost({
         shotId: selectedShotId,
-        requestBody: {
-          frame_type: target.frame_type,
-          model_id: null,
+        requestBody: buildShotFrameImageRequestBody({
+          frameType: target.frame_type,
           prompt,
           images: imagesPayload,
-          target_ratio: targetRatio as ShotFrameImageTaskRequest['target_ratio'],
-          resolution_profile: keyframeResolutionProfile,
-        },
+          targetRatio,
+          resolutionProfile: keyframeResolutionProfile,
+        }),
       })
       message.success('已创建生成任务')
     } catch {
@@ -1481,7 +1518,9 @@ const ChapterStudio: React.FC = () => {
       if (r.data) {
         setShotDetail(r.data)
         lastSavedDetailRef.current = r.data
-        if (r.data.duration !== null) {
+        // C-11：等价于 `r.data.duration != null`，同时排除 null 与 undefined，
+        // 避免无时长时写入 0 使 `?? 1` 兜底失效（eqeqeq=error，不能直接写 `!= null`）。
+        if (r.data.duration !== null && r.data.duration !== undefined) {
           setShotDurations((m) => ({ ...m, [selectedShotId]: r.data?.duration ?? 0 }))
         }
       }
@@ -1534,7 +1573,9 @@ const ChapterStudio: React.FC = () => {
           if (r.data) {
             setShotDetail(r.data)
             lastSavedDetailRef.current = r.data
-            if (r.data.duration !== null) {
+            // C-11：等价于 `r.data.duration != null`，同时排除 null 与 undefined，
+            // 避免无时长时写入 0 使 `?? 1` 兜底失效（eqeqeq=error，不能直接写 `!= null`）。
+            if (r.data.duration !== null && r.data.duration !== undefined) {
               setShotDurations((m) => ({ ...m, [selectedShotId]: r.data?.duration ?? 0 }))
             }
           }
@@ -3805,20 +3846,12 @@ function Inspector(props: {
     window.location.assign(`/projects/${projectId}/chapters/${currentChapterId}/shots/${selectedShot.id}/edit`)
   }, [currentChapterId, projectId, selectedShot?.id])
 
-  const extractFileIdFromThumbnail = useCallback((thumbnail?: string | null): string | null => {
-    const v = (thumbnail || '').trim()
-    if (!v) return null
-    // 纯 file_id：不包含路径或协议
-    if (!v.includes('/') && !v.includes(':')) return v
-    try {
-      const url = new URL(v, typeof window !== 'undefined' ? window.location.origin : 'http://localhost')
-      const m = url.pathname.match(/\/api\/v1\/studio\/files\/([^/]+)\/download\/?$/)
-      if (m?.[1]) return decodeURIComponent(m[1])
-    } catch {
-      // ignore
-    }
-    return null
-  }, [])
+  // D-7：文件 ID 解析实现已统一收敛到模块级 resolveThumbnailFileId，
+  // 这里仅保留 useCallback 包装，以维持多处 useMemo/useCallback 依赖的稳定引用。
+  const extractFileIdFromThumbnail = useCallback(
+    (thumbnail?: string | null): string | null => resolveThumbnailFileId(thumbnail),
+    [],
+  )
 
   const shotLinkedAssetNameByFileId = useMemo(() => {
     const map = new Map<string, string>()

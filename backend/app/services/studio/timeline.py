@@ -19,6 +19,7 @@ import asyncio
 import shutil
 import tempfile
 import uuid
+from collections.abc import Mapping
 from pathlib import Path
 
 from sqlalchemy import select
@@ -44,6 +45,7 @@ from app.schemas.studio.timeline import (
     TimelineStatsRead,
 )
 from app.services.common import create_and_refresh, entity_not_found
+from app.services.studio.shot_dialogs import load_character_display_names, pick_display_name
 
 # 成片目标画幅：按项目默认视频比例取接近的偶数尺寸，未知比例回落 16:9。
 _EXPORT_TARGET_SIZE: dict[str, tuple[int, int]] = {
@@ -68,6 +70,28 @@ def _enum_text(value: object) -> str:
 def _export_size(ratio: str | None) -> tuple[int, int]:
     key = (ratio or "").strip()
     return _EXPORT_TARGET_SIZE.get(key, _DEFAULT_EXPORT_SIZE)
+
+
+def _dialog_speaker_name(
+    name_map: Mapping[str, str],
+    line: ShotDialogLine,
+) -> str | None:
+    """时间轴字幕显示名：与对白列表/准备页走同一口径（角色真名优先，回落行内名字）。
+
+    参数：
+        name_map：角色 ID → 角色当前真名映射，由 :func:`load_character_display_names` 批量查询。
+        line：台词行 ORM 对象。
+
+    返回：
+        显示名；沿用时间轴原有契约，空值统一归一为 ``None``（``TimelineDialogRead.speaker_name``
+        是可空字段，字幕生成按「无说话人」处理）。
+    """
+    resolved = pick_display_name(
+        name_map,
+        character_id=line.speaker_character_id,
+        fallback_name=line.speaker_name,
+    )
+    return (resolved or "").strip() or None
 
 
 def _ffmpeg_binary(name: str) -> str:
@@ -218,6 +242,17 @@ async def get_project_timeline(db: AsyncSession, *, project_id: str) -> ProjectT
         ).scalars().all():
             dialogs.setdefault(line.shot_detail_id, []).append(line)
 
+    # 字幕显示名统一口径：能解析到角色就显示角色真名，解析不到才回落行内名字（C-2）。
+    dialog_name_map = await load_character_display_names(
+        db,
+        character_ids=[
+            character_id
+            for lines in dialogs.values()
+            for line in lines
+            for character_id in (line.speaker_character_id, line.target_character_id)
+        ],
+    )
+
     clips: list[TimelineClipRead] = []
     cursor = 0.0
     for shot in shots:
@@ -259,7 +294,7 @@ async def get_project_timeline(db: AsyncSession, *, project_id: str) -> ProjectT
                         index=int(line.index or 0),
                         text=line.text or "",
                         emotion=(line.emotion or "").strip() or None,
-                        speaker_name=(line.speaker_name or "").strip() or None,
+                        speaker_name=_dialog_speaker_name(dialog_name_map, line),
                         audio_file_id=str(line.generated_audio_file_id or "").strip() or None,
                     )
                     for line in dialogs.get(shot.id, [])

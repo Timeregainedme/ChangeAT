@@ -139,11 +139,21 @@ Broker：Redis
 - 每次任务执行前重建 async DB runtime
 - 在独立 event loop 中运行既有 async service
 - 任务结束后主动释放 async engine
+- 在执行前刷新已发布的 Agent 提示词（与其他执行器共用同一钩子，见下）
 - 在执行前、结果生成后、结果持久化后执行统一取消检查
 - 通过 executor 统一配置任务超时
 - 输出统一任务事件日志（started / running / cancelled / succeeded / failed）
 
 这样可以先把执行从 Web 进程迁出，同时保持图片 / 视频 provider 调用链的现有 async 实现。
+
+### Agent 提示词刷新的统一钩子
+
+已发布的 Agent 提示词必须在**每个任务开始前、在 worker 自己的进程内**重新拉取一次（Celery 是 prefork，各子进程各持一份模块级缓存）。当前把这件事收敛为基类上的统一钩子 `AbstractWorkerTaskExecutor._refresh_agent_prompts_before_run(db)`：
+
+- `AbstractWorkerTaskExecutor._execute_phase` 会调用它；
+- `AbstractAsyncDelegatingExecutor` **覆盖了 `run()`、不复用基类的 `run()/_execute_phase()`**，因此当前在 `run()` 中显式调用同一钩子。
+
+此前该刷新只发生在走 `_execute_phase` 的执行器上，`AbstractAsyncDelegatingExecutor`（`video_generation` / `image_generation` / `audio_generation` / `shot_frame_prompt` 使用）因而从不刷新，导致这些任务永远用进程启动时的旧模板。刷新失败不阻断任务：只记异常日志并沿用上一份缓存（或代码内置默认），任务照常执行。
 
 当前这三类 async worker 已补最小专项测试，重点锁定：
 
