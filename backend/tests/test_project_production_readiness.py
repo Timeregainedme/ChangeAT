@@ -74,6 +74,8 @@ _BASE_RULES: list[tuple[str, int]] = [
     ("skip_extraction", 0),
     ("shot_frame_images", 1),
     ("override_video_ratio", 1),
+    # 必须早于 "chapters"：主角级角色演员检查的 SQL 里同时含 shot_character_links 与 chapters。
+    ("shot_character_links", 0),
     ("chapters", 1),
     ("voice_id", 1),
     ("characters", 1),
@@ -138,3 +140,34 @@ async def test_extraction_check_passes_when_all_shots_extracted_and_confirmed() 
         "pending_dialogues": 0,
         "not_extracted_shots": 0,
     }
+
+
+async def _character_actor_check(db: _FakeReadinessDB):  # noqa: ANN202
+    result = await get_project_production_readiness(db, project_id="proj-1")
+    return next(check for check in result.checks if check.key == "character_actor_ready")
+
+
+@pytest.mark.asyncio
+async def test_character_actor_check_passes_when_no_recurring_character_lacks_actor() -> None:
+    """没有「跨集反复出现却没绑演员」的角色时该项通过（只在一集出现的角色不要求绑）。"""
+    db = _FakeReadinessDB(rules=_rules())
+
+    check = await _character_actor_check(db)
+
+    assert check.ok is True
+    assert check.message == "跨集反复出现的角色都已绑定演员"
+    assert check.detail["recurring_without_actor"] == 0
+
+
+@pytest.mark.asyncio
+async def test_character_actor_check_fails_when_recurring_character_lacks_actor() -> None:
+    """主角级角色（跨 ≥2 集）没绑演员时必须显式报出来，并说明只在一集出现的不要求绑。"""
+    db = _FakeReadinessDB(rules=_rules(shot_character_links=2))
+
+    check = await _character_actor_check(db)
+
+    assert check.ok is False
+    assert "还有 2 个跨集反复出现的角色未绑定演员" in check.message
+    assert "只在一集内出现的角色不要求绑定" in check.message
+    assert check.detail["recurring_without_actor"] == 2
+

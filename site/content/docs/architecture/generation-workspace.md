@@ -168,7 +168,7 @@ backend/app/services/studio/generation/
 资产图片生成在**没有任何参考图**的情况下同样会成功：角色图引用「所绑演员的图 + 所绑服装的图」，演员/服装未绑定或所绑资产尚未出图时 `default_images` 就是空列表，模型只会按文字描述出图。这个结果本身不报错，用户只能看到「不像那个人」，无法归因。因此当前实现把缺失显式化，并逐层透传到前端：
 
 - `AssetImageBaseDraft.reference_warnings`（`app/services/studio/generation/asset_image/build_base.py`）承载说明文本。
-  - **两条来源独立判定**：`character.actor_id` 为空 → 「角色未绑定演员…」；已绑定但 `pick_ordered_ref_file_ids` 为空 → 「所绑演员还没有生成任何图片…」；服装同构。只报「总数为 0」会让用户以为两个都没配，而更常见的只是缺其中一个。
+  - **两条来源独立判定**：`character.actor_id` 为空 → 「角色未绑定演员…」（**仅主角级角色**：该角色跨 ≥2 个章节反复出现时才提示，只在一集内出现的不要求绑演员，见 [角色与演员的绑定要求](character-actor-binding.md)）；已绑定但 `pick_ordered_ref_file_ids` 为空 → 「所绑演员还没有生成任何图片…」；服装同构。只报「总数为 0」会让用户以为两个都没配，而更常见的只是缺其中一个。
   - 两个来源都为空时**额外**追加一条「本次生成将在零参考图的情况下进行…」，因为这是后果最严重的情形。
   - 演员/资产走非 front 视角且取不到 front 参考图时，追加「缺少正面参考图…」。
 - `AssetImageDerivedPreview.reference_warnings`（`derive_preview.py`）原样透传。

@@ -22,6 +22,7 @@ from app.services.common import (
     patch_model,
 )
 from app.schemas.studio.projects import (
+    ProjectCharacterRecurrenceRead,
     ProjectCreate,
     ProjectProductionReadinessRead,
     ProjectRead,
@@ -29,6 +30,7 @@ from app.schemas.studio.projects import (
     ProjectUpdate,
     StyleOption,
 )
+from app.services.studio.character_recurrence import get_project_character_recurrence
 from app.services.studio.project_production_readiness import get_project_production_readiness
 
 router = APIRouter()
@@ -153,6 +155,26 @@ async def get_project_production_readiness_api(
     只读聚合，不修改任何状态；返回 `ready=false` 时逐项给出缺失原因。
     """
     data = await get_project_production_readiness(db, project_id=project_id)
+    return success_response(data)
+
+
+@router.get(
+    "/{project_id}/character-recurrence",
+    response_model=ApiResponse[ProjectCharacterRecurrenceRead],
+    summary="角色跨集出现情况",
+)
+async def get_project_character_recurrence_api(
+    project_id: str,
+    db: AsyncSession = Depends(get_db),
+) -> ApiResponse[ProjectCharacterRecurrenceRead]:
+    """回答「这个项目里哪些角色是主角级、需要绑定演员」。
+
+    为什么单独一个端点而不是塞进角色列表：要不要绑演员取决于角色出现在几集里，
+    而章节数必须经 `shot_character_links ⋈ shots` 才能算出来。做成一次项目级只读查询，
+    前端在新建/编辑角色时就能把「仅 1 集，可不绑」与「跨 N 集，建议绑」直接标在卡片上。
+    """
+    await get_or_404(db, Project, project_id, detail=entity_not_found("Project"))
+    data = await get_project_character_recurrence(db, project_id=project_id)
     return success_response(data)
 
 

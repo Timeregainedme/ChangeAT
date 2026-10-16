@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Card, Button, Empty, Modal, Input, message, Space, Select, Pagination, Tag } from 'antd'
+import { Card, Alert, Button, Empty, Modal, Input, message, Space, Select, Pagination, Tag } from 'antd'
 import { EditOutlined, PlusOutlined, PictureOutlined, UserOutlined } from '@ant-design/icons'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import {
   StudioProjectsService,
   StudioShotLinksService,
 } from '../../../../../services/generated'
-import type { ProjectActorLinkRead, ProjectCostumeLinkRead } from '../../../../../services/generated'
+import type { CharacterRecurrenceRead, ProjectActorLinkRead, ProjectCostumeLinkRead } from '../../../../../services/generated'
 import { useProjectCharacters, newId } from '../hooks/useProjectData'
 import { resolveAssetUrl } from '../../../assets/utils'
 import { DisplayImageCard } from '../../../assets/components/DisplayImageCard'
@@ -130,7 +130,7 @@ function RoleFormFields({
         />
       </div>
       <div>
-        <div className="text-sm text-gray-600 mb-1">关联演员（必填）</div>
+        <div className="text-sm text-gray-600 mb-1">关联演员（可选）</div>
         <Select
           className="w-full"
           placeholder="选择当前项目已关联的演员"
@@ -156,7 +156,8 @@ function RoleFormFields({
         ) : null}
         <div className="text-xs text-gray-500 mt-1">
           角色图会同时引用「该演员的参考图」与「该服装的参考图」。系统不做名字匹配，
-          名字相同也要在这里显式绑定。
+          名字相同也要在这里显式绑定。绑演员不是必须的：跨集反复出现的角色建议绑（否则各集长相会各演各的），
+          只在一集内出现的角色可以不绑。
         </div>
       </div>
       <div>
@@ -265,6 +266,14 @@ export function RolesTab() {
   const [actorsById, setActorsById] = useState<Record<string, ActorLike>>({})
   const [costumesById, setCostumesById] = useState<Record<string, CostumeLike>>({})
   const [loadingLinks, setLoadingLinks] = useState(false)
+  /**
+   * 角色 ID → 跨集出现情况。
+   *
+   * 为什么需要：角色要不要绑演员取决于它出现在几集里 —— 跨集反复出现的必须绑，
+   * 只在一集内出现的不需要（用户口径）。这份数据来自分镜关联，用户无需手填角色类型。
+   */
+  const [recurrenceById, setRecurrenceById] = useState<Record<string, CharacterRecurrenceRead>>({})
+  const [recurrenceMinChapters, setRecurrenceMinChapters] = useState(2)
   const [projectVisualStyle, setProjectVisualStyle] = useState<ProjectVisualStyleChoice>(defaultVisualStyle as ProjectVisualStyleChoice)
   const [projectStyle, setProjectStyle] = useState<string>(getDefaultStyle(defaultVisualStyle))
 
@@ -391,8 +400,27 @@ export function RolesTab() {
     }
   }
 
+  /**
+   * 拉取「每个角色出现在几个章节」，用于判断要不要提醒绑定演员。
+   *
+   * 失败不抛错：这只是提示性信息，拿不到时页面照常可用（标签降级为「未统计」），
+   * 不让一个辅助查询把整个角色页搞挂。
+   */
+  const loadRecurrence = async () => {
+    if (!projectId) return
+    try {
+      const res = await StudioProjectsService.getProjectCharacterRecurrenceApiApiV1StudioProjectsProjectIdCharacterRecurrenceGet({ projectId })
+      const items = res.data?.items ?? []
+      setRecurrenceById(Object.fromEntries(items.map((item) => [item.character_id, item])))
+      if (typeof res.data?.min_chapters === 'number') setRecurrenceMinChapters(res.data.min_chapters)
+    } catch {
+      setRecurrenceById({})
+    }
+  }
+
   useEffect(() => {
     void loadProjectLinks()
+    void loadRecurrence()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId])
 
@@ -418,10 +446,6 @@ export function RolesTab() {
       message.warning('请输入角色名称')
       return
     }
-    if (!createForm.actorId) {
-      message.warning('请选择关联演员')
-      return
-    }
     setCreating(true)
     try {
       const createRes = await StudioEntitiesApi.create('character', {
@@ -433,7 +457,7 @@ export function RolesTab() {
         description: createForm.description.trim() || undefined,
         visual_style: createForm.visualStyle || '现实',
         style: createForm.style,
-        actor_id: createForm.actorId,
+        actor_id: createForm.actorId ?? null,
         costume_id: createForm.costumeId ?? null,
         voice_id: createForm.voiceId || null,
         voice_source: createForm.voiceSource ?? null,
@@ -495,10 +519,6 @@ export function RolesTab() {
       message.warning('请输入角色名称')
       return
     }
-    if (!editForm.actorId) {
-      message.warning('请选择关联演员')
-      return
-    }
     setSaving(true)
     try {
       await StudioEntitiesApi.update('character', editingId, {
@@ -506,7 +526,7 @@ export function RolesTab() {
         description: editForm.description.trim(),
         visual_style: editForm.visualStyle || '现实',
         style: editForm.style,
-        actor_id: editForm.actorId,
+        actor_id: editForm.actorId ?? null,
         costume_id: editForm.costumeId ?? null,
         // 显式传 null 才会清空（后端用 model_dump(exclude_unset=True) 判定是否改动）。
         voice_id: editForm.voiceId || null,
@@ -596,6 +616,23 @@ export function RolesTab() {
 
   const createSameNameActorId = findActorIdByName(createForm.name, actorOptions)
   const editSameNameActorId = findActorIdByName(editForm.name, actorOptions)
+
+  /**
+   * 「要不要绑演员」的判定标签。
+   *
+   * 为什么用标签而不是继续把演员写成必填：跨集反复出现的角色必须绑演员（否则各集长相会各演各的），
+   * 只在一集里出现的角色不需要 —— 用标签把这个区别说清楚，就不必用必填项去挡住所有角色。
+   */
+  const renderRecurrenceTag = (character: Record<string, unknown>) => {
+    const info = recurrenceById[String(character.id ?? '')]
+    if (!info) return <Tag>出现集数未统计</Tag>
+    if (!info.recurring) return <Tag>出现 {info.chapter_count} 集 · 可不绑演员</Tag>
+    if (character.actor_id) return <Tag color="green">跨 {info.chapter_count} 集 · 已绑演员</Tag>
+    return <Tag color="orange">跨 {info.chapter_count} 集 · 建议绑演员</Tag>
+  }
+
+  /** 编辑中角色若属于主角级却没绑演员，在表单顶部显式提醒（不阻断保存，只说明后果）。 */
+  const editingRecurrence = editingId ? recurrenceById[editingId] : undefined
 
   return (
     <div className="h-full overflow-auto">
@@ -692,6 +729,7 @@ export function RolesTab() {
                     <div className="text-xs text-gray-500 truncate">
                       演员：{actor?.name ?? c.actor_id ?? '未绑定'}
                     </div>
+                    <div className="text-xs">{renderRecurrenceTag(c)}</div>
                     <div className="text-xs text-gray-500 truncate">
                       服装：{costume?.name ?? (c.costume_id ?? '未绑定')}
                     </div>
@@ -758,6 +796,15 @@ export function RolesTab() {
         confirmLoading={saving}
         width={560}
       >
+        {editingRecurrence?.recurring && !editForm.actorId ? (
+          <Alert
+            className="mb-3"
+            type="warning"
+            showIcon
+            message={`该角色已出现在 ${editingRecurrence.chapter_count} 个章节（≥ ${recurrenceMinChapters} 集视为主角级）`}
+            description="跨集反复出现的角色没有演员参考图时，各集里的「同一个人」长相会各演各的，建议绑定演员。只在一集内出现的角色可以不绑。"
+          />
+        ) : null}
         <RoleFormFields
           values={editForm}
           onChange={(patch) => setEditForm((prev) => ({ ...prev, ...patch }))}

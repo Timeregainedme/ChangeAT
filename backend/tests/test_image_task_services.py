@@ -81,9 +81,12 @@ class _FakeStmt:
 
 
 class _FakeDB:
-    def __init__(self, mapping=None, execute_results=None):
+    def __init__(self, mapping=None, execute_results=None, scalars=None):
         self.mapping = mapping or {}
         self.execute_results = list(execute_results or [])
+        # 标量查询：目前只有「角色出现在几个章节」（决定未绑定演员要不要报警）。
+        # 默认不给值 => 返回 0，等价于「还没挂分镜的配角」，不触发主角级提示。
+        self.scalars = dict(scalars or {})
 
     async def get(self, model, entity_id):
         return self.mapping.get((model, entity_id))
@@ -92,6 +95,13 @@ class _FakeDB:
         if not self.execute_results:
             return _FakeExecuteResult()
         return self.execute_results.pop(0)
+
+    async def scalar(self, stmt):
+        sql = str(stmt)
+        for marker, value in self.scalars.items():
+            if marker in sql:
+                return value
+        return 0
 
 
 @pytest.mark.asyncio
@@ -331,7 +341,7 @@ async def test_build_character_image_base_draft_combines_actor_and_costume_refs(
 
 @pytest.mark.asyncio
 async def test_build_character_image_base_draft_warns_when_bindings_missing(monkeypatch):
-    """角色既未绑演员也未绑服装时，必须显式说出「零参考图」，不能在无提示下生成。"""
+    """主角级角色（跨 ≥2 集）既未绑演员也未绑服装时，必须显式说出「零参考图」与「未绑定演员」。"""
     character = SimpleNamespace(
         id="char-1",
         name="角色A",
@@ -352,7 +362,8 @@ async def test_build_character_image_base_draft_warns_when_bindings_missing(monk
         mapping={
             (Character, "char-1"): character,
             (CharacterImage, 1): image,
-        }
+        },
+        scalars={"chapter_id": 2},
     )
 
     async def _fake_build_prompt(*_args, **_kwargs):
@@ -365,8 +376,50 @@ async def test_build_character_image_base_draft_warns_when_bindings_missing(monk
     assert draft.default_images == []
     assert len(draft.reference_warnings) == 3
     assert any("未绑定演员" in item for item in draft.reference_warnings)
+    assert any("属于跨集反复出现的主角级角色" in item for item in draft.reference_warnings)
     assert any("未绑定服装" in item for item in draft.reference_warnings)
     assert any("零参考图" in item for item in draft.reference_warnings)
+
+
+@pytest.mark.asyncio
+async def test_build_character_image_base_draft_skips_actor_warning_for_one_off_character(monkeypatch):
+    """只在一集内出现的角色不要求绑演员，不得再对它提示「未绑定演员」（用户口径 m09145）。"""
+    character = SimpleNamespace(
+        id="char-2",
+        name="路人",
+        description="只在一集出现",
+        actor_id=None,
+        costume_id=None,
+        visual_style="写实",
+        style="影视",
+    )
+    image = SimpleNamespace(
+        id=1,
+        character_id="char-2",
+        view_angle=AssetViewAngle.front,
+        quality_level="high",
+        format="png",
+    )
+    db = _FakeDB(
+        mapping={
+            (Character, "char-2"): character,
+            (CharacterImage, 1): image,
+        },
+        scalars={"chapter_id": 1},
+    )
+
+    async def _fake_build_prompt(*_args, **_kwargs):
+        return "角色合成提示词"
+
+    monkeypatch.setattr(asset_base, "build_prompt_with_template", _fake_build_prompt)
+
+    draft = await asset_base.build_character_image_base_draft(db, character_id="char-2", image_id=1)
+
+    assert draft.default_images == []
+    assert not any("未绑定演员" in item for item in draft.reference_warnings)
+    assert any("未绑定服装" in item for item in draft.reference_warnings)
+    assert any("零参考图" in item for item in draft.reference_warnings)
+    assert len(draft.reference_warnings) == 2
 
 
 @pytest.mark.asyncio

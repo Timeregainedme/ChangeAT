@@ -123,3 +123,23 @@ class ProjectProductionReadinessRead(BaseModel):
     ready: bool = Field(..., description="是否全部通过，可以开工")
     checks: list[ProjectProductionReadinessCheck] = Field(default_factory=list, description="检查项明细")
     stats: dict[str, Any] = Field(default_factory=dict, description="项目当前规模统计")
+
+
+class CharacterRecurrenceRead(BaseModel):
+    """单个角色的跨集出现情况。
+
+    存在的意义：角色要不要绑定演员取决于它出现在几集里 —— 跨集反复出现的必须绑，
+    只在一集内出现的不需要（用户口径 m09145）。把章节数直接给前端，编辑角色时就能标出来。
+    """
+
+    character_id: str = Field(..., description="角色 ID")
+    chapter_count: int = Field(..., description="该角色出现的去重章节（集）数")
+    recurring: bool = Field(..., description="是否为跨集反复出现的主角级角色（需要绑定演员）")
+
+
+class ProjectCharacterRecurrenceRead(BaseModel):
+    """项目下全部角色的跨集出现情况（只读）。"""
+
+    project_id: str = Field(..., description="项目 ID")
+    min_chapters: int = Field(..., description="判定为主角级所需的最少章节数")
+    items: list[CharacterRecurrenceRead] = Field(default_factory=list, description="角色明细")

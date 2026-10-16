@@ -20,6 +20,7 @@ from app.models.studio import (
     SceneImage,
 )
 from app.services.common import entity_not_found
+from app.services.studio.character_recurrence import character_chapter_count, is_recurring
 from app.services.studio.generation.shared.types import GenerationBaseDraft
 from app.services.studio.image_task_references import (
     pick_front_ref_file_id,
@@ -288,10 +289,15 @@ async def build_character_image_base_draft(
                 "角色长相无法与该演员保持一致。建议先到「演员」页生成演员图。"
             )
     else:
-        warnings.append(
-            "角色未绑定演员，本次生成没有演员参考图，角色长相完全由文字描述决定。"
-            "请在角色编辑里显式绑定演员（系统不做名字匹配，名字相同也要绑）。"
-        )
+        # 未绑定演员只对「主角级」角色报警：按用户口径（m09145），只在一集内出现的角色
+        # 本来就不需要绑演员，对它们提示等同于噪音，会淹没真正要处理的问题。
+        actor_chapter_count = await character_chapter_count(db, character_id=character_id)
+        if is_recurring(actor_chapter_count):
+            warnings.append(
+                "角色未绑定演员，本次生成没有演员参考图，角色长相完全由文字描述决定。"
+                f"该角色已出现在 {actor_chapter_count} 个章节，属于跨集反复出现的主角级角色，"
+                "建议在角色编辑里绑定演员，以保证各集长相一致（系统不做名字匹配，名字相同也要绑）。"
+            )
     if character.costume_id:
         costume_refs = await pick_ordered_ref_file_ids(
             db,

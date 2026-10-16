@@ -48,6 +48,7 @@ export type { ApiResponse_PaginatedData_ShotLinkedAssetItem__ } from './models/A
 export type { ApiResponse_PaginatedData_ShotRead__ } from './models/ApiResponse_PaginatedData_ShotRead__';
 export type { ApiResponse_PaginatedData_TaskListItemRead__ } from './models/ApiResponse_PaginatedData_TaskListItemRead__';
 export type { ApiResponse_ProjectActorLinkRead_ } from './models/ApiResponse_ProjectActorLinkRead_';
+export type { ApiResponse_ProjectCharacterRecurrenceRead_ } from './models/ApiResponse_ProjectCharacterRecurrenceRead_';
 export type { ApiResponse_ProjectCostumeLinkRead_ } from './models/ApiResponse_ProjectCostumeLinkRead_';
 export type { ApiResponse_ProjectProductionReadinessRead_ } from './models/ApiResponse_ProjectProductionReadinessRead_';
 export type { ApiResponse_ProjectPropLinkRead_ } from './models/ApiResponse_ProjectPropLinkRead_';
@@ -99,6 +100,7 @@ export type { ChapterStatus } from './models/ChapterStatus';
 export type { ChapterUpdate } from './models/ChapterUpdate';
 export type { CharacterPortraitAnalysisRequest } from './models/CharacterPortraitAnalysisRequest';
 export type { CharacterPortraitAnalysisResult } from './models/CharacterPortraitAnalysisResult';
+export type { CharacterRecurrenceRead } from './models/CharacterRecurrenceRead';
 export type { CostumeInfoAnalysisRequest } from './models/CostumeInfoAnalysisRequest';
 export type { CostumeInfoAnalysisResult } from './models/CostumeInfoAnalysisResult';
 export type { CostumeTimeline } from './models/CostumeTimeline';
@@ -150,6 +152,7 @@ export type { PaginatedData_TaskListItemRead_ } from './models/PaginatedData_Tas
 export type { Pagination } from './models/Pagination';
 export type { ProjectActorLinkRead } from './models/ProjectActorLinkRead';
 export type { ProjectAssetLinkCreate } from './models/ProjectAssetLinkCreate';
+export type { ProjectCharacterRecurrenceRead } from './models/ProjectCharacterRecurrenceRead';
 export type { ProjectCostumeLinkRead } from './models/ProjectCostumeLinkRead';
 export type { ProjectCreate } from './models/ProjectCreate';
 export type { ProjectProductionReadinessCheck } from './models/ProjectProductionReadinessCheck';

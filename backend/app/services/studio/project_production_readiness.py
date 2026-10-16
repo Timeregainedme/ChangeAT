@@ -35,6 +35,7 @@ from app.models.studio import (
     ShotExtractedCandidate,
     ShotExtractedDialogueCandidate,
     ShotFrameImage,
+    ShotCharacterLink,
 )
 from app.schemas.studio.projects import (
     ProjectProductionReadinessCheck,
@@ -42,6 +43,7 @@ from app.schemas.studio.projects import (
 )
 from app.services.common import entity_not_found
 from app.services.llm.provider_registry import resolve_provider_key_from_name
+from app.services.studio.character_recurrence import RECURRING_MIN_CHAPTERS
 
 
 _VALID_VIDEO_RATIOS = set(get_args(VideoRatio))
@@ -400,6 +402,47 @@ async def get_project_production_readiness(
                 {"characters": character_count, "with_voice": character_voice_count},
             )
         )
+
+    # 主角级角色必须绑演员：跨 ≥2 集反复出现的角色若没绑演员，就没有演员参考图，
+    # 「同一个人」在不同集里会各演各的。只在一集内出现的角色按用户口径（m09145）
+    # 不需要绑演员，所以这里只统计出现在至少 RECURRING_MIN_CHAPTERS 个章节里的角色。
+    recurring_counts = (
+        select(
+            Character.id.label("character_id"),
+            func.count(func.distinct(Shot.chapter_id)).label("chapters"),
+        )
+        .select_from(Character)
+        .join(ShotCharacterLink, ShotCharacterLink.character_id == Character.id)
+        .join(Shot, Shot.id == ShotCharacterLink.shot_id)
+        .join(Chapter, Chapter.id == Shot.chapter_id)
+        .where(Chapter.project_id == project_id, Character.actor_id.is_(None))
+        .group_by(Character.id)
+        .subquery()
+    )
+    recurring_without_actor = int(
+        await db.scalar(
+            select(func.count())
+            .select_from(recurring_counts)
+            .where(recurring_counts.c.chapters >= RECURRING_MIN_CHAPTERS)
+        )
+        or 0
+    )
+    checks.append(
+        _ck(
+            "character_actor_ready",
+            "主角级角色演员",
+            recurring_without_actor == 0,
+            (
+                "跨集反复出现的角色都已绑定演员"
+                if recurring_without_actor == 0
+                else (
+                    f"还有 {recurring_without_actor} 个跨集反复出现的角色未绑定演员，"
+                    "各集长相会各演各的；只在一集内出现的角色不要求绑定，去角色编辑里补上演员即可"
+                )
+            ),
+            {"recurring_without_actor": recurring_without_actor},
+        )
+    )
 
     # 分镜必须挂参考图：统计已挂帧的分镜数（任一帧有 file_id 即视为已挂）。
     framed_shot_count = 0
