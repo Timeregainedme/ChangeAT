@@ -3,6 +3,7 @@ import {
   Button,
   Card,
   Col,
+  Alert,
   Collapse,
   Empty,
   Image,
@@ -103,7 +104,7 @@ export type AssetEditPageBaseProps<TAsset extends BaseAsset, TImage extends Base
   listImages: (assetId: string) => Promise<TImage[]>
   createImageSlot: (assetId: string, angle: AssetViewAngle) => Promise<void>
   updateImage: (assetId: string, imageId: number, payload: { file_id: string; width?: number | null; height?: number | null; format?: string | null }) => Promise<void>
-  renderPrompt: (assetId: string, imageId: number) => Promise<{ prompt: string; images: string[] }>
+  renderPrompt: (assetId: string, imageId: number) => Promise<{ prompt: string; images: string[]; referenceWarnings?: string[] }>
   createGenerationTask: (assetId: string, imageId: number, payload: { prompt: string; images: string[] }) => Promise<string | null>
   onNavigate: (to: string, replace?: boolean) => void
 }
@@ -201,7 +202,7 @@ export function AssetEditPageBase<TAsset extends BaseAsset, TImage extends BaseA
   const promptDraft = useGenerationDraft<
     { prompt: string },
     { imageId: number | null; images: string[] },
-    { prompt: string; images: string[] },
+    { prompt: string; images: string[]; referenceWarnings: string[] },
     { taskId: string | null }
   >({
     initialBase: { prompt: '' },
@@ -214,6 +215,11 @@ export function AssetEditPageBase<TAsset extends BaseAsset, TImage extends BaseA
       return {
         prompt: (base.prompt || '').trim() || (result.prompt ?? ''),
         images: Array.isArray(result.images) ? result.images.filter(Boolean) : [],
+        // 参考图缺失说明必须一路带到预览弹窗：生成在零参考图时同样会成功，
+        // 若此处丢掉，用户在界面上就再也看不到「这张图其实没用上任何参考图」。
+        referenceWarnings: Array.isArray(result.referenceWarnings)
+          ? result.referenceWarnings.filter((item): item is string => Boolean(item))
+          : [],
       }
     },
     submit: async ({ context, derived }) => {
@@ -229,6 +235,8 @@ export function AssetEditPageBase<TAsset extends BaseAsset, TImage extends BaseA
   })
   const promptPreviewDraft = promptDraft.base.prompt
   const promptPreviewRefFileIds = promptDraft.context.images
+  // 当前派生结果里的参考图缺失说明（后端逐条给出「为什么缺、建议怎么办」）。
+  const promptPreviewRefWarnings = promptDraft.derived?.referenceWarnings ?? []
 
   const [historyOpen, setHistoryOpen] = useState(false)
   const [historyLoading, setHistoryLoading] = useState(false)
@@ -957,6 +965,20 @@ export function AssetEditPageBase<TAsset extends BaseAsset, TImage extends BaseA
           </div>
         ) : (
           <div className="space-y-3">
+            {promptPreviewRefWarnings.length > 0 ? (
+              <Alert
+                type="warning"
+                showIcon
+                message={`参考图不完整（${promptPreviewRefWarnings.length} 项）`}
+                description={
+                  <ul className="list-disc pl-4 space-y-1">
+                    {promptPreviewRefWarnings.map((item) => (
+                      <li key={item}>{item}</li>
+                    ))}
+                  </ul>
+                }
+              />
+            ) : null}
             <div>
               <div className="text-xs text-gray-500 mb-2">关联图片（参考图）</div>
               {promptPreviewRefFileIds.length === 0 ? (

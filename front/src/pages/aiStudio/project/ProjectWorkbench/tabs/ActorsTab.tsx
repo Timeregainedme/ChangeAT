@@ -9,6 +9,7 @@ import { useProjectCharacters } from '../hooks/useProjectData'
 import { resolveAssetUrl } from '../../../assets/utils'
 import { DisplayImageCard } from '../../../assets/components/DisplayImageCard'
 import { ActorEntityFormModal } from '../../../assets/components/ActorEntityFormModal'
+import { BatchAssetImageButton } from '../../../components/BatchAssetImageButton'
 import { encodeWorkbenchAssetEditReturnTo } from '../utils/workbenchAssetReturnTo'
 
 type ActorLike = {
@@ -200,6 +201,16 @@ export function ActorsTab() {
             >
               从资产库关联
             </Button>
+            {/*
+              演员图是角色图的前置参考图：角色图会引用「该角色绑定的演员图 + 服装图」。
+              放在这里一键把全部演员图生成出来，避免角色图在零参考图的情况下静默生成。
+            */}
+            <BatchAssetImageButton
+              projectId={projectId}
+              assetType="actor"
+              assetCount={links.length}
+              onFinished={() => void loadLinks()}
+            />
             <Button icon={<PlusOutlined />} onClick={() => navigate('/assets')}>
               前往资产管理
             </Button>

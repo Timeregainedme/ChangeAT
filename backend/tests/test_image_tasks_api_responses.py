@@ -77,6 +77,8 @@ def test_render_actor_image_prompt_returns_success_envelope(client: TestClient, 
     class _Derived:
         prompt = "渲染后的演员提示词"
         images = ["file-1", "file-2"]
+        # 参考图缺失说明必须原样出现在响应里（参考图缺失不得静默）。
+        reference_warnings = ["所绑演员还没有生成任何图片"]
 
     async def _fake_build_base(*_args, **_kwargs):
         return _Base()
@@ -101,6 +103,7 @@ def test_render_actor_image_prompt_returns_success_envelope(client: TestClient, 
     assert body["message"] == "success"
     assert body["data"]["prompt"] == "渲染后的演员提示词"
     assert body["data"]["images"] == ["file-1", "file-2"]
+    assert body["data"]["reference_warnings"] == ["所绑演员还没有生成任何图片"]
 
 
 def test_create_shot_frame_image_task_requires_prompt(client: TestClient) -> None:

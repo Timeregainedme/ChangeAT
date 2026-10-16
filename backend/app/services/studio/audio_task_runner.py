@@ -18,7 +18,7 @@ from app.core.integrations.audio_capabilities import resolve_audio_capability, v
 from app.core.task_manager import DeliveryMode, SqlAlchemyTaskStore, TaskManager
 from app.core.task_manager.types import TaskStatus
 from app.core.tasks import AudioGenerationTask
-from app.models.studio import Character, FileItem, Shot, ShotDialogLine
+from app.models.studio import Actor, Character, FileItem, Shot, ShotDialogLine
 from app.models.task_links import GenerationTaskLink
 from app.models.types import FileUsageKind
 from app.services.common.errors import entity_not_found
@@ -179,7 +179,21 @@ async def _resolve_audio_voice(
     voice_source: str | None,
     speaker_character_id: str | None,
 ) -> tuple[str | None, str | None]:
-    """音色解析：显式 voice 优先，其次回落说话角色配置的默认音色（评审 R-08）。"""
+    """音色解析：显式 voice → 说话角色的默认音色 → 该角色的演员默认音色（两级回退）。
+
+    两级结构的理由（用户需求 m08247「角色和演员都要，演员第一优先级」）：
+    演员音色是「这个人」的默认音色，同一演员在不同剧集/不同角色里复用时不必重复配置；
+    角色音色则是针对具体角色的覆盖项。
+
+    解析顺序：
+    1. 显式传入的 `voice`（调用方最清楚，最高优先级）；
+    2. `characters.voice_id`（角色级覆盖，评审 R-08）；
+    3. 该角色的 `actors.voice_id`（演员级默认，sql/019-add-actor-voice.sql）；
+    4. 都没有则返回 `(None, source)`，由 `_validate_audio_request` 统一报 422。
+
+    `voice_source` 始终「跟随实际取到音色的那一层」：只有当前面没显式给 source 时才回填，
+    避免调用方显式指定的 source 被覆盖。
+    """
     resolved_voice = (voice or "").strip() or None
     resolved_source = (voice_source or "").strip() or None
     if resolved_voice or not speaker_character_id:
@@ -193,6 +207,20 @@ async def _resolve_audio_voice(
         resolved_voice = character_voice
         if not resolved_source:
             resolved_source = (character.voice_source or "").strip() or None
+        return resolved_voice, resolved_source
+
+    # 角色没配音色 → 回退到它绑定的演员（角色未绑演员时 actor_id 为 None，直接返回未解析）。
+    actor_id = (getattr(character, "actor_id", None) or "").strip() or None
+    if not actor_id:
+        return None, resolved_source
+    actor = await db.get(Actor, actor_id)
+    if actor is None:
+        return None, resolved_source
+    actor_voice = (actor.voice_id or "").strip() or None
+    if actor_voice:
+        resolved_voice = actor_voice
+        if not resolved_source:
+            resolved_source = (actor.voice_source or "").strip() or None
     return resolved_voice, resolved_source
 
 
@@ -279,7 +307,8 @@ async def create_audio_task_and_link(
     - `shot_id`：分镜级配音，产物回填 `shots.generated_audio_file_id`；
     - 都不传：standalone，仅落库为文件，不挂载到分镜。
 
-    音色解析顺序：显式 `voice` → 说话角色的 `characters.voice_id` → 报错（422）。
+    音色解析顺序：显式 `voice` → 说话角色的 `characters.voice_id` → 该角色的
+    `actors.voice_id`（演员级默认）→ 报错（422）。
     """
     (
         resolved_text,

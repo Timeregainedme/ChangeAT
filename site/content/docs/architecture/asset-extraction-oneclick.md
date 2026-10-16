@@ -70,12 +70,14 @@ extract-async -> 候选落库(shot_extracted_candidates，含 payload.descriptio
 接口：`POST /api/v1/studio/image-tasks/assets/batch-image-tasks`
 
 - 入参：`{ project_id, asset_type, asset_ids?: [...] }`。
+  - `asset_type` 取值即 `BATCH_ASSET_TYPES = ("actor", "character", "scene", "prop", "costume")`（`app/services/studio/batch_asset_images.py`）。**`actor` 与其它四类同等对待**：演员图是角色图的前置参考图，批量出演员图是保证角色一致性的第一步。
   - **`project_id` 必填**：批量任务只处理该项目下的资产。服务先校验项目存在，不存在则 404（`entity_not_found("Project")`）；此前不限定项目会把全库资产都扫进来，是跨项目缺陷。
   - `asset_ids` 可选、**最多 200 条**（`BatchAssetImageTaskRequest.asset_ids` 的 `max_length=200`）；缺省为该类型在**当前项目**下的全部资产。传入但不属于该项目的 ID 不会报错，而是逐条记入 `skipped`（reason = `not in project`）。
   - 服务侧另有 `MAX_BATCH_ASSETS = 200` 上限（`app/services/studio/batch_asset_images.py`）：目标资产数超限**直接报错**，不做截断，避免对全库资产提交无界生成任务（成本保护）。该错误是 `ValueError`，经全局 `ValueError` handler 归一为 `code=400`。
 - 服务：`app/services/studio/batch_asset_images.py::create_batch_asset_image_tasks`
   - 每个资产自动选取 front 优先的图片槽位（`pick_primary_image_id`；`is_primary` 仅 CharacterImage 有，其他表按视角+id 排序）。
-  - 角色没有图片槽位时**按需补一个 front 空槽位**（`_ensure_asset_image_slot`，`is_primary=True`）；其他类型补不了，才记入 skipped（reason = `no image slot`）。
+  - 按 `asset_type` 分派 base draft：`character` → `build_character_image_base_draft`，`actor` → `build_actor_image_base_draft`，其余 → `build_asset_image_base_draft`。
+  - 角色没有图片槽位时**按需补一个 front 空槽位**（`_ensure_asset_image_slot`，`is_primary=True`）；**其它类型（含演员）不补槽位**，因为它们创建实体时已按视角预建，缺失即记入 skipped（reason = `no image slot`）。
   - 复用资产图片的 base draft + derive preview 生成提示词，再 stage 图片生成任务与关联关系（`stage_image_task_and_link`，不提交、不入队）。
   - **单个资产的 stage 包在 SAVEPOINT（`db.begin_nested()`）里**：单个失败只回滚自己并记入 `skipped`（reason = 异常文本），不污染会话、不阻断批量。
   - **两阶段提交**：先把全部资产的 stage 结果收集完，再 `db.commit()` **一次性提交**；提交成功后才逐个入队（`enqueue_task_execution`），避免中途失败留下「部分任务已入队」的半成品。
@@ -101,7 +103,11 @@ extract-async -> 候选落库(shot_extracted_candidates，含 payload.descriptio
 - **逐镜候选确认**：`ChapterShotEditPage`（`.../shots/:shotId/edit`），逐候选关联/新建/忽略。
   - 候选不存在时弹「当前无可关联资产，是否新建？」，跳转到资产创建入口并携带上下文：角色 → `/projects/:id?tab=roles&create=1`，场景/道具/服装 → `/assets?tab=<kind>&create=1`。
   - 库里已有同名资产时改为弹「可关联」确认，复用已有实体而非新建。
-- **批量生成参考图**：接口已就绪（见上节），但前端入口仍只在不可达的 `ChapterPrep` 里；需要时按同一方式搬到可达页面。
+- **批量生成参考图（一键全部生成）**：`front/src/pages/aiStudio/components/BatchAssetImageButton.tsx`，已接入 4 个项目工作台页签的卡片工具区：
+  - 「演员」`tabs/ActorsTab.tsx`（`assetType="actor"`）、「角色」`tabs/RolesTab.tsx`（`assetType="character"`）、「场景」`tabs/ScenesTab.tsx`（`assetType="scene"`）、「道具 / 服装」`tabs/PropsTab.tsx`（`assetType={kind}`，同一组件服务两类）。
+  - 按钮不传 `asset_ids`，按当前项目取该类型全部资产；点击先 `Modal.confirm`，再按 `tasks` / `skipped` / `enqueue_failed` 分类汇报结果，并提示「已生成过的资产会再次提交一条新任务（重跑/换角度），不会自动跳过」。
+  - 角色按钮额外提示：角色图会引用所绑演员图 + 所绑服装图，演员/服装未出图时角色图会在零参考图情况下生成，建议先跑演员/服装页。
+  - 早先本文把入口记为不可达的 `ChapterPrep`；现已改为上述可达页签（`ChapterPrep` 仍为无路由、全仓无 import 的死代码）。
 
 ## 提取链路修复记录（2026-10-14）
 

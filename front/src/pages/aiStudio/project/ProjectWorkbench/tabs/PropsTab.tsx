@@ -8,6 +8,7 @@ import { resolveAssetUrl } from '../../../assets/utils'
 import { DisplayImageCard } from '../../../assets/components/DisplayImageCard'
 import { StudioEntitiesApi } from '../../../../../services/studioEntities'
 import { StudioAssetTypeFormModal } from '../../../assets/components/StudioAssetTypeFormModal'
+import { BatchAssetImageButton } from '../../../components/BatchAssetImageButton'
 import { encodeWorkbenchAssetEditReturnTo, type WorkbenchAssetTabParam } from '../utils/workbenchAssetReturnTo'
 
 type AssetKind = 'prop' | 'costume'
@@ -198,6 +199,13 @@ function LinkedAssetTab({
             >
               从资产库关联
             </Button>
+            {/* 一键为项目内全部道具/服装生成参考图（服装图是角色图的参考图之一） */}
+            <BatchAssetImageButton
+              projectId={projectId}
+              assetType={kind}
+              assetCount={links.length}
+              onFinished={() => void loadLinks()}
+            />
             <Button icon={<PlusOutlined />} onClick={() => navigate(`/assets?tab=${kind}`)}>
               前往资产管理
             </Button>

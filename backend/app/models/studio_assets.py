@@ -180,6 +180,30 @@ class Actor(Base, TimestampMixin):
         default=ProjectVisualStyle.live_action,
         comment="画面表现形式（现实/动漫等）",
     )
+    # 演员默认音色（与 Character 上的三列同口径，见 sql/019-add-actor-voice.sql）。
+    # 两级结构：演员音色是「这个人」的默认音色，角色音色可覆盖它。
+    # 解析顺序见 app/services/studio/audio_task_runner.py 的 _resolve_audio_voice：
+    # 显式 voice → characters.voice_id → 该角色的 actors.voice_id → 422。
+    voice_id: Mapped[str | None] = mapped_column(
+        String(64),
+        nullable=True,
+        index=True,
+        comment="演员默认音色 ID（供应商侧 voice_id；为空表示未指定，角色未配音色时回退到此音色）",
+    )
+    voice_source: Mapped[str | None] = mapped_column(
+        String(32),
+        nullable=True,
+        comment="演员默认音色来源（preset 预设音色 / custom 自定义音色；为空时按模型名推断）",
+    )
+    # 口径与 characters.voice_description 一致：ORM 声明 NOT NULL + 客户端默认空串，
+    # DDL 侧由 sql/019 收紧为 `TEXT NOT NULL`。不在 DDL 写 DEFAULT 的原因同 018：
+    # MySQL 对 BLOB/TEXT 一律不允许 DEFAULT（5.7/8.0 相同）。
+    voice_description: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+        default="",
+        comment="演员音色描述（年龄段/声线/气质/语速等；用于配音选型参考）",
+    )
 
     prompt_template: Mapped["PromptTemplate | None"] = relationship()
     images: Mapped[list["ActorImage"]] = relationship(

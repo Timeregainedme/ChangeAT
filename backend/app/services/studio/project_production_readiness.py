@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import get_args
 
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.contracts.image_generation import (
@@ -24,6 +24,7 @@ from app.core.integrations.image_capabilities import (
 )
 from app.models.llm import Model, ModelCategoryKey, ModelSettings, Provider
 from app.models.studio import (
+    Actor,
     Chapter,
     Character,
     Project,
@@ -355,12 +356,25 @@ async def get_project_production_readiness(
             )
         )
 
-    # 每角色一个音色：生成台词配音时若无显式 voice，会回落到角色音色。
+    # 每角色一个音色：生成台词配音时若无显式 voice，会先回落到角色音色，
+    # 角色未配时再回落到它绑定的演员音色（sql/019-add-actor-voice.sql、评审 R-08 / m08247）。
+    # 因此「已具备音色」= 角色自己配了 voice_id **或** 其演员配了 voice_id。
     char_stmt = select(func.count(Character.id)).where(Character.project_id == project_id)
-    voice_stmt = select(func.count(Character.id)).where(
-        Character.project_id == project_id,
-        Character.voice_id.is_not(None),
-        func.trim(Character.voice_id) != "",
+    voice_stmt = (
+        select(func.count(Character.id))
+        .select_from(Character)
+        .outerjoin(Actor, Actor.id == Character.actor_id)
+        .where(
+            Character.project_id == project_id,
+            or_(
+                and_(Character.voice_id.is_not(None), func.trim(Character.voice_id) != ""),
+                and_(
+                    Character.actor_id.is_not(None),
+                    Actor.voice_id.is_not(None),
+                    func.trim(Actor.voice_id) != "",
+                ),
+            ),
+        )
     )
     character_count = int(await db.scalar(char_stmt) or 0)
     character_voice_count = int(await db.scalar(voice_stmt) or 0)
@@ -376,9 +390,12 @@ async def get_project_production_readiness(
                 "角色音色",
                 missing == 0,
                 (
-                    f"{character_voice_count}/{character_count} 个角色已配置音色"
+                    f"{character_voice_count}/{character_count} 个角色已具备音色（自带或来自演员）"
                     if missing == 0
-                    else f"还有 {missing} 个角色未配置 voice_id，配音时会因缺少音色而失败"
+                    else (
+                        f"还有 {missing} 个角色既没有自己的 voice_id，"
+                        "其绑定的演员也没有音色，配音时会因缺少音色而失败"
+                    )
                 ),
                 {"characters": character_count, "with_voice": character_voice_count},
             )

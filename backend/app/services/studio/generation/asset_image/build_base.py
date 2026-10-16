@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import HTTPException, status
+from pydantic import Field
 
 from app.chains.prompts.style_pack import negative_image_prompt, style_pack_line
 from app.models.studio import (
@@ -48,6 +49,12 @@ class AssetImageBaseDraft(GenerationBaseDraft):
     relation_entity_id: str
     prompt: str
     default_images: list[str]
+    # 参考图缺失的**显式**说明。
+    # 为什么必须回传：角色图会引用「所绑演员的图片 + 所绑服装的图片」，但当角色没绑演员/服装、
+    # 或所绑资产的图片槽位还是空的，`default_images` 就是空列表，而生成**照样会成功** ——
+    # 用户在结果里只会看到一张「不像某个人」的图，无法归因到「其实没用到任何参考图」。
+    # 这些文案把缺失提前到**发起前**可见（参考图缺失不得静默）。
+    reference_warnings: list[str] = Field(default_factory=list)
 
 
 def _enum_value(value: Any) -> str:
@@ -129,7 +136,8 @@ async def build_actor_image_base_draft(
         style=actor.style,
         image_row=image_row,
     )
-    refs = []
+    refs: list[str] = []
+    warnings: list[str] = []
     if not is_front_view(image_row.view_angle):
         refs = await _resolve_front_ref(
             db,
@@ -138,6 +146,11 @@ async def build_actor_image_base_draft(
             parent_id=actor_id,
             preferred_quality_level=image_row.quality_level,
         )
+        if not refs:
+            warnings.append(
+                "缺少正面参考图：该演员还没有 front 视角的图片，本次是非正面视角生成，"
+                "没有可用的参考图，视角一致性无法保证。建议先生成正面图再生成其它视角。"
+            )
     return AssetImageBaseDraft(
         entity_type="actor",
         entity_id=actor_id,
@@ -146,6 +159,7 @@ async def build_actor_image_base_draft(
         relation_entity_id=str(image_row.id),
         prompt=prompt,
         default_images=refs,
+        reference_warnings=warnings,
     )
 
 
@@ -164,6 +178,7 @@ async def build_asset_image_base_draft(
     )
     asset_type_norm = asset_type.strip().lower()
     refs: list[str] = []
+    warnings: list[str] = []
     if asset_type_norm == "prop":
         asset = await db.get(Prop, asset_id)
         image_row = await db.get(PropImage, relation_entity_id)
@@ -199,6 +214,11 @@ async def build_asset_image_base_draft(
             parent_id=asset_id,
             preferred_quality_level=image_row.quality_level,
         )
+        if not refs:
+            warnings.append(
+                "缺少正面参考图：该资产还没有 front 视角的图片，本次是非正面视角生成，"
+                "没有可用的参考图，视角一致性无法保证。建议先生成正面图再生成其它视角。"
+            )
     return AssetImageBaseDraft(
         entity_type=asset_type.strip().lower(),
         entity_id=asset_id,
@@ -207,6 +227,7 @@ async def build_asset_image_base_draft(
         relation_entity_id=str(relation_entity_id),
         prompt=prompt,
         default_images=refs,
+        reference_warnings=warnings,
     )
 
 
@@ -243,31 +264,55 @@ async def build_character_image_base_draft(
         not_found_msg="Character.description is empty",
     )
     refs: list[str] = []
+    warnings: list[str] = []
     default_view_angles: tuple[AssetViewAngle, ...] = (
         AssetViewAngle.front,
         AssetViewAngle.left,
         AssetViewAngle.right,
         AssetViewAngle.back,
     )
+    # 角色图 = 演员参考图 + 服装参考图。两条来源**各自**独立判定缺失：
+    # 只报「总数为 0」会让用户以为「两个都没配」，而实际更常见的是只缺其中一个。
     if character.actor_id:
-        refs.extend(
-            await pick_ordered_ref_file_ids(
-                db,
-                image_model=ActorImage,
-                parent_field_name="actor_id",
-                parent_id=character.actor_id,
-                view_angles=default_view_angles,
+        actor_refs = await pick_ordered_ref_file_ids(
+            db,
+            image_model=ActorImage,
+            parent_field_name="actor_id",
+            parent_id=character.actor_id,
+            view_angles=default_view_angles,
+        )
+        refs.extend(actor_refs)
+        if not actor_refs:
+            warnings.append(
+                "所绑演员还没有生成任何图片，本次生成拿不到演员参考图，"
+                "角色长相无法与该演员保持一致。建议先到「演员」页生成演员图。"
             )
+    else:
+        warnings.append(
+            "角色未绑定演员，本次生成没有演员参考图，角色长相完全由文字描述决定。"
+            "请在角色编辑里显式绑定演员（系统不做名字匹配，名字相同也要绑）。"
         )
     if character.costume_id:
-        refs.extend(
-            await pick_ordered_ref_file_ids(
-                db,
-                image_model=CostumeImage,
-                parent_field_name="costume_id",
-                parent_id=character.costume_id,
-                view_angles=default_view_angles,
+        costume_refs = await pick_ordered_ref_file_ids(
+            db,
+            image_model=CostumeImage,
+            parent_field_name="costume_id",
+            parent_id=character.costume_id,
+            view_angles=default_view_angles,
+        )
+        refs.extend(costume_refs)
+        if not costume_refs:
+            warnings.append(
+                "所绑服装还没有生成任何图片，本次生成拿不到服装参考图，服装细节无法与设定保持一致。"
+                "建议先到「服装」页生成服装图。"
             )
+    else:
+        warnings.append("角色未绑定服装，本次生成没有服装参考图，服装完全由文字描述决定。")
+    if not refs:
+        # 只有两个来源都为空才走到这里：这是最危险的情形，必须单独、显式地讲明后果。
+        warnings.append(
+            "本次生成将在零参考图的情况下进行：角色外观完全由文字描述决定，"
+            "可能与演员/服装设定不一致。建议先补齐演员图与服装图再生成。"
         )
     return AssetImageBaseDraft(
         entity_type="character",
@@ -277,4 +322,5 @@ async def build_character_image_base_draft(
         relation_entity_id=str(image_row.id),
         prompt=prompt,
         default_images=refs,
+        reference_warnings=warnings,
     )

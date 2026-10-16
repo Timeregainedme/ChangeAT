@@ -9,6 +9,7 @@ import {
   PictureOutlined,
   FileTextOutlined,
   ApiOutlined,
+  AudioOutlined,
 } from '@ant-design/icons'
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useAppStore } from '../store/useAppStore'
@@ -35,6 +36,7 @@ const MainLayout: React.FC = () => {
     if (location.pathname.startsWith('/assets')) return ['assets']
     if (location.pathname.startsWith('/prompts')) return ['prompts']
     if (location.pathname.startsWith('/models')) return ['models']
+    if (location.pathname.startsWith('/voices')) return ['voices']
     if (location.pathname.startsWith('/settings')) return ['settings']
     return []
   }, [location.pathname])
@@ -48,6 +50,7 @@ const MainLayout: React.FC = () => {
       assets: '资产管理',
       prompts: '提示词模板',
       models: '模型管理',
+      voices: '音色管理',
       settings: t('menu.settings'),
       chapters: '章节管理',
       studio: '分镜工作室',
@@ -115,6 +118,11 @@ const MainLayout: React.FC = () => {
       key: 'models',
       icon: <ApiOutlined />,
       label: <Link to="/models">模型管理</Link>,
+    },
+    {
+      key: 'voices',
+      icon: <AudioOutlined />,
+      label: <Link to="/voices">音色管理</Link>,
     },
     {
       key: 'settings',

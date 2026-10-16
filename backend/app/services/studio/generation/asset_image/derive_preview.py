@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pydantic import Field
+
 from app.services.studio.generation.asset_image.build_base import AssetImageBaseDraft
 from app.services.studio.generation.asset_image.build_context import AssetImageContext
 from app.services.studio.generation.shared.types import GenerationDerivedPreview
@@ -15,6 +17,9 @@ class AssetImageDerivedPreview(GenerationDerivedPreview):
     relation_entity_id: str
     prompt: str
     images: list[str]
+    # 参考图缺失说明。必须逐层透传到响应体，否则前端只能看到「prompt + 若干图」，
+    # 无法解释为什么本次生成一张参考图都没有（参考图缺失不得静默）。
+    reference_warnings: list[str] = Field(default_factory=list)
 
 
 def derive_asset_image_preview(
@@ -29,5 +34,6 @@ def derive_asset_image_preview(
         relation_entity_id=base.relation_entity_id,
         prompt=(base.prompt or "").strip(),
         images=context.images,
+        reference_warnings=base.reference_warnings,
     )
 

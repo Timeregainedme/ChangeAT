@@ -22,6 +22,7 @@ from app.core.contracts.image_generation import DEFAULT_IMAGE_OUTPUT_FORMAT
 from app.core.task_manager import SqlAlchemyTaskStore
 from app.core.task_manager.types import TaskStatus
 from app.models.studio import (
+    ActorImage,
     Character,
     CharacterImage,
     CostumeImage,
@@ -33,6 +34,7 @@ from app.models.types import AssetQualityLevel, AssetViewAngle
 from app.services.common import entity_not_found
 from app.services.studio.entity_specs import LINK_MODEL_BY_ENTITY
 from app.services.studio.generation.asset_image import (
+    build_actor_image_base_draft,
     build_asset_image_base_draft,
     build_asset_image_context,
     build_character_image_base_draft,
@@ -43,13 +45,18 @@ from app.services.studio.image_task_runner import stage_image_task_and_link
 
 logger = logging.getLogger(__name__)
 
-BATCH_ASSET_TYPES = ("character", "scene", "prop", "costume")
+# 批量支持的资产类型。
+# 为什么含 actor：演员图是**角色图的前置参考图**（构建角色图时会先取该角色
+# `actor_id` 的图片、再取 `costume_id` 的图片），用户需要能「一键把演员图全生出来」，
+# 否则角色图会在零参考图的情况下静默生成。
+BATCH_ASSET_TYPES = ("actor", "character", "scene", "prop", "costume")
 
 # 单次批量的资产数量上限：防止误操作对全库资产提交无界生成任务（成本保护）。
 MAX_BATCH_ASSETS = 200
 
 # 各资产类型的图片表与其所属外键字段名（用于批量取槽位）。
 _ASSET_IMAGE_MODEL_BY_TYPE: dict[str, Any] = {
+    "actor": (ActorImage, "actor_id"),
     "character": (CharacterImage, "character_id"),
     "scene": (SceneImage, "scene_id"),
     "prop": (PropImage, "prop_id"),
@@ -132,6 +139,14 @@ async def _create_single_asset_image_task(
         base = await build_character_image_base_draft(
             db,
             character_id=asset_id,
+            image_id=image_id,
+        )
+    elif asset_type == "actor":
+        # 演员走独立入口：其图片表与校验函数与 scene/prop/costume 不同源
+        # （见 build_actor_image_base_draft / validate_actor_image）。
+        base = await build_actor_image_base_draft(
+            db,
+            actor_id=asset_id,
             image_id=image_id,
         )
     else:

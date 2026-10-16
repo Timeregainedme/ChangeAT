@@ -148,7 +148,16 @@ async def create_assets_from_extraction_candidates(
       "created": [{candidate_id, type, name, entity_id}],
       "linked":  [{candidate_id, type, name, entity_id}],
       "skipped": [{candidate_id, type, name, reason}],
+      # 角色 → 服装 的第二遍自动绑定结果（评审新增，用户需求 m08283）：
+      "costume_bound":   [{candidate_id, character_id, character_name, costume_name, costume_id}],
+      "costume_unbound": [{candidate_id, character_id, character_name, costume_name, reason}],
     }
+
+    `costume_unbound[].reason` 取值：
+    - `already_bound`：角色已经有服装，不覆盖用户的选择；
+    - `costume_not_found`：项目内没有同名服装；
+    - `character_not_found`：角色实体意外不存在；
+    - 其它为底层异常文本。
     """
     chapter = await db.get(Chapter, chapter_id)
     if chapter is None:
@@ -187,6 +196,9 @@ async def create_assets_from_extraction_candidates(
     created: list[dict[str, Any]] = []
     linked: list[dict[str, Any]] = []
     skipped: list[dict[str, Any]] = []
+    # 角色 → 服装 的绑定意图，第一遍只登记，第二遍再落库（原因见循环后的注释）。
+    # 元组：(角色实体 ID, 角色名, 候选里带的 costume_name, 候选 ID)
+    character_costume_intents: list[tuple[str, str, str, int]] = []
 
     for cand in candidates:
         candidate_type = str(getattr(cand.candidate_type, "value", cand.candidate_type))
@@ -227,6 +239,12 @@ async def create_assets_from_extraction_candidates(
                     candidate_name=name,
                     linked_entity_id=entity_id,
                 )
+
+                # 角色候选带着 costume_name 时登记绑定意图（第二遍统一落库）。
+                if entity_type == "character":
+                    costume_name_intent = str(payload.get("costume_name") or "").strip()
+                    if costume_name_intent:
+                        character_costume_intents.append((entity_id, name, costume_name_intent, cand.id))
         except Exception as exc:  # noqa: BLE001 - 单候选失败不阻断批量
             skipped.append({"candidate_id": cand.id, "type": candidate_type, "name": name, "reason": str(exc)})
             continue
@@ -240,4 +258,50 @@ async def create_assets_from_extraction_candidates(
         else:
             linked.append(entry)
 
-    return {"created": created, "linked": linked, "skipped": skipped}
+    # ---------------- 第二遍：角色 → 服装 按名称自动绑定 ----------------
+    # 为什么必须单独一遍：候选按 `candidate_type` 升序处理，而 'character' < 'costume'，
+    # 所以第一遍处理角色时，同名服装实体很可能还没被创建，当场按名字查必然查不到。
+    # 等所有实体都建好后再统一解析，才能覆盖「服装候选排在角色候选之后」的情况。
+    #
+    # 绑定规则（保守，不做破坏性覆盖）：
+    #   - 只在角色当前 `costume_id` 为空时写入；
+    #   - 用户已手工选过服装的角色一律跳过（reason=already_bound）；
+    #   - 项目内找不到同名服装时不写入（reason=costume_not_found），只回报不报错。
+    # 绑定失败逐个隔离在 SAVEPOINT 内，不影响已经建好的资产与分镜关联。
+    costume_bound: list[dict[str, Any]] = []
+    costume_unbound: list[dict[str, Any]] = []
+    for character_id, character_name, costume_name, candidate_id in character_costume_intents:
+        entry_base: dict[str, Any] = {
+            "candidate_id": candidate_id,
+            "character_id": character_id,
+            "character_name": character_name,
+            "costume_name": costume_name,
+        }
+        try:
+            async with db.begin_nested():
+                character = await db.get(Character, character_id)
+                if character is None:
+                    costume_unbound.append({**entry_base, "reason": "character_not_found"})
+                    continue
+                if (getattr(character, "costume_id", None) or "").strip():
+                    costume_unbound.append({**entry_base, "reason": "already_bound"})
+                    continue
+                costume_id = await _find_existing_entity(
+                    db, entity_type="costume", project_id=project_id, name=costume_name
+                )
+                if costume_id is None:
+                    costume_unbound.append({**entry_base, "reason": "costume_not_found"})
+                    continue
+                character.costume_id = costume_id
+                await db.flush()
+                costume_bound.append({**entry_base, "costume_id": costume_id})
+        except Exception as exc:  # noqa: BLE001 - 单个绑定失败不阻断批量
+            costume_unbound.append({**entry_base, "reason": str(exc)})
+
+    return {
+        "created": created,
+        "linked": linked,
+        "skipped": skipped,
+        "costume_bound": costume_bound,
+        "costume_unbound": costume_unbound,
+    }

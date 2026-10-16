@@ -15,6 +15,7 @@ import CostumeAssetEditPage from './pages/aiStudio/assets/CostumeAssetEditPage.t
 import PromptTemplateManager from './pages/aiStudio/prompts/PromptTemplateManager'
 import VideoEditor from './pages/aiStudio/editor/VideoEditor'
 import ModelManagement from './pages/aiStudio/models/ModelManagement'
+import VoiceManager from './pages/aiStudio/voice/VoiceManager'
 import { ChapterShotsPage } from './pages/aiStudio/shots/ChapterShotsPage'
 import { ChapterShotEditPage } from './pages/aiStudio/shots/ChapterShotEditPage'
 import './App.css'
@@ -41,6 +42,7 @@ const App: React.FC = () => {
           <Route path="assets/costumes/:costumeId/edit" element={<CostumeAssetEditPage />} />
           <Route path="prompts" element={<PromptTemplateManager />} />
           <Route path="models" element={<ModelManagement />} />
+          <Route path="voices" element={<VoiceManager />} />
           <Route path="settings" element={<Settings />} />
           <Route path="*" element={<NotFound />} />
         </Route>

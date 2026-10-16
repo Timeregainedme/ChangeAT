@@ -49,8 +49,17 @@ async def list_by_shot(
 
 
 def _payload_from_asset(item: Any) -> dict[str, Any]:
+    """从草稿资产抽取候选 payload。
+
+    `costume_name` 必须一起带上：ElementExtractorAgent 的 characters 结构里本就有
+    `costume_name?`（见 app/chains/agents/element_extractor_agent.py），
+    `StudioScriptExtractionDraft.character.costume_name` 的注释也写明「导入时映射到
+    costume_id」，而分镜准备页读出来时同样带着它（shot_extraction_draft.py）。
+    此前这里只复制 5 个键把它丢掉，导致「一键创建资产」建出的角色从来不绑服装
+    （用户需求 m08283）。scene/prop/costume 草稿没有该字段，getattr 返回 None 自动跳过。
+    """
     payload: dict[str, Any] = {}
-    for key in ("id", "file_id", "thumbnail", "description", "voice_description"):
+    for key in ("id", "file_id", "thumbnail", "description", "voice_description", "costume_name"):
         value = getattr(item, key, None)
         if value is None:
             continue

@@ -16,7 +16,7 @@ import pytest
 from fastapi import HTTPException
 
 from app.core.contracts.audio_generation import AudioGenerationResult
-from app.models.studio_assets import Character
+from app.models.studio_assets import Actor, Character
 from app.models.studio_shots import Shot, ShotDialogLine
 from app.services.studio import audio_task_runner as runner
 from app.services.studio.audio_task_runner import (
@@ -51,10 +51,12 @@ class _FakeAudioDB:
         dialog_lines: dict | None = None,
         characters: dict | None = None,
         shots: dict | None = None,
+        actors: dict | None = None,
     ) -> None:
         self.dialog_lines = dict(dialog_lines or {})
         self.characters = dict(characters or {})
         self.shots = dict(shots or {})
+        self.actors = dict(actors or {})
 
     async def get(self, model, entity_id):  # noqa: ANN001, ANN201
         if model is ShotDialogLine:
@@ -63,6 +65,8 @@ class _FakeAudioDB:
             return self.characters.get(entity_id)
         if model is Shot:
             return self.shots.get(entity_id)
+        if model is Actor:
+            return self.actors.get(entity_id)
         return None
 
     async def execute(self, *_args, **_kwargs):  # noqa: ANN001, ANN201
@@ -262,6 +266,100 @@ async def test_resolve_audio_voice_returns_none_when_character_missing() -> None
         voice=None,
         voice_source=None,
         speaker_character_id="missing",
+    )
+
+    assert (voice, source) == (None, None)
+
+
+# --------------------------------------------------------------------------- #
+# _resolve_audio_voice：角色未配音色时回退到演员（sql/019-add-actor-voice.sql）
+#
+# 用户需求 m08247：「角色和演员都要，演员第一优先级」——演员音色是「这个人」的默认音色，
+# 同一演员复用到不同角色时不必重复配置；角色音色是针对具体角色的覆盖项，故角色优先于演员。
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.asyncio
+async def test_resolve_audio_voice_falls_back_to_actor_config() -> None:
+    db = _FakeAudioDB(
+        characters={"char-1": Character(id="char-1", actor_id="actor-1")},
+        actors={"actor-1": Actor(id="actor-1", voice_id="  actor-voice  ", voice_source="preset")},
+    )
+
+    voice, source = await _resolve_audio_voice(
+        db,
+        voice=None,
+        voice_source=None,
+        speaker_character_id="char-1",
+    )
+
+    assert voice == "actor-voice"
+    assert source == "preset"
+
+
+@pytest.mark.asyncio
+async def test_resolve_audio_voice_prefers_character_voice_over_actor() -> None:
+    """角色级音色是覆盖项：角色有音色时不再看演员。"""
+    db = _FakeAudioDB(
+        characters={"char-1": Character(id="char-1", actor_id="actor-1", voice_id="char-voice")},
+        actors={"actor-1": Actor(id="actor-1", voice_id="actor-voice")},
+    )
+
+    voice, source = await _resolve_audio_voice(
+        db,
+        voice=None,
+        voice_source=None,
+        speaker_character_id="char-1",
+    )
+
+    assert (voice, source) == ("char-voice", None)
+
+
+@pytest.mark.asyncio
+async def test_resolve_audio_voice_without_actor_link_returns_none() -> None:
+    """角色没绑演员（本项目 6 个角色的现状）：保持未解析，交给 _validate_audio_request 报 422。"""
+    db = _FakeAudioDB(
+        characters={"char-1": Character(id="char-1")},
+        actors={"actor-1": Actor(id="actor-1", voice_id="actor-voice")},
+    )
+
+    voice, source = await _resolve_audio_voice(
+        db,
+        voice=None,
+        voice_source=None,
+        speaker_character_id="char-1",
+    )
+
+    assert (voice, source) == (None, None)
+
+
+@pytest.mark.asyncio
+async def test_resolve_audio_voice_blank_actor_voice_is_treated_as_unset() -> None:
+    db = _FakeAudioDB(
+        characters={"char-1": Character(id="char-1", actor_id="actor-1")},
+        actors={"actor-1": Actor(id="actor-1", voice_id="   ")},
+    )
+
+    voice, source = await _resolve_audio_voice(
+        db,
+        voice=None,
+        voice_source=None,
+        speaker_character_id="char-1",
+    )
+
+    assert (voice, source) == (None, None)
+
+
+@pytest.mark.asyncio
+async def test_resolve_audio_voice_missing_actor_row_returns_none() -> None:
+    """角色绑了一个已被删除的演员 ID：不崩、保持未解析。"""
+    db = _FakeAudioDB(characters={"char-1": Character(id="char-1", actor_id="actor-gone")})
+
+    voice, source = await _resolve_audio_voice(
+        db,
+        voice=None,
+        voice_source=None,
+        speaker_character_id="char-1",
     )
 
     assert (voice, source) == (None, None)

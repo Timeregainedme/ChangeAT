@@ -54,6 +54,9 @@ export const assetAdapters = {
       return {
         prompt: (data?.prompt ?? '') as string,
         images: (data?.images ?? []) as string[],
+        // 参考图缺失说明原样带到界面：生成即使一张参考图都没有也会成功，
+        // 丢掉这段就等于把「为什么不像」的原因也丢掉了。
+        referenceWarnings: (data?.reference_warnings ?? []) as string[],
       }
     },
     createGenerationTask: async (id: string, imageId: number, payload: { prompt: string; images: string[] }) => {
@@ -96,6 +99,9 @@ export const assetAdapters = {
       return {
         prompt: (data?.prompt ?? '') as string,
         images: (data?.images ?? []) as string[],
+        // 参考图缺失说明原样带到界面：生成即使一张参考图都没有也会成功，
+        // 丢掉这段就等于把「为什么不像」的原因也丢掉了。
+        referenceWarnings: (data?.reference_warnings ?? []) as string[],
       }
     },
     createGenerationTask: async (id: string, imageId: number, payload: { prompt: string; images: string[] }) => {
@@ -139,6 +145,9 @@ export const assetAdapters = {
       return {
         prompt: (data?.prompt ?? '') as string,
         images: (data?.images ?? []) as string[],
+        // 参考图缺失说明原样带到界面：生成即使一张参考图都没有也会成功，
+        // 丢掉这段就等于把「为什么不像」的原因也丢掉了。
+        referenceWarnings: (data?.reference_warnings ?? []) as string[],
       }
     },
     createGenerationTask: async (id: string, imageId: number, payload: { prompt: string; images: string[] }) => {
@@ -183,6 +192,9 @@ export const assetAdapters = {
       return {
         prompt: (data?.prompt ?? '') as string,
         images: (data?.images ?? []) as string[],
+        // 参考图缺失说明原样带到界面：生成即使一张参考图都没有也会成功，
+        // 丢掉这段就等于把「为什么不像」的原因也丢掉了。
+        referenceWarnings: (data?.reference_warnings ?? []) as string[],
       }
     },
     createGenerationTask: async (id: string, imageId: number, payload: { prompt: string; images: string[] }) => {
@@ -227,6 +239,9 @@ export const assetAdapters = {
       return {
         prompt: (data?.prompt ?? '') as string,
         images: (data?.images ?? []) as string[],
+        // 参考图缺失说明原样带到界面：生成即使一张参考图都没有也会成功，
+        // 丢掉这段就等于把「为什么不像」的原因也丢掉了。
+        referenceWarnings: (data?.reference_warnings ?? []) as string[],
       }
     },
     createGenerationTask: async (id: string, imageId: number, payload: { prompt: string; images: string[] }) => {

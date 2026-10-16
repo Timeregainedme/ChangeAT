@@ -157,6 +157,14 @@ class RenderedPromptResponse(BaseModel):
         default_factory=list,
         description="参考图 file_id 列表（自动选择；顺序有效）",
     )
+    reference_warnings: list[str] = Field(
+        default_factory=list,
+        description=(
+            "参考图缺失说明。为空表示参考图完整；非空时必须在前端显著展示 —— "
+            "角色图会引用所绑演员图与服装图，任一侧缺失（未绑定 / 所绑资产还没出图）时"
+            "生成仍会成功，但结果与设定不一致，属于必须让用户在发起前看到的信息。"
+        ),
+    )
 
 
 async def _load_frame_render_guidance(
@@ -247,7 +255,13 @@ async def render_actor_image_prompt(
     )
     context = _build_asset_image_context_service(base=base)
     derived = _derive_asset_image_preview_service(base=base, context=context)
-    return success_response(RenderedPromptResponse(prompt=derived.prompt, images=derived.images))
+    return success_response(
+        RenderedPromptResponse(
+            prompt=derived.prompt,
+            images=derived.images,
+            reference_warnings=derived.reference_warnings,
+        )
+    )
 
 
 @router.post(
@@ -315,7 +329,13 @@ async def render_asset_image_prompt(
     )
     context = _build_asset_image_context_service(base=base)
     derived = _derive_asset_image_preview_service(base=base, context=context)
-    return success_response(RenderedPromptResponse(prompt=derived.prompt, images=derived.images))
+    return success_response(
+        RenderedPromptResponse(
+            prompt=derived.prompt,
+            images=derived.images,
+            reference_warnings=derived.reference_warnings,
+        )
+    )
 
 
 @router.post(
@@ -377,7 +397,13 @@ async def render_character_image_prompt(
     )
     context = _build_asset_image_context_service(base=base)
     derived = _derive_asset_image_preview_service(base=base, context=context)
-    return success_response(RenderedPromptResponse(prompt=derived.prompt, images=derived.images))
+    return success_response(
+        RenderedPromptResponse(
+            prompt=derived.prompt,
+            images=derived.images,
+            reference_warnings=derived.reference_warnings,
+        )
+    )
 
 
 @router.post(

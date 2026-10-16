@@ -237,6 +237,45 @@ async def test_build_actor_image_base_draft_front_view_returns_no_refs(monkeypat
     assert draft.prompt == "演员渲染提示词"
     assert draft.default_images == []
     assert draft.image_id == 1
+    # 正面视角不需要参考图，没有缺失可报。
+    assert draft.reference_warnings == []
+
+
+@pytest.mark.asyncio
+async def test_build_actor_image_base_draft_warns_when_front_ref_missing(monkeypatch):
+    """非正面视角缺少 front 参考图时，必须明确告知视角一致性无法保证。"""
+    actor = SimpleNamespace(
+        id="actor-1",
+        name="演员A",
+        description="沉稳男性",
+        tags=["成熟", "都市"],
+        visual_style="写实",
+        style="影视",
+    )
+    image = SimpleNamespace(
+        id=1,
+        actor_id="actor-1",
+        view_angle=AssetViewAngle.left,
+        quality_level="high",
+        format="png",
+    )
+    db = _FakeDB(mapping={(Actor, "actor-1"): actor, (ActorImage, 1): image})
+
+    async def _fake_build_prompt(*_args, **_kwargs):
+        return "演员渲染提示词"
+
+    async def _fake_front_ref(*_args, **_kwargs):
+        return []
+
+    monkeypatch.setattr(asset_base, "build_prompt_with_template", _fake_build_prompt)
+    monkeypatch.setattr(asset_base, "asset_prompt_category", lambda **_kwargs: "actor_left")
+    monkeypatch.setattr(asset_base, "_resolve_front_ref", _fake_front_ref)
+
+    draft = await asset_base.build_actor_image_base_draft(db, actor_id="actor-1", image_id=1)
+
+    assert draft.default_images == []
+    assert len(draft.reference_warnings) == 1
+    assert "缺少正面参考图" in draft.reference_warnings[0]
 
 
 @pytest.mark.asyncio
@@ -286,6 +325,94 @@ async def test_build_character_image_base_draft_combines_actor_and_costume_refs(
     assert draft.prompt == "角色合成提示词"
     assert draft.default_images == ["actor-front", "actor-left", "costume-front"]
     assert draft.image_id == 1
+    # 两个来源都取到了参考图 → 不应产生任何缺失说明。
+    assert draft.reference_warnings == []
+
+
+@pytest.mark.asyncio
+async def test_build_character_image_base_draft_warns_when_bindings_missing(monkeypatch):
+    """角色既未绑演员也未绑服装时，必须显式说出「零参考图」，不能在无提示下生成。"""
+    character = SimpleNamespace(
+        id="char-1",
+        name="角色A",
+        description="主角",
+        actor_id=None,
+        costume_id=None,
+        visual_style="写实",
+        style="影视",
+    )
+    image = SimpleNamespace(
+        id=1,
+        character_id="char-1",
+        view_angle=AssetViewAngle.front,
+        quality_level="high",
+        format="png",
+    )
+    db = _FakeDB(
+        mapping={
+            (Character, "char-1"): character,
+            (CharacterImage, 1): image,
+        }
+    )
+
+    async def _fake_build_prompt(*_args, **_kwargs):
+        return "角色合成提示词"
+
+    monkeypatch.setattr(asset_base, "build_prompt_with_template", _fake_build_prompt)
+
+    draft = await asset_base.build_character_image_base_draft(db, character_id="char-1", image_id=1)
+
+    assert draft.default_images == []
+    assert len(draft.reference_warnings) == 3
+    assert any("未绑定演员" in item for item in draft.reference_warnings)
+    assert any("未绑定服装" in item for item in draft.reference_warnings)
+    assert any("零参考图" in item for item in draft.reference_warnings)
+
+
+@pytest.mark.asyncio
+async def test_build_character_image_base_draft_warns_when_bound_assets_have_no_images(monkeypatch):
+    """已绑定但所绑资产还没出图，必须与「未绑定」区分开：只报总数为 0 会误导用户。"""
+    character = SimpleNamespace(
+        id="char-1",
+        name="角色A",
+        description="主角",
+        actor_id="actor-1",
+        costume_id="costume-1",
+        visual_style="写实",
+        style="影视",
+    )
+    image = SimpleNamespace(
+        id=1,
+        character_id="char-1",
+        view_angle=AssetViewAngle.front,
+        quality_level="high",
+        format="png",
+    )
+    db = _FakeDB(
+        mapping={
+            (Character, "char-1"): character,
+            (CharacterImage, 1): image,
+            (Actor, "actor-1"): SimpleNamespace(id="actor-1"),
+            (Costume, "costume-1"): SimpleNamespace(id="costume-1"),
+        }
+    )
+
+    async def _fake_build_prompt(*_args, **_kwargs):
+        return "角色合成提示词"
+
+    async def _fake_pick_ordered(*_args, **_kwargs):
+        return []
+
+    monkeypatch.setattr(asset_base, "build_prompt_with_template", _fake_build_prompt)
+    monkeypatch.setattr(asset_base, "pick_ordered_ref_file_ids", _fake_pick_ordered)
+
+    draft = await asset_base.build_character_image_base_draft(db, character_id="char-1", image_id=1)
+
+    assert draft.default_images == []
+    assert len(draft.reference_warnings) == 3
+    assert any("所绑演员还没有生成任何图片" in item for item in draft.reference_warnings)
+    assert any("所绑服装还没有生成任何图片" in item for item in draft.reference_warnings)
+    assert any("零参考图" in item for item in draft.reference_warnings)
 
 
 def test_derive_frame_preview_replaces_reference_names_with_stable_order() -> None:

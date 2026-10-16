@@ -19,6 +19,21 @@ class ActorBase(BaseModel):
     view_count: int = Field(1, ge=1, description="计划为该演员生成的视角图片数量（不含分镜帧）")
     style: ProjectStyle = Field(ProjectStyle.real_people_city, description="题材/风格")
     visual_style: ProjectVisualStyle = Field(ProjectVisualStyle.live_action, description="画面表现形式（真人/动漫等）")
+    # 演员默认音色（与 Character 同口径，见 sql/019-add-actor-voice.sql）。
+    # 两级结构：演员音色是「这个人」的默认音色，角色音色可覆盖它；解析顺序见
+    # app/services/studio/audio_task_runner.py 的 _resolve_audio_voice。
+    voice_id: str | None = Field(
+        None,
+        description="演员默认音色 ID（供应商侧 voice_id）；角色未配音色时，TTS 回退使用该音色",
+    )
+    voice_source: AudioVoiceSource | None = Field(
+        None,
+        description="演员默认音色来源：preset 预设音色 / custom 自定义音色；为空时按模型名推断",
+    )
+    voice_description: str = Field(
+        "",
+        description="演员音色描述（年龄段/声线/气质/语速等；用于配音选型参考）",
+    )
 
 
 class ActorCreate(ActorBase):
@@ -45,6 +60,12 @@ class ActorCreate(ActorBase):
 
 
 class ActorUpdate(BaseModel):
+    """演员 PATCH 请求体：只声明「允许修改」的字段，全部可选。
+
+    与 `CharacterUpdate` 同理，本类**不继承** `ActorBase`，因此每个可改字段都必须在此
+    显式声明；漏声明会让该字段在 PATCH 时被静默忽略（评审 C-3 在角色侧踩过同样的坑）。
+    """
+
     name: str | None = None
     description: str | None = None
     tags: list[str] | None = None
@@ -52,6 +73,12 @@ class ActorUpdate(BaseModel):
     view_count: int | None = Field(None, ge=1)
     style: ProjectStyle | None = None
     visual_style: ProjectVisualStyle | None = None
+    voice_id: str | None = None
+    voice_source: AudioVoiceSource | None = None
+    voice_description: str | None = Field(
+        None,
+        description="演员音色描述（年龄段/声线/气质/语速等）；留空表示不改动该字段",
+    )
 
 
 class ActorRead(ActorBase):

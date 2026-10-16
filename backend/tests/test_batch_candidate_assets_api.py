@@ -189,7 +189,8 @@ def test_batch_create_assets_route_returns_real_envelope_shape(
     data = body["data"]
     # 真实形状：dict（而非被错误包裹的单元素 list）
     assert isinstance(data, dict)
-    assert set(data) == {"created", "linked", "skipped"}
+    # 契约：三个建实体计数 + 两个「角色→服装自动绑定」的第二遍结果。
+    assert set(data) == {"created", "linked", "skipped", "costume_bound", "costume_unbound"}
     assert all(isinstance(data[key], list) for key in data)
     assert [item["name"] for item in data["created"]] == ["小雨", "出租屋", "欠条"]
     # s2 的「小雨」与 s1 同名 → 复用已创建实体，走 linked 而不是重复新建
@@ -425,7 +426,13 @@ def test_batch_create_assets_route_duplicate_submit_is_idempotent(client: TestCl
     assert len(first.json()["data"]["created"]) == 3
 
     assert second.status_code == 200
-    assert second.json()["data"] == {"created": [], "linked": [], "skipped": []}
+    assert second.json()["data"] == {
+        "created": [],
+        "linked": [],
+        "skipped": [],
+        "costume_bound": [],
+        "costume_unbound": [],
+    }
 
     async def _assert_single_character() -> int:
         return len(list((await env.session.execute(select(Character))).scalars().all()))

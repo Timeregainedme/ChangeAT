@@ -163,6 +163,20 @@ backend/app/services/studio/generation/
 
 当前 actor / character / scene / prop / costume 图片的 render / submit 已开始走这套结构。
 
+### 资产图片的参考图缺失说明（`reference_warnings`）
+
+资产图片生成在**没有任何参考图**的情况下同样会成功：角色图引用「所绑演员的图 + 所绑服装的图」，演员/服装未绑定或所绑资产尚未出图时 `default_images` 就是空列表，模型只会按文字描述出图。这个结果本身不报错，用户只能看到「不像那个人」，无法归因。因此当前实现把缺失显式化，并逐层透传到前端：
+
+- `AssetImageBaseDraft.reference_warnings`（`app/services/studio/generation/asset_image/build_base.py`）承载说明文本。
+  - **两条来源独立判定**：`character.actor_id` 为空 → 「角色未绑定演员…」；已绑定但 `pick_ordered_ref_file_ids` 为空 → 「所绑演员还没有生成任何图片…」；服装同构。只报「总数为 0」会让用户以为两个都没配，而更常见的只是缺其中一个。
+  - 两个来源都为空时**额外**追加一条「本次生成将在零参考图的情况下进行…」，因为这是后果最严重的情形。
+  - 演员/资产走非 front 视角且取不到 front 参考图时，追加「缺少正面参考图…」。
+- `AssetImageDerivedPreview.reference_warnings`（`derive_preview.py`）原样透传。
+- `RenderedPromptResponse.reference_warnings`（`app/api/v1/routes/studio/image_tasks.py`）对外暴露，空列表表示参考图完整。
+- 前端：`assetAdapters.ts` 的 5 个 `renderPrompt` 把 `reference_warnings` 映射为 `referenceWarnings`；`AssetEditPageBase` 的 `useGenerationDraft` 派生结果保留该字段，并在「提示词内容预览」弹窗顶部用 `Alert type="warning"` 逐条列出。
+
+注意 `/shot/{shot_id}/frame-render-prompt` 用的是另一个模型 `RenderedShotFramePromptRead`，不涉及该字段。
+
 ## 底层渲染组件约定
 
 当前旧的图片兼容层已经移除，新的生成准备编排统一以以下目录为主入口：
