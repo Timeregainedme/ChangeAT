@@ -7,7 +7,22 @@ import {
 } from '../../../services/generated'
 import type { VoiceItem } from '../../../services/generated'
 import { StudioEntitiesApi } from '../../../services/studioEntities'
+import { fetchAllPages } from '../../../services/paging'
 import { VoiceSelectField, type VoiceSource } from '../components/VoiceSelectField'
+
+/**
+ * 从 generated client 抛出的错误里取出可展示的原因。
+ *
+ * 为什么需要：这些接口的失败原因都在后端 `detail` 里（例如 FastAPI 的参数校验
+ * 说明、供应商不支持音色列表的 400 文案）。只显示一句「失败」会让用户无法区分
+ * 「后端明确拒绝」和「网络断了」，也没法照着提示自己修。
+ */
+function describeError(error: unknown): string {
+  const detail = (error as { body?: { detail?: unknown } })?.body?.detail
+  if (typeof detail === 'string' && detail.trim()) return detail
+  if (error instanceof Error && error.message) return error.message
+  return '未知错误'
+}
 
 /**
  * 音色管理页。
@@ -69,10 +84,7 @@ export default function VoiceManager() {
       const res = await StudioAudioTasksService.listAudioVoicesApiV1StudioAudioTasksVoicesGet({ kind: nextKind })
       setVoices((res.data ?? []) as VoiceItem[])
     } catch (error) {
-      const detail =
-        (error as { body?: { detail?: string } })?.body?.detail ??
-        (error instanceof Error ? error.message : '未知错误')
-      setVoicesError(detail)
+      setVoicesError(describeError(error))
       setVoices([])
     } finally {
       setVoicesLoading(false)
@@ -82,20 +94,43 @@ export default function VoiceManager() {
   const loadOverview = useCallback(async () => {
     setOverviewLoading(true)
     try {
-      const [actorRes, charRes, projectRes] = await Promise.all([
-        StudioEntitiesApi.list('actor', { page: 1, pageSize: 200, q: null, order: 'updated_at', isDesc: true }),
-        StudioEntitiesApi.list('character', { page: 1, pageSize: 200, q: null, order: null, isDesc: false }),
-        StudioProjectsService.listProjectsApiV1StudioProjectsGet({ page: 1, pageSize: 200, isDesc: false }),
+      // 一律按后端上限翻页取全量：直接传 pageSize > 100 会被 FastAPI 判 422
+      // （`query.page_size: Input should be less than or equal to 100`）。
+      const [actorList, characterList, projectList] = await Promise.all([
+        fetchAllPages<ActorRow>((page, pageSize) =>
+          StudioEntitiesApi.list('actor', {
+            page,
+            pageSize,
+            q: null,
+            order: 'updated_at',
+            isDesc: true,
+          }).then((res) => ({
+            items: (res.data?.items ?? []) as ActorRow[],
+            maxPage: res.data?.pagination?.max_page,
+          })),
+        ),
+        fetchAllPages<CharacterRow>((page, pageSize) =>
+          StudioEntitiesApi.list('character', { page, pageSize, q: null, order: null, isDesc: false }).then((res) => ({
+            items: (res.data?.items ?? []) as CharacterRow[],
+            maxPage: res.data?.pagination?.max_page,
+          })),
+        ),
+        fetchAllPages<{ id: string; name?: string }>((page, pageSize) =>
+          StudioProjectsService.listProjectsApiV1StudioProjectsGet({ page, pageSize, isDesc: false }).then((res) => ({
+            items: (res.data?.items ?? []) as Array<{ id: string; name?: string }>,
+            maxPage: res.data?.pagination?.max_page,
+          })),
+        ),
       ])
-      setActors((actorRes.data?.items ?? []) as ActorRow[])
-      setCharacters((charRes.data?.items ?? []) as CharacterRow[])
+      setActors(actorList)
+      setCharacters(characterList)
       const map: Record<string, string> = {}
-      for (const p of (projectRes.data?.items ?? []) as Array<{ id: string; name?: string }>) {
+      for (const p of projectList) {
         map[p.id] = p.name ?? p.id
       }
       setProjectNames(map)
-    } catch {
-      message.error('加载音色绑定概览失败')
+    } catch (error) {
+      message.error(`加载音色绑定概览失败：${describeError(error)}`)
     } finally {
       setOverviewLoading(false)
     }
@@ -128,8 +163,8 @@ export default function VoiceManager() {
       })
       message.success('已更新演员默认音色')
       await loadOverview()
-    } catch {
-      message.error('更新演员音色失败')
+    } catch (error) {
+      message.error(`更新演员音色失败：${describeError(error)}`)
     } finally {
       setSavingActorId(null)
     }

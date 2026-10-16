@@ -4,6 +4,7 @@ import { DownloadOutlined, FileImageOutlined, VideoCameraOutlined } from '@ant-d
 import { useNavigate, useParams } from 'react-router-dom'
 import { StudioFilesService, StudioShotsService } from '../../../../../services/generated'
 import type { FileRead } from '../../../../../services/generated'
+import { fetchAllPages } from '../../../../../services/paging'
 import { DisplayImageCard } from '../../../assets/components/DisplayImageCard'
 import { useChapters } from '../hooks/useProjectData'
 import { buildFileDownloadUrl } from '../../../assets/utils'
@@ -54,12 +55,16 @@ export function FilesTab() {
     setShotsLoading(true)
     ;(async () => {
       try {
-        const res = await StudioShotsService.listShotsApiV1StudioShotsGet({
-          chapterId: selectedChapter.id,
-          page: 1,
-          pageSize: 500,
-        })
-        const items = res.data?.items ?? []
+        // 按后端 page_size 上限（100）翻页取该章节全部分镜：此前传 500 会被 FastAPI
+        // 判 422，而下面 catch 静默 setShots([])，表现为「章节选了但分镜下拉是空的」。
+        const items = await fetchAllPages<{ title: string }>((page, pageSize) =>
+          StudioShotsService.listShotsApiV1StudioShotsGet({ chapterId: selectedChapter.id, page, pageSize }).then(
+            (res) => ({
+              items: (res.data?.items ?? []) as Array<{ title: string }>,
+              maxPage: res.data?.pagination?.max_page,
+            })
+          )
+        )
         if (!cancelled) {
           const uniq = Array.from(new Map(items.map((s) => [s.title, { title: s.title }])).values())
           setShots(uniq)
