@@ -1,0 +1,22 @@
+# 只生成模型，不生成 server 路由。
+#
+# 为什么不用 oapi-codegen 的 server 生成：
+# 它会按 OpenAPI 里的 tag/路径批量生成 chi 路由与 handler 签名，而我们的切流策略是
+# 「按路径逐条接管」—— 未接管的路径必须继续由 Nginx 转给 Python（表现为 404 之外的
+# 明确行为），整表生成会让 Go 端出现一堆「已注册但未实现」的空 handler，
+# 反而把「这条路径还没接管」这个事实藏起来。
+#
+# 模型则必须生成：Go 侧读写业务数据时若手写 struct，字段名/类型与 Python 侧的
+# Pydantic 模型必然漂移，而契约门禁（backend/scripts/check_openapi_contract.py）
+# 只能保证 OpenAPI 与 Python 一致，管不到手写的 Go 结构体。
+package: oapi
+
+output: internal/oapi/types.gen.go
+
+generate:
+  models: true
+
+output-options:
+  # 保留未被任何 operation 直接引用的 schema：这些是响应嵌套对象，
+  # 剪掉会让生成结果缺少内部类型。
+  skip-prune: true
