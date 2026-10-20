@@ -33,6 +33,22 @@ function FlowCount({ count, tone, label }: { count: number; tone: 'pending' | 'r
 }
 
 /**
+ * 体量信息行。
+ *
+ * 后端 `stats` 目前可能为空（Go 控制面接管的列表接口只回 `{}`），
+ * 此时章节数用摘要里实际拉到的数量兜底，角色/场景/道具为 0 就不展示，
+ * 避免整行变成「0 角色 · 0 场景 · 0 道具」这种看起来像故障的信息。
+ */
+function buildStatsLine(project: ProjectView, summary?: ProjectSummary): string {
+  const chapters = summary?.chapterCount ?? project.stats.chapters
+  const parts = [`${chapters} 章`]
+  if (project.stats.roles > 0) parts.push(`${project.stats.roles} 角色`)
+  if (project.stats.scenes > 0) parts.push(`${project.stats.scenes} 场景`)
+  if (project.stats.props > 0) parts.push(`${project.stats.props} 道具`)
+  return parts.join(' · ')
+}
+
+/**
  * 项目卡片。
  *
  * 信息优先级：项目名 → 当前该做什么 → 镜头流量 → 进度与体量。
@@ -92,22 +108,23 @@ export function ProjectCard({
         </div>
       </div>
 
-      <div className="mt-3">
-        <div className="flex items-center justify-between text-[11px] text-muted-foreground">
-          <span>进度</span>
-          <span>{project.progress}%</span>
+      {project.progress > 0 ? (
+        <div className="mt-3">
+          <div className="flex items-center justify-between text-[11px] text-muted-foreground">
+            <span>进度</span>
+            <span>{project.progress}%</span>
+          </div>
+          <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-muted">
+            <div
+              className="h-full rounded-full bg-primary transition-[width]"
+              style={{ width: `${Math.min(100, Math.max(0, project.progress))}%` }}
+            />
+          </div>
         </div>
-        <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-muted">
-          <div
-            className="h-full rounded-full bg-primary transition-[width]"
-            style={{ width: `${Math.min(100, Math.max(0, project.progress))}%` }}
-          />
-        </div>
-      </div>
+      ) : null}
 
       <div className="mt-2 text-[11px] text-muted-foreground">
-        {project.stats.chapters} 章 · {project.stats.roles} 角色 · {project.stats.scenes} 场景 ·{' '}
-        {project.stats.props} 道具
+        {buildStatsLine(project, summary)}
       </div>
 
       <div className="mt-auto flex items-center justify-between gap-2 border-t border-border pt-3">

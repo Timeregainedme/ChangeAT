@@ -32,62 +32,51 @@ const COLUMNS: { key: BoardColumnKey; label: string; dot: string; hint: string }
 /**
  * 镜头卡片。
  *
- * 缩略图缺失时用序号占位而不是空白块：看板需要的是「能快速定位到第几个镜头」，
- * 空白缩略图会让整列失去节奏。
+ * 列表接口的 thumbnail 目前常为空，因此缩略图是「有则展示」而不是固定占位：
+ * 固定 16:9 空盒子会让每张卡片高出 150px 却不携带任何信息，
+ * 一屏看不到几个镜头。没有缩略图时直接收起图片区，让看板保持密度。
  */
 function ShotCard({ shot, onOpen }: { shot: BoardShot; onOpen: () => void }) {
   return (
     <button
       type="button"
       onClick={onOpen}
-      className="group w-full rounded-lg border border-border bg-card p-0 text-left transition-shadow hover:shadow-popover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      className="group w-full overflow-hidden rounded-lg border border-border bg-card text-left transition-shadow hover:shadow-popover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
     >
-      <div className="relative aspect-video w-full overflow-hidden rounded-t-lg bg-muted">
-        {shot.thumbnail ? (
+      {shot.thumbnail ? (
+        <div className="aspect-video w-full overflow-hidden bg-muted">
           <img
             src={shot.thumbnail}
             alt={shot.title}
             loading="lazy"
             className="h-full w-full object-cover"
           />
-        ) : (
-          <div className="flex h-full w-full items-center justify-center text-xs text-muted-foreground">
-            暂无缩略图
-          </div>
-        )}
-        <span className="absolute left-2 top-2 rounded bg-black/65 px-1.5 py-0.5 text-[11px] font-medium text-white">
-          #{shot.index}
-        </span>
-        {shot.runtime.hasActiveTasks ? (
-          <span className="absolute right-2 top-2 rounded-full bg-run-running px-2 py-0.5 text-[11px] font-medium text-run-running-fg">
-            {shot.runtime.activeTaskCount} 个任务
-          </span>
-        ) : null}
-      </div>
+        </div>
+      ) : null}
 
       <div className="space-y-1.5 p-3">
-        <p className="truncate text-sm font-medium">{shot.title}</p>
-        <p className="line-clamp-2 min-h-[2rem] text-xs leading-4 text-muted-foreground">
+        <div className="flex items-center gap-1.5">
+          <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground">
+            #{shot.index}
+          </span>
+          <p className="min-w-0 flex-1 truncate text-sm font-medium">{shot.title}</p>
+          {shot.runtime.hasActiveTasks ? (
+            <span className="shrink-0 rounded-full bg-run-running/15 px-1.5 py-0.5 text-[11px] text-run-running">
+              {shot.runtime.activeTaskCount} 任务
+            </span>
+          ) : null}
+        </div>
+
+        <p className="line-clamp-2 text-xs leading-5 text-muted-foreground">
           {shot.scriptExcerpt || '暂无剧本摘录'}
         </p>
-        <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
-          <span
-            className={cn(
-              'inline-flex items-center gap-1 rounded-full px-1.5 py-0.5',
-              shot.status === 'ready'
-                ? 'bg-state-ready/15 text-state-ready'
-                : 'bg-state-pending/15 text-state-pending',
-            )}
-          >
-            <span
-              className={cn(
-                'h-1.5 w-1.5 rounded-full',
-                shot.status === 'ready' ? 'bg-state-ready' : 'bg-state-pending',
-              )}
-            />
-            {shot.skipExtraction ? '无需提取' : shot.status === 'ready' ? '已确认' : '待确认'}
+
+        {shot.skipExtraction ? (
+          <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
+            <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/60" />
+            无需提取
           </span>
-        </div>
+        ) : null}
       </div>
     </button>
   )
@@ -183,13 +172,13 @@ export function ShotBoardPage() {
       ) : null}
 
       <div className="min-h-0 flex-1 overflow-x-auto overflow-y-hidden">
-        <div className="flex h-full min-w-[840px] gap-4 px-6 py-4">
+        <div className="flex h-full min-w-[720px] gap-4 px-6 py-4">
           {COLUMNS.map((column) => {
             const items = grouped[column.key]
             return (
               <section
                 key={column.key}
-                className="flex h-full min-h-0 w-1/3 min-w-[260px] flex-col rounded-lg border border-border bg-muted/30"
+                className="flex h-full min-h-0 w-1/3 min-w-[220px] flex-col rounded-lg border border-border bg-muted/30"
               >
                 <div className="flex items-center gap-2 border-b border-border px-3 py-2.5">
                   <span className={cn('h-2 w-2 rounded-full', column.dot)} />
@@ -197,7 +186,7 @@ export function ShotBoardPage() {
                   <span className="rounded bg-background px-1.5 py-0.5 text-[11px] text-muted-foreground">
                     {items.length}
                   </span>
-                  <span className="ml-auto truncate text-[11px] text-muted-foreground">
+                  <span className="ml-auto hidden truncate text-[11px] text-muted-foreground xl:inline">
                     {column.hint}
                   </span>
                 </div>
@@ -205,9 +194,9 @@ export function ShotBoardPage() {
                 <ScrollArea className="min-h-0 flex-1">
                   <div className="space-y-3 p-3">
                     {loading
-                      ? [0, 1].map((i) => (
+                      ? [0, 1, 2].map((i) => (
                           <div key={i} className="space-y-2 rounded-lg border border-border p-3">
-                            <Skeleton className="aspect-video w-full" />
+                            <Skeleton className="h-4 w-1/3" />
                             <Skeleton className="h-4 w-2/3" />
                             <Skeleton className="h-3 w-full" />
                           </div>

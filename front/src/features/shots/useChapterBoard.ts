@@ -72,6 +72,30 @@ export function getColumnOf(shot: BoardShot): BoardColumnKey {
 }
 
 /**
+ * 拉取章节下的全部镜头。
+ *
+ * 后端 page_size 上限是 100（超过会直接 422），所以按页拉取并拼接，
+ * 而不是赌「一章不会超过 100 个镜头」——长章节加上配音/重绘确实可能超。
+ * 上限 10 页是防御性兜底，避免后端分页参数异常时无限循环。
+ */
+async function loadAllShots(chapterId: string): Promise<ShotRead[]> {
+  const all: ShotRead[] = []
+  for (let page = 1; page <= 10; page += 1) {
+    const res = await StudioShotsService.listShotsApiV1StudioShotsGet({
+      chapterId,
+      page,
+      pageSize: 100,
+      order: 'index',
+      isDesc: false,
+    })
+    const items = res.data?.items ?? []
+    all.push(...items)
+    if (items.length < 100) break
+  }
+  return all
+}
+
+/**
  * 章节看板数据：镜头列表 + 运行时摘要 + 章节基础信息。
  *
  * 三个请求并发发出，其中章节信息只用于标题展示，失败时允许降级为空，
@@ -88,14 +112,8 @@ export function useChapterBoard(projectId?: string, chapterId?: string) {
     setLoading(true)
     setError(null)
     try {
-      const [shotsRes, runtimeRes, chaptersRes] = await Promise.all([
-        StudioShotsService.listShotsApiV1StudioShotsGet({
-          chapterId,
-          page: 1,
-          pageSize: 200,
-          order: 'index',
-          isDesc: false,
-        }),
+      const [boardShots, runtimeRes, chaptersRes] = await Promise.all([
+        loadAllShots(chapterId),
         StudioShotsService.listShotRuntimeSummaryApiV1StudioShotsRuntimeSummaryGet({ chapterId }).catch(
           () => null,
         ),
@@ -111,7 +129,7 @@ export function useChapterBoard(projectId?: string, chapterId?: string) {
       const runtimeMap = Object.fromEntries(
         (runtimeRes?.data ?? []).map((row) => [row.shot_id, row]),
       )
-      setShots((shotsRes.data?.items ?? []).map((shot) => toBoardShot(shot, runtimeMap[shot.id])))
+      setShots(boardShots.map((shot) => toBoardShot(shot, runtimeMap[shot.id])))
 
       const found = chaptersRes?.data?.items?.find((item) => item.id === chapterId)
       setChapter(found ? { id: found.id, index: found.index, title: found.title } : null)

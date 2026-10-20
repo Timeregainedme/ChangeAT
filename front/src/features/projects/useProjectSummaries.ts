@@ -37,6 +37,8 @@ export interface ProjectSummary {
   hint: string
   chapterId?: string
   storyboardCount?: number
+  /** 章节总数。后端 stats 可能为空，这里用实际拉到的章节数兜底。 */
+  chapterCount: number
   flow: ProjectFlowStats | null
 }
 
@@ -71,6 +73,7 @@ function summarizeProject(chapters: ChapterInput[]): ProjectSummary {
       stageText: '待创建章节',
       actionLabel: '创建第一章',
       hint: '项目还没有章节，先建第一章再拆镜头',
+      chapterCount: 0,
       flow: null,
     }
   }
@@ -93,6 +96,7 @@ function summarizeProject(chapters: ChapterInput[]): ProjectSummary {
     hint: `第${chapter.index}章 · ${state.hint}`,
     chapterId: chapter.id,
     storyboardCount: chapter.storyboardCount,
+    chapterCount: ordered.length,
     flow: null,
   }
 }
