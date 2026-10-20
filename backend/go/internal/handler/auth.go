@@ -3,7 +3,6 @@ package handler
 import (
 	"errors"
 	"net/http"
-	"time"
 
 	"github.com/timeregainedme/dyeingtime/backend/go/internal/middleware"
 	"github.com/timeregainedme/dyeingtime/backend/go/internal/response"
@@ -66,7 +65,12 @@ func (h *Auth) Me(w http.ResponseWriter, r *http.Request) {
 
 	var createdAt *string
 	if user.CreatedAt != nil {
-		formatted := user.CreatedAt.UTC().Format(time.RFC3339Nano)
+		// 必须与 Python 的 datetime.isoformat() 逐字节一致：
+		// MySQL DATETIME 无时区，Python 读出来是 naive datetime，序列化后**不带** 时区后缀。
+		// 若这里按 time.RFC3339 输出 "...Z"，前端 `new Date()` 会把它当 UTC，
+		// 而 Python 的无后缀串会被当本地时间 —— 同一行数据在两个服务下差 8 小时。
+		// `.999999` 让尾随零被省略，与 isoformat() 在微秒为 0 时不输出小数部分的行为对齐。
+		formatted := user.CreatedAt.Format("2006-01-02T15:04:05.999999")
 		createdAt = &formatted
 	}
 
