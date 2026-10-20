@@ -1067,3 +1067,26 @@ sudo mysql -e "DROP DATABASE dyeingtime;"
 - 旧存储键迁移实测：`jellyfish_token` → `dyeingtime_token`，旧键被删除，
   刷新后仍停留在 `/projects` 且已登录；
 - `uv lock --check` 通过（顺带补上了此前缺失的 bcrypt / pyjwt 锁定项）。
+
+### 9.22 2026-10-21：修复 Google 首次登录 500（MissingGreenlet）
+
+**现象**：首次用 Google 登录时后端 500，前端显示
+`1 validation error for UserRead / created_at ... MissingGreenlet`。
+
+**根因**：`users.created_at` / `updated_at` 使用 `server_default=func.now()`。
+新建账号 `flush()` 之后，这两个属性处于「未加载」状态；紧接着在路由里用
+`UserRead.model_validate(user)`（同步上下文）读取字段，触发 SQLAlchemy 惰性加载，
+在 async session 中抛 `MissingGreenlet`。绑定已有账号的分支同样会因
+`onupdate=func.now()` 导致 `updated_at` 未加载，存在同一问题。
+
+**修复**：`services/auth_accounts.py` 三条分支（按 sub 复用 / 按 email 绑定 / 新建）
+在返回前统一 `await db.refresh(user)`，把数据库生成的列读回内存。
+
+**验证**（事务回滚方式，未留测试数据）：
+
+| 分支 | 结果 |
+| --- | --- |
+| 新建 Google 账号 | `UserRead` 序列化成功，`created_at` 有值 |
+| 同一 sub 再次登录 | 昵称更新生效，序列化成功 |
+| 已有本地账号按 email 绑定 | 保留原 username，`google_sub` 绑定成功 |
+| 回滚后 | users 行数回到 1，无残留 |
