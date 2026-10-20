@@ -46,6 +46,10 @@ const AssetManager = () => {
   }
 
   return (
+    // MainLayout 的 Content 是 height:100vh + overflow:hidden 的应用壳，
+    // 必须自带滚动容器，否则 Tabs + 多列表溢出后无法下滑查看。
+    // 写法对齐 PromptTemplateManager / ProjectWorkbench 的滚动容器模式。
+    <div className="h-full overflow-y-auto" style={{ flex: 1, minHeight: 0 }}>
     <div className="space-y-4">
       <Card>
         <Tabs
@@ -61,6 +65,7 @@ const AssetManager = () => {
           ]}
         />
       </Card>
+    </div>
     </div>
   )
 }
