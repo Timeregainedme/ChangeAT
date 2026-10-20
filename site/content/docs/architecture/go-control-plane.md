@@ -125,6 +125,11 @@ JWT 校验固定 HS256（`WithValidMethods`）、强制 `exp`、30 秒 leeway �
 | `GET/HEAD /api/v1/studio/files/{id}/download` | ✅ 影子头级一致 | ✅ 已切 |
 | `GET /api/v1/film/tasks/{id}/status` | ✅ 影子逐字段一致 | ✅ 已切 |
 | `GET /api/v1/film/tasks/{id}/result` | ✅ 影子逐字段一致 | ✅ 已切 |
+| `GET /api/v1/studio/projects` | ✅ 影子逐字段一致 | ✅ 已切 |
+| `GET /api/v1/studio/projects/style-options` | ✅ 影子逐字段一致 | ✅ 已切 |
+| `GET /api/v1/studio/projects/{id}` | ✅ 影子逐字段一致 | ✅ 已切 |
+| `GET /api/v1/studio/chapters` | ✅ 影子逐字段一致 | ✅ 已切 |
+| `GET /api/v1/studio/chapters/{id}` | ✅ 影子逐字段一致 | ✅ 已切 |
 
 其余 `/api/v1/*` 全部仍由 Python 处理。
 
@@ -205,6 +210,32 @@ Python 的 `_datetime_ts` 用 `datetime.timestamp()` 转换 MySQL 的 naive date
 另外 `elapsed_ms` 的语义是「未开始 → null」，不是 0；进行中的任务用
 `now - started` 实时计算，已结束用 `finished - started`。前端据此区分
 「还没开始」与「刚开始 0 毫秒」。
+
+## 只读先行的原因
+
+项目/章节目前只接管了 `GET`。这是刻意的：
+
+- 读接口出错，表现是「看到错数据」，用户能发现、也能回滚；
+- 写接口出错，表现是「数据被写坏」，可能不可逆，且影子对比无法验证
+  （同一个写请求不能同时发给两个服务）。
+
+因此写路径的处理方式是：先让只读接口在生产跑一段时间、确认无差异，
+再单独设计写操作的对比方案（例如镜像写到影子库，而不是镜像到同一张表）。
+
+## 分页参数必须严格解析
+
+Python 用 FastAPI 的 `Query(ge=1, le=100)` 声明分页参数，非法输入直接 422。
+Go 侧若「解析失败就回退默认值」，`page_size=abc` 会静默变成 10，
+前端拿到第一页却以为翻页生效 —— 这种不报错的错误比直接失败更难排查。
+
+422 的文案也复刻了 FastAPI 的格式：
+
+```text
+query.page_size: Input should be less than or equal to 100
+query.page: Input should be a valid integer, unable to parse string as an integer
+```
+
+目的是让切流前后逐字节一致，影子对比不用逐条解释差异。
 
 ## 尚未接管
 
