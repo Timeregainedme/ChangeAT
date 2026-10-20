@@ -55,7 +55,12 @@ func run(logger *slog.Logger) error {
 	}
 	defer func() { _ = pool.Close() }()
 
-	router := server.NewRouter(server.Deps{Logger: logger, DB: pool, JWTSecret: cfg.JWTSecret})
+	router := server.NewRouter(server.Deps{
+		Logger:         logger,
+		DB:             pool,
+		JWTSecret:      cfg.JWTSecret,
+		PythonUpstream: cfg.PythonUpstream,
+	})
 
 	srv := &http.Server{
 		Addr:              cfg.HTTPAddr,

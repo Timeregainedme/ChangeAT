@@ -27,6 +27,12 @@ type Config struct {
 	EnvName string
 	// ShutdownTimeout 优雅关闭的等待上限。
 	ShutdownTimeout time.Duration
+	// PythonUpstream 是 Python API 的地址，用于「Go 暂不实现的分支」透传。
+	//
+	// 典型场景：文件下载在对象存储未配置公开域名时需要流式代理 + Range，
+	// 这部分 Go 暂未实现，透传给 Python 比返回 502 更安全。
+	// 它也是后续「厚业务反代」的基础设施。
+	PythonUpstream string
 	// DBMaxOpenConns / DBMaxIdleConns 控制连接池。
 	// 默认值刻意压低：这台机器只有 2 vCPU / 4 GiB，
 	// Go 侧抢走太多连接会让 Python worker 排队。
@@ -47,6 +53,7 @@ func Load() (*Config, error) {
 		JWTSecret:       os.Getenv("JWT_SECRET"),
 		EnvName:         getenv("APP_ENV", "dev"),
 		ShutdownTimeout: durationFromEnv("GO_API_SHUTDOWN_TIMEOUT", 10*time.Second),
+		PythonUpstream:  getenv("PYTHON_UPSTREAM", "http://127.0.0.1:8000"),
 		DBMaxOpenConns:  intFromEnv("GO_API_DB_MAX_OPEN", 10),
 		DBMaxIdleConns:  intFromEnv("GO_API_DB_MAX_IDLE", 5),
 	}

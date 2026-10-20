@@ -10,6 +10,7 @@ import (
 
 	"github.com/timeregainedme/dyeingtime/backend/go/internal/handler"
 	"github.com/timeregainedme/dyeingtime/backend/go/internal/middleware"
+	"github.com/timeregainedme/dyeingtime/backend/go/internal/proxy"
 	"github.com/timeregainedme/dyeingtime/backend/go/internal/store"
 )
 
@@ -18,6 +19,8 @@ type Deps struct {
 	Logger    *slog.Logger
 	DB        *sql.DB
 	JWTSecret string
+	// PythonUpstream 用于「Go 未实现的分支」透传，如私有桶下的流式下载。
+	PythonUpstream string
 }
 
 // NewRouter 构建控制面的 HTTP 路由。
@@ -55,6 +58,15 @@ func NewRouter(deps Deps) http.Handler {
 				r.Use(middleware.RequireAuth(deps.JWTSecret))
 				r.Get("/auth/me", authHandler.Me)
 			})
+
+			// 公开路由：素材下载必须匿名可访问（浏览器 <img>/<video> 无法带 Authorization）。
+			// 与 Python 的 public_router 一致，不挂 RequireAuth。
+			fileHandler := handler.NewFile(
+				store.NewFileStore(deps.DB),
+				proxy.ToPython(deps.PythonUpstream),
+			)
+			r.Get("/studio/files/{file_id}/download", fileHandler.Download)
+			r.Head("/studio/files/{file_id}/download", fileHandler.Download)
 		}
 	})
 
