@@ -1090,3 +1090,31 @@ sudo mysql -e "DROP DATABASE dyeingtime;"
 | 同一 sub 再次登录 | 昵称更新生效，序列化成功 |
 | 已有本地账号按 email 绑定 | 保留原 username，`google_sub` 绑定成功 |
 | 回滚后 | users 行数回到 1，无残留 |
+
+### 9.23 2026-10-21：Google 白名单收敛 + 主账号换绑
+
+**Google 白名单**（`/srv/dyeingtime/backend/.env`）：
+
+```bash
+GOOGLE_ALLOWED_EMAILS=15068441889an@gmail.com,gimeregained@gmail.com,wpt031019@gmail.com
+```
+
+白名单为空时任何已验证 Google 邮箱都能登录，属于真实敞口；现收紧为 3 个指定邮箱。
+另两个邮箱首次登录时会自动建号（id 递增），不影响既有数据。
+
+**主账号**：
+
+- 原 `admin`（弱口令）已改名为 `Timeregained` 并重置密码，`admin123` 立即失效；
+- 账号 id 保持不变（=1），历史操作与 token 语义不受影响；
+- 现有 Google 账号（id=4）仍独立存在。由于 `projects` 没有归属用户字段，
+  多账号看到的是同一批项目，不存在数据隔离问题。
+
+**验证**：
+
+| 场景 | 结果 |
+| --- | --- |
+| 新账号登录 | 200 |
+| 旧 `admin` / `admin123` | 401 |
+| 错误密码 | 401 |
+| 新 token 调 `/auth/me` | 200，username=Timeregained |
+| 白名单判定 | 3 个指定邮箱 True，其他邮箱 False |
