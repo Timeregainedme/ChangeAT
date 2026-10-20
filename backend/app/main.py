@@ -11,6 +11,7 @@ from fastapi.responses import JSONResponse
 
 from app.api.v1 import router as api_v1_router
 from app.bootstrap import bootstrap_all_registries
+from app.middleware.audit import AuditLogMiddleware
 from app.config import settings
 from app.schemas.common import ApiResponse
 
@@ -134,6 +135,11 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# 审计中间件：只记录 /api/v1 下的写操作，写库失败不影响业务响应。
+# 放在 CORS 之后注册（Starlette 中后注册的中间件在外层），
+# 这样 CORS 预检（OPTIONS）不会进入审计逻辑。
+app.add_middleware(AuditLogMiddleware)
 
 app.include_router(api_v1_router, prefix=settings.api_v1_prefix)
 # 影视技能路由同时挂到主应用，保证 /api/v1/film 一定可访问

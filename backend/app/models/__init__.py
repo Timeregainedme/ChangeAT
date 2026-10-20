@@ -3,6 +3,7 @@
 from app.core.db import Base
 from app.models.base import TimestampMixin
 
+from app.models.audit import AuditLog
 from app.models.llm import Model, ModelSettings, Provider
 from app.models.auth import User
 from app.models.task import GenerationTask
@@ -44,6 +45,7 @@ __all__ = [
     "Base",
     "TimestampMixin",
     "User",
+    "AuditLog",
     "Workspace",
     "WorkspaceMember",
     "WorkspaceRole",
