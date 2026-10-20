@@ -121,7 +121,7 @@ router 级守卫让**新端点默认受保护**。
 
 ## 隔离覆盖范围
 
-### 已隔离
+### 已隔离（全部业务路由）
 
 | 路由 | 方式 |
 |---|---|
@@ -131,20 +131,35 @@ router 级守卫让**新端点默认受保护**。
 | `studio/entities` | router 级守卫（含资产两类归属链） |
 | `studio/image-tasks` | router 级守卫（actor/character/asset/project/shot） |
 | `studio/timeline` | router 级守卫（project） |
+| `studio/files` | 守卫经 `EXISTS(file_usages ⋈ projects)` |
+| `film/task_status` | 守卫用 `generation_tasks.workspace_id` |
+| `studio/audio-tasks` | 业务 ID 在请求体，端点内显式解析比对 |
+| `studio/shot-character-links` | `shot_id` 走 query，端点内显式校验 |
 
-### 尚未隔离
+### 为什么 `files` 不新增归属列
 
-| 路由 | 阻塞原因 |
-|---|---|
-| `studio/files` | `files` 表自身无 `project_id`，归属只在 `file_usages` 里 |
-| `film/task_status` | `generation_tasks` 无 `workspace_id`，只能经多态 `task_links` 反查 |
-| `studio/audio-tasks` | 资源 ID 在请求体里，非路径参数 |
-| `film/generated_video`、`film/tasks_images` | 同上 |
-| `studio/shot-character-links` | 无路径 ID |
+`files` 表没有 `project_id`：一个文件可被多个项目复用（演员定妆照、公共 BGM），
+归属唯一可靠的记录在 `file_usages.project_id`。因此判定语义是
+**任一条使用记录指向当前工作区的项目即放行**。
 
-补齐这几处需要新增 `files.workspace_id` 与 `generation_tasks.workspace_id` 两列
-（迁移 023），并把 `workspace_id` 贯通到任务创建链路（`TaskManager.create` 的
-5 个调用点）。**在此之前，不要认为多租户已经完整。**
+不新增 `files.workspace_id` 的原因：上传时往往还不知道会挂到哪个项目，
+加列会引入「先建后补」的时序漏洞（先落一条 NULL 归属，再靠后续写入补齐，
+中间窗口对该文件没有归属约束）。代价是未被任何项目引用的孤儿文件对所有租户不可见
+—— 孤儿文件本就不该被业务读取，可接受。
+
+### 为什么 `generation_tasks` 必须独立持有 workspace_id
+
+不能像章节/镜头那样经 project 归属：
+
+1. 一次任务可能产出多个资源、跨多个项目（批量资产图），没有唯一父 project；
+2. 任务关联走 `generation_task_links` 的多态字段
+   （`resource_type` + `relation_type` + `relation_entity_id`），
+   反查要先解析类型才知道去查哪张表，无法用于鉴权；
+3. 任务状态/取消是高频只读接口，鉴权路径必须是一次主键查询。
+
+列定义为 `NOT NULL` 且无默认值：漏传直接报错，避免产生「所有租户都能看到」的匿名任务。
+归属由 `app/services/common/workspace.py::resolve_workspace_id` 统一回溯，
+调用方无需感知租户概念。
 
 ## 迁移注意事项
 
