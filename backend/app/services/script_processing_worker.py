@@ -310,6 +310,37 @@ def _rebuild_script_division_from_shots(db: Session, chapter_id: str) -> dict[st
     return {"shots": division_shots, "total_shots": len(division_shots)}
 
 
+def _merge_extraction_drafts(
+    primary: Any,
+    secondary: Any,
+) -> Any:
+    """把 secondary 的镜头与全局实体并入 primary（按 name / index 去重）。
+
+    用途：当 LLM 首轮提取漏掉部分镜头时，对缺失镜头单独补跑一次，
+    再把结果合并回来。全局实体必须一起合并，否则 shots 里引用的名字
+    在 primary 的全局列表中找不到，候选写入时会被跳过。
+    """
+    def _merge_by_name(dst: list[Any], src: list[Any]) -> None:
+        existing = {str(getattr(x, "name", "")).strip() for x in dst}
+        for item in src:
+            name = str(getattr(item, "name", "")).strip()
+            if name and name not in existing:
+                dst.append(item)
+                existing.add(name)
+
+    _merge_by_name(primary.characters, secondary.characters)
+    _merge_by_name(primary.scenes, secondary.scenes)
+    _merge_by_name(primary.props, secondary.props)
+    _merge_by_name(primary.costumes, secondary.costumes)
+
+    existing_indexes = {int(s.index) for s in primary.shots}
+    for shot in secondary.shots:
+        if int(shot.index) not in existing_indexes:
+            primary.shots.append(shot)
+            existing_indexes.add(int(shot.index))
+    return primary
+
+
 def generate_extraction_result(
     *,
     db: Session,
@@ -359,6 +390,51 @@ def generate_extraction_result(
             script_division_json=json.dumps(script_division, ensure_ascii=False),
             consistency_json=json.dumps(consistency or {}, ensure_ascii=False),
         )
+
+        # --- 覆盖校验 ---
+        # prompt 里已要求「shots.index 必须覆盖并对应输入分镜中的 index」，
+        # 但实测 LLM 仍会偶发漏掉末尾镜头（现象：批量提取后某个镜头完全没有候选，
+        # 必须再单独点一次「刷新并提取」才会出现）。
+        # 这里做后置校验：缺哪个 index，就用只含这些镜头的 script_division 补跑一次。
+        division_shots = list(script_division.get("shots") or [])
+        expected_indexes = {
+            int(s["index"]) for s in division_shots if isinstance(s, dict) and "index" in s
+        }
+        got_indexes = {int(s.index) for s in result.shots}
+        missing = sorted(expected_indexes - got_indexes)
+        if missing:
+            logger.warning(
+                "提取结果缺少镜头 index=%s（期望 %d 个，实际 %d 个），自动补提取一次",
+                missing,
+                len(expected_indexes),
+                len(got_indexes),
+            )
+            retry_shots = [
+                s
+                for s in division_shots
+                if isinstance(s, dict) and int(s.get("index", -1)) in missing
+            ]
+            try:
+                retry_result = agent.extract(
+                    project_id=project_id,
+                    chapter_id=chapter_id,
+                    script_division_json=json.dumps(
+                        {"shots": retry_shots, "total_shots": len(retry_shots)},
+                        ensure_ascii=False,
+                    ),
+                    consistency_json=json.dumps(consistency or {}, ensure_ascii=False),
+                )
+                result = _merge_extraction_drafts(result, retry_result)
+                still_missing = sorted(
+                    expected_indexes - {int(s.index) for s in result.shots}
+                )
+                if still_missing:
+                    logger.error("补提取后仍缺少镜头 index=%s，需人工重试", still_missing)
+                else:
+                    logger.info("补提取成功，已补齐镜头 index=%s", missing)
+            except Exception:  # noqa: BLE001 - 补提取失败不应让整个任务失败
+                logger.exception("补提取失败（缺少镜头 index=%s），保留首轮结果", missing)
+
         set_cached_script_extract(cache_key, result)
 
     return result, from_cache
