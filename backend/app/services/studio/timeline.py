@@ -385,7 +385,7 @@ async def export_project_timeline(db: AsyncSession, *, project_id: str) -> Timel
         shutil.rmtree(workdir, ignore_errors=True)
 
     key = f"exports/{project_id}/{uuid.uuid4()}.mp4"
-    await storage.upload_file(
+    stored = await storage.upload_file(
         key=key,
         data=result,
         content_type="video/mp4",
@@ -398,7 +398,10 @@ async def export_project_timeline(db: AsyncSession, *, project_id: str) -> Timel
             id=str(uuid.uuid4()),
             type=FileType.video,
             name=name,
-            thumbnail="",
+            # 写入对象存储返回的公开 URL。
+            # 之前这里硬编码空字符串，导致成片无法直接用 CDN 地址访问，
+            # 只能回退到后端代理下载（占用 EC2 出网带宽，且 HEAD 请求会失败）。
+            thumbnail=stored.url,
             tags=["export"],
             storage_key=key,
         ),

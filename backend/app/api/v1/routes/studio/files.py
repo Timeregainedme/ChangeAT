@@ -111,8 +111,9 @@ async def upload_file_api(
     return created_response(FileRead.model_validate(obj))
 
 
-@public_router.get(
+@public_router.api_route(
     "/{file_id}/download",
+    methods=["GET", "HEAD"],
     summary="下载文件二进制内容（匿名可访问，重定向到对象存储公开 URL）",
 )
 async def download_file_api(
@@ -128,6 +129,9 @@ async def download_file_api(
       - Range 请求由对象存储处理，播放器可正常 seek
       - 可被 CDN 缓存
     仅在无公开 URL 时回退到后端流式代理。
+
+    同时支持 HEAD：浏览器 <video>/<audio> 与部分下载器会先发 HEAD 探测
+    Content-Length / Accept-Ranges，只注册 GET 会返回 405 Method Not Allowed。
     """
     return await build_download_response(
         db,

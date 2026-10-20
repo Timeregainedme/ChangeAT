@@ -689,3 +689,71 @@ apt-get install -y --no-install-recommends ffmpeg
 **注意（重建实例时必做）**：apt + systemd 部署路径没有 Dockerfile 自动带依赖，
 重建主机后需手动补齐：`python3.12-venv redis-server build-essential pkg-config
 default-libmysqlclient-dev npm mysql-server ffmpeg xfsprogs`。
+
+### 9.14 2026-10-20：完成一次全项目跑通，修复导出成片与下载端点问题
+
+用户完整跑了一遍「剧本 → 分镜 → 图片 → 视频 → 导出成片」，暴露三处问题。
+
+**① 视频生成失败 ×2：`seconds must be >= 4`**
+
+- 优云智算 MiniMax-H3 要求单段时长 ≥ 4 秒。
+- 失败发生在 14:20–14:21，当时镜头 `duration` 尚未设置。
+- 后续把镜头时长设为 4/4/8/8/10/5/7 秒后，7 个镜头的视频**全部生成成功**。
+- 属参数约束，非代码缺陷；如需支持更短镜头，应在前端提交前就拦截并提示。
+
+**② 导出成片 400（14:38）→ 重试成功（14:40）**
+
+- 首次导出时部分镜头还没有视频，时间线导出前置校验返回 400。
+- 补齐视频后重试即 200，成片已生成：`纸尿裤-成片.mp4`。
+
+**③ 下载端点 HEAD 返回 405**
+
+- 浏览器 `<video>` / 下载器会先发 **HEAD** 探测 `Content-Length`、`Accept-Ranges`。
+- `download` 端点原只注册了 `@router.get`，HEAD 请求报 `405 Method Not Allowed`。
+- 修复：改为 `@public_router.api_route(..., methods=["GET", "HEAD"])`。
+
+**④ 导出成片的 `thumbnail` 为空（隐藏问题）**
+
+`timeline.py` 导出时写死 `thumbnail=""`：
+
+```python
+file_item = await create_and_refresh(db, FileItem(..., thumbnail="", storage_key=key))
+```
+
+后果：
+- 成片无法用 CDN 直链访问，`build_download_response` 只能回退后端流式代理；
+- 8.4 MB 视频每次播放都占用 EC2 出网带宽。
+
+修复：改用 `storage.upload_file` 的返回值 `StoredFileInfo.url`
+（`upload_file` 本就返回公开 URL，之前被丢弃了）：
+
+```python
+stored = await storage.upload_file(...)   # StoredFileInfo(key, url, etag)
+... FileItem(..., thumbnail=stored.url, ...)
+```
+
+**历史数据回填**：扫描 `thumbnail` 为空的 `files` 记录并补写公开 URL：
+
+```
+发现 1 条 thumbnail 为空的记录
+  [ok] 纸尿裤-成片.mp4 -> https://pub-6dcd8c3d...r2.dev/exports/073ab715-...mp4
+回填 1 条，失败 0 条
+```
+
+**验证**：
+
+| 检查 | 结果 |
+| --- | --- |
+| `HEAD /studio/files/<id>/download` | **302**（原 405） |
+| `GET` 跟随重定向 | 302 → R2 → **200, 8,387,958 bytes, video/mp4** |
+| `Range: bytes=0-1023` | **206, 1024 字节**（seek 正常） |
+
+**全项目当前状态**：
+
+| 项 | 数量 |
+| --- | --- |
+| 项目 / 章节 / 镜头 | 1 / 1 / 7 |
+| 图片 | 12 |
+| 视频（分镜） | 7 |
+| 成片 | 1（`纸尿裤-成片.mp4`，8.4 MB） |
+| 失败任务 | 3（均为上述已解决的历史失败） |
