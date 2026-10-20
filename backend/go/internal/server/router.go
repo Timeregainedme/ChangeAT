@@ -83,6 +83,7 @@ func NewRouter(deps Deps) http.Handler {
 				r.Get("/studio/chapters/{chapter_id}", chapterHandler.Get)
 
 				// 任务状态与结果查询：前端任务中心的高频轮询入口。
+				r.Get("/film/tasks", taskHandler.List)
 				r.Get("/film/tasks/{task_id}/status", taskHandler.Status)
 				r.Get("/film/tasks/{task_id}/result", taskHandler.Result)
 			})

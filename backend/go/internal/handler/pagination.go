@@ -56,3 +56,34 @@ func parsePositiveInt(raw string) (*int, error) {
 	}
 	return &v, nil
 }
+
+// parsePaginationWithDefault 与 parsePagination 相同，但可指定 page_size 默认值。
+//
+// 任务列表的 page_size 默认是 20，而项目/章节是 10 —— 与 Python 各路由的
+// Query 默认值保持一致，避免切流后前端拿到的条数变化。
+func parsePaginationWithDefault(rawPage, rawPageSize string, defaultPageSize int) (page int, pageSize int, errMessage string) {
+	page = 1
+	pageSize = defaultPageSize
+
+	if v, err := parsePositiveInt(rawPage); err != nil {
+		return 0, 0, "query.page: " + err.Error()
+	} else if v != nil {
+		page = *v
+	}
+	if page < 1 {
+		return 0, 0, "query.page: Input should be greater than or equal to 1"
+	}
+
+	if v, err := parsePositiveInt(rawPageSize); err != nil {
+		return 0, 0, "query.page_size: " + err.Error()
+	} else if v != nil {
+		pageSize = *v
+	}
+	if pageSize < 1 {
+		return 0, 0, "query.page_size: Input should be greater than or equal to 1"
+	}
+	if pageSize > 100 {
+		return 0, 0, "query.page_size: Input should be less than or equal to 100"
+	}
+	return page, pageSize, ""
+}

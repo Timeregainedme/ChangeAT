@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -52,6 +53,113 @@ type taskResultRead struct {
 	StartedAt         *float64 `json:"started_at_ts"`
 	FinishedAt        *float64 `json:"finished_at_ts"`
 	ElapsedMS         *int64   `json:"elapsed_ms"`
+}
+
+// taskListItemRead 对应 Python 的 `TaskListItemRead`。
+type taskListItemRead struct {
+	TaskID                   string   `json:"task_id"`
+	TaskKind                 string   `json:"task_kind"`
+	Status                   string   `json:"status"`
+	Progress                 int      `json:"progress"`
+	CancelRequested          bool     `json:"cancel_requested"`
+	CancelRequestedAt        *float64 `json:"cancel_requested_at_ts"`
+	StartedAt                *float64 `json:"started_at_ts"`
+	FinishedAt               *float64 `json:"finished_at_ts"`
+	ElapsedMS                *int64   `json:"elapsed_ms"`
+	CreatedAt                *float64 `json:"created_at_ts"`
+	UpdatedAt                *float64 `json:"updated_at_ts"`
+	ExecutorType             string   `json:"executor_type"`
+	ExecutorTaskID           *string  `json:"executor_task_id"`
+	RelationType             *string  `json:"relation_type"`
+	RelationEntityID         *string  `json:"relation_entity_id"`
+	ResourceType             *string  `json:"resource_type"`
+	NavigateRelationType     *string  `json:"navigate_relation_type"`
+	NavigateRelationEntityID *string  `json:"navigate_relation_entity_id"`
+}
+
+// List 处理 GET /api/v1/film/tasks（任务中心全局列表）。
+//
+// 参数细节必须与 Python 一致：
+//   - `statuses` 可多值（`?statuses=succeeded&statuses=failed`）；
+//   - `recent_seconds` 默认 300，范围 0~86400，且**仅在未指定 statuses 时生效**
+//     （Python 用的是 elif 分支）；
+//   - `page_size` 默认 20，范围 1~100。
+func (h *Task) List(w http.ResponseWriter, r *http.Request) {
+	workspaceID, ok := h.resolveWorkspace(w, r)
+	if !ok {
+		return
+	}
+
+	query := r.URL.Query()
+	page, pageSize, msg := parsePaginationWithDefault(query.Get("page"), query.Get("page_size"), 20)
+	if msg != "" {
+		response.WriteError(w, http.StatusUnprocessableEntity, msg)
+		return
+	}
+
+	recentSeconds := 300
+	if raw := query.Get("recent_seconds"); raw != "" {
+		v, err := strconv.Atoi(raw)
+		if err != nil {
+			response.WriteError(w, http.StatusUnprocessableEntity,
+				"query.recent_seconds: Input should be a valid integer, unable to parse string as an integer")
+			return
+		}
+		if v < 0 || v > 86400 {
+			response.WriteError(w, http.StatusUnprocessableEntity,
+				"query.recent_seconds: Input should be between 0 and 86400")
+			return
+		}
+		recentSeconds = v
+	}
+
+	params := store.TaskListParams{
+		WorkspaceID:   workspaceID,
+		Statuses:      query["statuses"],
+		RecentSeconds: recentSeconds,
+		Page:          page,
+		PageSize:      pageSize,
+	}
+	if v := query.Get("task_kind"); v != "" {
+		params.TaskKind = &v
+	}
+	if v := query.Get("relation_type"); v != "" {
+		params.RelationType = &v
+	}
+	if v := query.Get("relation_entity_id"); v != "" {
+		params.RelationEntityID = &v
+	}
+
+	items, total, err := h.tasks.ListTaskViews(r.Context(), params)
+	if err != nil {
+		response.WriteError(w, http.StatusInternalServerError, "读取任务列表失败")
+		return
+	}
+
+	out := make([]taskListItemRead, 0, len(items))
+	for _, item := range items {
+		out = append(out, taskListItemRead{
+			TaskID:                   item.ID,
+			TaskKind:                 item.TaskKind,
+			Status:                   item.Status,
+			Progress:                 item.Progress,
+			CancelRequested:          item.CancelRequested,
+			CancelRequestedAt:        unixSeconds(item.CancelRequestedAt),
+			StartedAt:                unixSeconds(item.StartedAt),
+			FinishedAt:               unixSeconds(item.FinishedAt),
+			ElapsedMS:                item.ElapsedMS,
+			CreatedAt:                unixSeconds(item.CreatedAt),
+			UpdatedAt:                unixSeconds(item.UpdatedAt),
+			ExecutorType:             item.ExecutorType,
+			ExecutorTaskID:           item.ExecutorTaskID,
+			RelationType:             item.RelationType,
+			RelationEntityID:         item.RelationEntityID,
+			ResourceType:             item.ResourceType,
+			NavigateRelationType:     item.NavigateRelationType,
+			NavigateRelationEntityID: item.NavigateRelationEntityID,
+		})
+	}
+	response.WriteSuccess(w, newPaginated(out, page, pageSize, total))
 }
 
 // Status 处理 GET /api/v1/film/tasks/{task_id}/status。
@@ -150,6 +258,25 @@ func (h *Task) loadScoped(
 	}
 
 	return task, true
+}
+
+// resolveWorkspace 解析当前请求所属工作区。
+func (h *Task) resolveWorkspace(w http.ResponseWriter, r *http.Request) (string, bool) {
+	userID, ok := middleware.UserIDFromContext(r.Context())
+	if !ok {
+		response.WriteError(w, http.StatusUnauthorized, "未登录，请先登录")
+		return "", false
+	}
+	workspaceID, _, err := h.workspaces.Resolve(r.Context(), userID, r.Header.Get("X-Workspace-ID"))
+	if errors.Is(err, store.ErrNotFound) {
+		response.WriteError(w, http.StatusNotFound, "工作区不存在")
+		return "", false
+	}
+	if err != nil {
+		response.WriteError(w, http.StatusInternalServerError, "读取工作区失败")
+		return "", false
+	}
+	return workspaceID, true
 }
 
 // unixSeconds 把时间转成 UNIX 秒（float）。
