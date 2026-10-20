@@ -2,7 +2,11 @@
 
 > **2026-10-21 品牌变更**：产品对外名称改为 **DyeingTime**，仓库同步改名为
 > `Timeregainedme/DyeingTime`（GitHub 侧改名；历史条目中的 `ChangeAT / jellyfish`
-> 字样保留原样，仅作为历史记录）。服务端目录 `/srv/changeAT`、systemd 单元
+> 字样保留原样，仅作为历史记录）。
+> 注意：截至 2026-10-21 01:15，`git@github.com:Timeregainedme/DyeingTime.git`
+> 仍返回 `Repository not found`（改名未生效或尚未推送），因此 `origin` 暂时保留
+> 可用的旧地址，并新增别名 `dyeingtime` 指向新地址；改名生效后执行
+> `git remote set-url origin git@github.com:Timeregainedme/DyeingTime.git && git remote remove dyeingtime` 即可。服务端目录 `/srv/changeAT`、systemd 单元
 > `changeat-api` / `changeat-celery`、内部包名 `jellyfish-backend` / `jellyfish-frontend`
 > 均属于内部标识，未做重命名（改动需要重建 venv/lock 与服务单元，收益低风险高）。
 
@@ -946,7 +950,10 @@ HTTP 错误分支：自合并 400、不存在 404、非法类型 400。
 `index.html` 增加 `<meta name="theme-color" content="#ff5a52">`（取自 logo 主色）。
 旧 `logo.svg`（front/public、front、docs/img 三处）已删除，避免与新图标混淆。
 
-**仓库**：`origin` 改为 `git@github.com:Timeregainedme/DyeingTime.git`。
+**仓库**：目标地址为 `git@github.com:Timeregainedme/DyeingTime.git`。
+该地址当前不可解析（`Repository not found`），因此：
+- `origin` 保留可用地址 `ChangeAT.git`（GitHub 改名后会 302 到新仓库，推送不受阻）；
+- 新增 `dyeingtime` 别名指向新地址，改名生效后一条命令切换。
 
 **未改动（内部标识）**：`/srv/changeAT` 部署目录、`changeat-*` systemd 单元、
 `jellyfish-backend` / `jellyfish-frontend` 包名、`jellyfish_*` 本地存储 key
