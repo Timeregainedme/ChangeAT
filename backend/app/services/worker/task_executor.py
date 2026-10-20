@@ -32,6 +32,19 @@ from app.services.worker.task_logging import log_task_event
 logger = logging.getLogger(__name__)
 
 
+def _format_task_error(exc: BaseException) -> str:
+    """把异常格式化为「始终非空」的错误消息。
+
+    为什么需要：某些库的异常 str() 为空（典型如 httpx.ReadTimeout），
+    直接把 str(exc) 写进任务 error 字段会导致前端/数据库看到空错误，
+    完全无法定位问题。
+    """
+    text = str(exc).strip()
+    if text:
+        return text
+    return f"{type(exc).__name__}（该异常无文本消息）"
+
+
 @dataclass(slots=True)
 class WorkerTaskContext:
     task_id: str
@@ -88,8 +101,9 @@ class AbstractWorkerTaskExecutor(ABC):
             self._log_event("failed", task_id, elapsed_ms=self._elapsed_ms(started_at), error=error)
         except Exception as exc:  # noqa: BLE001
             logger.exception("%s task failed: %s", self.task_kind, task_id)
-            self._mark_failed(task_id, str(exc))
-            self._log_event("failed", task_id, elapsed_ms=self._elapsed_ms(started_at), error=str(exc))
+            error = _format_task_error(exc)
+            self._mark_failed(task_id, error)
+            self._log_event("failed", task_id, elapsed_ms=self._elapsed_ms(started_at), error=error)
 
     def _mark_running_and_load_run_args(self, task_id: str) -> dict[str, Any] | None:
         with self._session_maker() as db:
@@ -250,12 +264,13 @@ class AbstractAsyncDelegatingExecutor(AbstractWorkerTaskExecutor):
             asyncio.run(self._run_async_with_runtime(task_id, run_args, timeout_seconds))
             self._log_event("succeeded", task_id, elapsed_ms=self._elapsed_ms(started_at))
         except TimeoutError as exc:
-            error = str(exc)
+            error = _format_task_error(exc)
             self._mark_failed(task_id, error)
             self._log_event("failed", task_id, elapsed_ms=self._elapsed_ms(started_at), error=error)
         except Exception as exc:  # noqa: BLE001
-            self._mark_failed(task_id, str(exc))
-            self._log_event("failed", task_id, elapsed_ms=self._elapsed_ms(started_at), error=str(exc))
+            error = _format_task_error(exc)
+            self._mark_failed(task_id, error)
+            self._log_event("failed", task_id, elapsed_ms=self._elapsed_ms(started_at), error=error)
             raise
 
     def _load_run_args(self, task_id: str) -> dict[str, Any]:

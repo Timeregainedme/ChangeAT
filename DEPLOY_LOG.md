@@ -522,3 +522,62 @@ props      手表           200  293,753 bytes
 costumes   护工护理工作服   200  228,155 bytes
 scene      深夜卧室        200  263,004 bytes
 ```
+
+### 9.11 2026-10-20：修复图片任务失败（下载供应商 CDN 超时 + error 字段为空）
+
+**现象**：`image_generation` 任务失败，`error` 字段为**空字符串**，无法定位。
+
+**排查**：`journalctl -u changeat-celery` 拿到完整 traceback：
+
+```
+httpx.ReadTimeout
+  image_task_runner.py:417  run_image_generation_task
+  image_task_runner.py:83   _persist_images_to_assets
+  utils/files.py:84         create_file_from_url_or_b64
+                            resp = await client.get(url, ...)
+```
+
+**根因（两个叠加）**：
+
+1. **下载超时过短**：`create_file_from_url_or_b64` 在 `httpx_timeout is None`
+   时没有显式设置 timeout，于是落回 **httpx 默认 5 秒**。
+   而供应商（PIX）出图后返回的是它自己的 CDN 直链，后端需要把图抓回来再上传
+   R2。在 us-east-2 跨洋链路上，抓 200-300KB 图片经常超过 5 秒 → `ReadTimeout`。
+   此时供应商侧**已经扣费出图**（日志 `billing.actual_cost_micro_usd: 5258`），
+   属于纯损失。
+
+2. **error 字段为空**：`httpx.ReadTimeout("")` 的 `str()` 返回空字符串，
+   `task_executor._mark_failed(task_id, str(exc))` 写库即为空，
+   前端与数据库都看不到失败原因。
+
+**修复**：
+
+- `utils/files.py`：
+  - `DEFAULT_DOWNLOAD_TIMEOUT_S = 120.0`（不再落回 5s）
+  - `DEFAULT_DOWNLOAD_RETRIES = 3`，对 `ReadTimeout` / `ConnectTimeout` /
+    `RemoteProtocolError` / `ReadError` 做指数退避重试（1s、2s）
+  - 显式 `follow_redirects=True`（CDN 常见 302 到实际存储）
+  - 重试耗尽后抛 `RuntimeError`，消息内拼接**异常类型**与 URL，
+    避免上层再遇到「str 为空」
+- `services/worker/task_executor.py`：
+  - 新增 `_format_task_error(exc)`，`str(exc)` 为空时回退为
+    `"{异常类型}（该异常无文本消息）"`
+  - 全部 4 处异常分支（HTTPException / Exception ×2 / TimeoutError）统一走该函数
+
+**验证**：拿日志里那张真实导致超时的 CDN 图片重跑：
+
+```
+修复前：81.7s 后 httpx.ReadTimeout，任务 failed，物品丢失
+修复后：3.61s 成功写入 R2
+```
+
+`_format_task_error` 单测式验证：
+
+```
+httpx.ReadTimeout('')     → 'ReadTimeout（该异常无文本消息）'
+httpx.ReadTimeout('timed out') → 'timed out'
+ValueError('明确错误')      → '明确错误'
+```
+
+**遗留**：失败任务 `84b7bd310e07470b90575b8dcc2a2580`（角色图，13:29）不会自动
+重跑，需要在前端重新发起生成。

@@ -2,7 +2,9 @@ from __future__ import annotations
 
 """文件相关工具：从 URL 或 base64 内容创建 FileItem，并上传到对象存储。"""
 
+import asyncio
 import base64
+import logging
 import os
 import uuid
 from dataclasses import dataclass
@@ -13,6 +15,25 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core import storage
 from app.models.studio import FileItem, FileType
 from app.models.types import FileUsageKind
+
+logger = logging.getLogger(__name__)
+
+# 默认下载超时与重试。
+#
+# 为什么需要：供应商（PIX / 优云智算等）返回的是它们自己的 CDN 直链，
+# 后端要先把生成结果抓回来再上传对象存储。在 us-east-2 这类跨洋链路上，
+# 抓一张 200-300KB 的图经常超过 httpx 默认的 5 秒（默认 timeout 未显式指定时
+# 就是 5s），表现为 httpx.ReadTimeout，最终整个生成任务被判失败——
+# 但供应商那边已经扣费出图，属于纯损失。
+# 因此这里给一个明显更宽松的默认值，并对瞬时网络错误做指数退避重试。
+DEFAULT_DOWNLOAD_TIMEOUT_S = 120.0
+DEFAULT_DOWNLOAD_RETRIES = 3
+_RETRYABLE_EXC = (
+    httpx.ReadTimeout,
+    httpx.ConnectTimeout,
+    httpx.RemoteProtocolError,
+    httpx.ReadError,
+)
 
 
 async def _infer_file_type_from_ext(ext: str) -> FileType:
@@ -77,14 +98,45 @@ async def create_file_from_url_or_b64(
     filename: str = ""
 
     if url:
-        client_kwargs: dict = {}
-        if httpx_timeout is not None:
-            client_kwargs["timeout"] = httpx_timeout
+        # 超时与重试：见文件顶部常量说明。
+        # 显式给定 timeout，避免落回 httpx 默认的 5 秒。
+        client_kwargs: dict = {
+            "timeout": httpx_timeout if httpx_timeout is not None else DEFAULT_DOWNLOAD_TIMEOUT_S,
+            "follow_redirects": True,
+        }
+        last_exc: Exception | None = None
         async with httpx.AsyncClient(**client_kwargs) as client:
-            resp = await client.get(url, headers=url_request_headers or None)
-            resp.raise_for_status()
-            content = resp.content
-            content_type = resp.headers.get("Content-Type")
+            for attempt in range(1, DEFAULT_DOWNLOAD_RETRIES + 1):
+                try:
+                    resp = await client.get(url, headers=url_request_headers or None)
+                    resp.raise_for_status()
+                    content = resp.content
+                    content_type = resp.headers.get("Content-Type")
+                    last_exc = None
+                    break
+                except _RETRYABLE_EXC as exc:
+                    last_exc = exc
+                    if attempt >= DEFAULT_DOWNLOAD_RETRIES:
+                        break
+                    backoff = 2 ** (attempt - 1)
+                    logger.warning(
+                        "下载素材失败（第 %s/%s 次，%s: %s），%ss 后重试: %s",
+                        attempt,
+                        DEFAULT_DOWNLOAD_RETRIES,
+                        type(exc).__name__,
+                        exc or "(无消息)",
+                        backoff,
+                        url,
+                    )
+                    await asyncio.sleep(backoff)
+
+        if last_exc is not None:
+            # 把异常类型拼进消息：httpx.ReadTimeout 的 str() 是空串，
+            # 直接 raise 会让上层写入的 error 字段为空，排查时看不到原因。
+            raise RuntimeError(
+                f"下载素材失败（已重试 {DEFAULT_DOWNLOAD_RETRIES} 次，超时 {client_kwargs['timeout']}s）: "
+                f"{type(last_exc).__name__}: {last_exc or '无错误消息'} | url={url}"
+            ) from last_exc
 
         # 从 URL 推断文件名
         path = Path(httpx.URL(url).path)
