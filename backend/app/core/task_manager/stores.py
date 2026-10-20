@@ -200,6 +200,7 @@ class TaskStore(Protocol):
         recent_seconds: int | None = None,
         page: int = 1,
         page_size: int = 20,
+        workspace_id: str | None = None,
     ) -> tuple[list[TaskListItemView], int]: ...
     async def set_status(self, task_id: str, status: TaskStatus) -> None: ...
     async def set_progress(self, task_id: str, progress: int) -> None: ...
@@ -275,6 +276,7 @@ class InMemoryTaskStore(TaskStore):
         recent_seconds: int | None = None,
         page: int = 1,
         page_size: int = 20,
+        workspace_id: str | None = None,
     ) -> tuple[list[TaskListItemView], int]:
         items = [
             TaskListItemView(
@@ -308,6 +310,11 @@ class InMemoryTaskStore(TaskStore):
             ]
         if task_kind:
             items = [item for item in items if item.task_kind == task_kind]
+        if workspace_id is not None:
+            # 内存实现只用于测试，任务记录里没有 workspace 字段时视为不匹配，
+            # 与 SQL 实现的「显式过滤」保持同一语义。
+            allowed = {tid for tid, rec in self._data.items() if getattr(rec, "workspace_id", None) == workspace_id}
+            items = [item for item in items if item.id in allowed]
         items.sort(key=lambda item: item.updated_at_ts or item.created_at_ts or 0, reverse=True)
         total = len(items)
         start = max(0, (page - 1) * page_size)
@@ -475,10 +482,16 @@ class SqlAlchemyTaskStore(TaskStore):
         recent_seconds: int | None = None,
         page: int = 1,
         page_size: int = 20,
+        workspace_id: str | None = None,
     ) -> tuple[list[TaskListItemView], int]:
         filters = []
         cutoff_dt: datetime | None = None
         join_links = relation_type is not None or relation_entity_id is not None
+        # 租户隔离：任务表自带 workspace_id（见 023 迁移），这里必须显式过滤。
+        # 列表接口路径里没有可被 router 级守卫拦截的资源 ID，
+        # 若漏掉这一条，任何登录账号都能看到全公司所有生成任务。
+        if workspace_id is not None:
+            filters.append(GenerationTask.workspace_id == workspace_id)
         if relation_type is not None:
             filters.append(GenerationTaskLink.relation_type == relation_type)
         if relation_entity_id is not None:

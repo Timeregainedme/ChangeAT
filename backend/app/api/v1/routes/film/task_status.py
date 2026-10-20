@@ -10,7 +10,7 @@ from app.api.utils import apply_order, paginate
 from app.core.task_manager import SqlAlchemyTaskStore
 from app.core.task_manager.types import TaskStatus
 from app.api.scoping import get_task_in_workspace, get_task_link_in_workspace, require_scoped_resource
-from app.dependencies import get_db
+from app.dependencies import WorkspaceContext, get_db, get_workspace_context
 from app.models.task_links import GenerationTaskLink
 from app.schemas.common import ApiResponse, PaginatedData, created_response, empty_response, paginated_response, success_response
 from app.services.common import entity_not_found
@@ -85,6 +85,7 @@ class GenerationTaskLinkRead(GenerationTaskLinkBase):
 )
 async def list_tasks(
     db: AsyncSession = Depends(get_db),
+    ctx: WorkspaceContext = Depends(get_workspace_context),
     statuses: list[TaskStatus] | None = Query(None, description="按任务状态过滤，可多选"),
     task_kind: str | None = Query(None, description="按 task_kind 过滤"),
     relation_type: str | None = Query(None, description="按 relation_type 过滤"),
@@ -102,6 +103,7 @@ async def list_tasks(
         recent_seconds=recent_seconds,
         page=page,
         page_size=page_size,
+        workspace_id=ctx.workspace_id,
     )
     return paginated_response(
         [
