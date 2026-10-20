@@ -1,7 +1,7 @@
 [project]
-name = "jellyfish-backend"
+name = "dyeingtime-backend"
 version = "0.1.0"
-description = "Jellyfish AI 短剧工厂 - 后端 API"
+description = "DyeingTime AI 短剧工厂 - 后端 API"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [

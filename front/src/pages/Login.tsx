@@ -7,10 +7,11 @@
  * - 成功后写入 useAuthStore 并跳回来源页（location.state.from）或项目列表。
  */
 import React, { useState } from 'react'
-import { Button, Card, Form, Input, Typography, message } from 'antd'
+import { Button, Card, Divider, Form, Input, Typography, message } from 'antd'
 import { LockOutlined, UserOutlined } from '@ant-design/icons'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useAuthStore, type AuthUser } from '../store/useAuthStore'
+import { GoogleSignInButton } from '../components/GoogleSignInButton'
 
 const { Title, Text } = Typography
 
@@ -35,7 +36,12 @@ const Login: React.FC = () => {
   const location = useLocation()
   const setSession = useAuthStore((s) => s.setSession)
   const [submitting, setSubmitting] = useState(false)
+  /** Google 登录请求进行中（与账号密码登录分开，避免互相锁按钮） */
+  const [googleSubmitting, setGoogleSubmitting] = useState(false)
   const [form] = Form.useForm<{ username: string; password: string }>()
+
+  /** Google OAuth Client ID 来自运行时注入的 env.js，改配置不需要重新构建前端。 */
+  const googleClientId = (window.__ENV?.GOOGLE_CLIENT_ID ?? '').trim()
 
   const from = (location.state as LocationState | null)?.from || '/projects'
 
@@ -62,13 +68,51 @@ const Login: React.FC = () => {
         return
       }
 
-      setSession(payload.data.access_token, payload.data.user)
-      message.success('登录成功')
-      navigate(from, { replace: true })
+      completeLogin(payload.data.access_token, payload.data.user)
     } catch (error) {
       message.error(error instanceof Error ? `无法连接服务：${error.message}` : '登录请求失败')
     } finally {
       setSubmitting(false)
+    }
+  }
+
+  /** 登录成功后的统一收尾：写入会话、提示、按来源页跳转。 */
+  const completeLogin = (token: string, user: AuthUser) => {
+    setSession(token, user)
+    message.success('登录成功')
+    navigate(from, { replace: true })
+  }
+
+  /**
+   * Google 登录：把 GIS 返回的 ID Token 交给后端校验。
+   *
+   * 前端不解析 token 内容——身份完全以服务端向 Google 校验的结果为准，
+   * 这样即使有人篡改请求体也无法伪造邮箱。
+   */
+  const handleGoogleCredential = async (credential: string) => {
+    setGoogleSubmitting(true)
+    try {
+      const resp = await fetch('/api/v1/auth/google', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ credential }),
+      })
+      let payload: LoginEnvelope | null = null
+      try {
+        payload = (await resp.json()) as LoginEnvelope
+      } catch {
+        payload = null
+      }
+      if (!resp.ok || !payload?.data?.access_token) {
+        const detail = (payload as unknown as { detail?: string } | null)?.detail
+        message.error(detail || payload?.message || `Google 登录失败（HTTP ${resp.status}）`)
+        return
+      }
+      completeLogin(payload.data.access_token, payload.data.user)
+    } catch (error) {
+      message.error(error instanceof Error ? `无法连接服务：${error.message}` : 'Google 登录请求失败')
+    } finally {
+      setGoogleSubmitting(false)
     }
   }
 
@@ -120,6 +164,23 @@ const Login: React.FC = () => {
             </Button>
           </Form.Item>
         </Form>
+
+        {googleClientId ? (
+          <>
+            <Divider plain className="!text-xs !text-gray-400">
+              或
+            </Divider>
+            {googleSubmitting ? (
+              <div className="text-center text-sm text-gray-500">正在验证 Google 账号…</div>
+            ) : (
+              <GoogleSignInButton
+                clientId={googleClientId}
+                onCredential={(credential) => void handleGoogleCredential(credential)}
+                disabled={submitting}
+              />
+            )}
+          </>
+        ) : null}
       </Card>
     </div>
   )

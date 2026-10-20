@@ -16,7 +16,7 @@ if TYPE_CHECKING:
     from app.core.contracts.video_generation import VideoGenerationInput
 
 # H3 支持 adaptive / 21:9 / 16:9 / 4:3 / 1:1 / 3:4 / 9:16；
-# adaptive 无对应业务语义，故只声明与 Jellyfish VideoRatio 的交集。
+# adaptive 无对应业务语义，故只声明与 DyeingTime VideoRatio 的交集。
 COMPSHARE_VIDEO_RATIOS = set(ALLOWED_RATIOS)
 COMPSHARE_VIDEO_RESOLUTIONS = ("480P", "768P", "1080P", "2K", "4K")
 DEFAULT_COMPSHARE_VIDEO_RESOLUTION = "768P"

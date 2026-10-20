@@ -1,6 +1,6 @@
 baseURL: "/"
 languageCode: "zh-cn"
-title: "Jellyfish AI 短剧工厂"
+title: "DyeingTime AI 短剧工厂"
 defaultContentLanguage: "zh"
 hasCJKLanguage: true
 enableRobotsTXT: true
@@ -41,7 +41,7 @@ menu:
       pageRef: /blog
       weight: 4
     - name: GitHub
-      url: "https://github.com/Forget-C/Jellyfish"
+      url: "https://github.com/Timeregainedme/DyeingTime"
       weight: 5
       params:
         icon: github
@@ -54,7 +54,7 @@ params:
     - 短剧生产
     - 分镜编辑
     - AI视频生成
-    - Jellyfish
+    - DyeingTime
   images:
     - /images/og-default.svg
   search:
@@ -78,5 +78,5 @@ params:
     default: system
     displayToggle: true
   social:
-    github: "https://github.com/Forget-C/Jellyfish"
+    github: "https://github.com/Timeregainedme/DyeingTime"
     x: "@ForgetCTeam"

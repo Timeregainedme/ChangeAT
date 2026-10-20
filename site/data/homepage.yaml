@@ -1,12 +1,12 @@
 hero:
-  title: "Jellyfish AI 短剧工厂"
+  title: "DyeingTime AI 短剧工厂"
   subtitle: "面向短剧生产的 AI 工作台，从剧本拆解到分镜、资产、生成与剪辑，一站完成。"
   primary:
     text: "查看文档"
     link: "/docs/"
   secondary:
     text: "访问 GitHub"
-    link: "https://github.com/Forget-C/Jellyfish"
+    link: "https://github.com/Timeregainedme/DyeingTime"
 
 features:
   - title: "一致性资产管理"
@@ -57,14 +57,14 @@ screenshots:
   items:
     - title: "项目概览"
       image: "/images/screenshots/project.png"
-      alt: "Jellyfish 项目概览"
+      alt: "DyeingTime 项目概览"
     - title: "资产管理"
       image: "/images/screenshots/assets.png"
-      alt: "Jellyfish 资产管理"
+      alt: "DyeingTime 资产管理"
 
 cta:
   title: "从源码到文档，一次搭好"
-  description: "查看快速开始、部署说明和项目结构文档，快速进入 Jellyfish 的开发与使用流程。"
+  description: "查看快速开始、部署说明和项目结构文档，快速进入 DyeingTime 的开发与使用流程。"
   primary:
     text: "开始阅读"
     link: "/docs/getting-started/local-dev/"

@@ -1,6 +1,6 @@
 """音频（语音合成）生成能力约束与参数校验辅助。
 
-Jellyfish 原本只有 text/image/video 三类生成能力；接入优云智算
+DyeingTime 原本只有 text/image/video 三类生成能力；接入优云智算
 IndexTTS 2.5 后新增 audio 类别，本模块承载其能力声明与校验。
 
 与 image/video 能力表同构：能力接入采用注册表，新增供应商在自己的

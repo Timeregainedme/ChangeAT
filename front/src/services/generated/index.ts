@@ -130,6 +130,7 @@ export type { FrameGuidanceDecisionRead } from './models/FrameGuidanceDecisionRe
 export type { GenerationTaskLinkCreate } from './models/GenerationTaskLinkCreate';
 export type { GenerationTaskLinkRead } from './models/GenerationTaskLinkRead';
 export type { GenerationTaskLinkUpdate } from './models/GenerationTaskLinkUpdate';
+export type { GoogleLoginRequest } from './models/GoogleLoginRequest';
 export type { HTTPValidationError } from './models/HTTPValidationError';
 export type { ImageGenerationOptionsRead } from './models/ImageGenerationOptionsRead';
 export type { LoginRequest } from './models/LoginRequest';

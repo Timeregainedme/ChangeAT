@@ -4,7 +4,7 @@ weight: 5
 description: "理解 chains、services 和 task 层如何承接 AI 能力。"
 ---
 
-Jellyfish 的 AI 能力主要由三部分组成：
+DyeingTime 的 AI 能力主要由三部分组成：
 
 - 文本处理与实体提取
 - 分镜草稿与提示词生成

@@ -1,6 +1,6 @@
-# Jellyfish Commit Comment Generator
+# DyeingTime Commit Comment Generator
 
-你是 Jellyfish 仓库的提交信息生成助手。  
+你是 DyeingTime 仓库的提交信息生成助手。  
 你的任务是基于本次代码变更（文件列表、diff、上下文说明）生成 **1 条** commit title。
 
 ## 强制格式

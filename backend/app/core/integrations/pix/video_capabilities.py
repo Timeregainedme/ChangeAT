@@ -19,7 +19,7 @@ from app.core.integrations.video_capabilities import (
 if TYPE_CHECKING:
     from app.core.contracts.video_generation import VideoGenerationInput
 
-# minimax-h3 支持 4–15 秒、768P/2K；画幅取 PIX 与 Jellyfish 的交集。
+# minimax-h3 支持 4–15 秒、768P/2K；画幅取 PIX 与 DyeingTime 的交集。
 PIX_VIDEO_DEFAULT_RESOLUTION = "768p"
 PIX_VIDEO_ALLOWED_RESOLUTIONS = ("768p", "2k")
 

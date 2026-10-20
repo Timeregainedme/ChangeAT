@@ -289,7 +289,7 @@ type KeyframeResolutionProfile = 'standard' | 'high'
 
 type InspectorTabKey = 'ops' | 'camera' | 'prompt_image' | 'dialogue' | 'keyframe_gen' | 'gen_ref'
 
-const LAYOUT_STORAGE_KEY = 'jellyfish_chapter_studio_layout_v1'
+const LAYOUT_STORAGE_KEY = 'dyeingtime_chapter_studio_layout_v1'
 type PromptFrameType = 'first' | 'key' | 'last'
 
 function clamp(n: number, min: number, max: number) {
@@ -681,7 +681,7 @@ const ChapterStudio: React.FC = () => {
     [capabilityDefaultVideoRatio, projectDefaultVideoRatio],
   )
 
-  const hiddenKey = useMemo(() => (chapterId ? `jellyfish_hidden_shots_${chapterId}` : null), [chapterId])
+  const hiddenKey = useMemo(() => (chapterId ? `dyeingtime_hidden_shots_${chapterId}` : null), [chapterId])
   const hiddenIds = useMemo(() => {
     if (!hiddenKey) return new Set<string>()
     try {
@@ -3065,7 +3065,7 @@ function Inspector(props: {
   const [imageVersion, setImageVersion] = useState('v1')
   // 默认走参考图模式：分镜视频统一用角色卡/场景等资产作参考图，而不是首尾帧。
   const [refImageType, setRefImageType] = useState<string | undefined>('reference')
-  // A5：平台自带的提示词优化，默认关闭（提示词内容由 Jellyfish 自己控制）。
+  // A5：平台自带的提示词优化，默认关闭（提示词内容由 DyeingTime 自己控制）。
   const [platformPromptOptimize, setPlatformPromptOptimize] = useState(false)
   const [platformPromptSkillId, setPlatformPromptSkillId] = useState('')
   const [refFrameTypeSelectLoading, setRefFrameTypeSelectLoading] = useState(false)

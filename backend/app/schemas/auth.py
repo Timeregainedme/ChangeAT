@@ -23,6 +23,9 @@ class UserRead(BaseModel):
     username: str
     display_name: str | None = None
     is_active: bool
+    email: str | None = None
+    avatar_url: str | None = None
+    auth_provider: str = "local"
     created_at: datetime | None = None
 
 
@@ -33,3 +36,13 @@ class TokenResponse(BaseModel):
     token_type: str = "bearer"
     expires_in: int = Field(description="有效期（秒）")
     user: UserRead
+
+
+class GoogleLoginRequest(BaseModel):
+    """Google 登录请求。
+
+    `credential` 由 Google Identity Services 在浏览器端签发（ID Token，JWT）。
+    后端只做校验与账号匹配，不接受前端自报的 email，避免伪造身份。
+    """
+
+    credential: str = Field(min_length=20, description="Google ID Token（GIS 返回的 credential）")

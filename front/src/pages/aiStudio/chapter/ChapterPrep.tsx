@@ -374,7 +374,7 @@ type ExistingEntities = {
 }
 
 function entitiesStorageKey(projectId: string) {
-  return `jellyfish_project_entities_v1:${projectId}`
+  return `dyeingtime_project_entities_v1:${projectId}`
 }
 
 function toUIChapter(c: ChapterRead): Chapter {

@@ -27,6 +27,27 @@ const resources = {
   },
 }
 
+/**
+ * 迁移旧品牌时期的语言偏好键。
+ *
+ * 语言偏好属于弱数据，但顺手迁移可以避免用户打开后发现界面语言被重置。
+ */
+function migrateLegacyLanguageKey(): void {
+  if (typeof window === 'undefined') return
+  try {
+    const legacy = window.localStorage.getItem('jellyfish_language')
+    if (!legacy) return
+    if (!window.localStorage.getItem('dyeingtime_language')) {
+      window.localStorage.setItem('dyeingtime_language', legacy)
+    }
+    window.localStorage.removeItem('jellyfish_language')
+  } catch {
+    // 忽略不可用场景
+  }
+}
+
+migrateLegacyLanguageKey()
+
 i18n
   .use(LanguageDetector)
   .use(initReactI18next)
@@ -41,7 +62,7 @@ i18n
     },
     detection: {
       order: ['localStorage', 'navigator', 'htmlTag'],
-      lookupLocalStorage: 'jellyfish_language',
+      lookupLocalStorage: 'dyeingtime_language',
     },
   })
 

@@ -1,7 +1,7 @@
 ---
 title: "项目结构"
 weight: 1
-description: "快速理解 Jellyfish 当前真实生效的顶层目录与主业务链路。"
+description: "快速理解 DyeingTime 当前真实生效的顶层目录与主业务链路。"
 ---
 
 > 本文属于“当前架构”文档，描述的是当前项目的真实目录结构与职责分层。
@@ -9,7 +9,7 @@ description: "快速理解 Jellyfish 当前真实生效的顶层目录与主业�
 ## 顶层目录
 
 ```text
-jellyfish/
+dyeingtime/
 ├── backend/    # FastAPI、服务层、模型层、AI 工作流
 ├── front/      # React + Vite 前端工作台
 ├── deploy/     # Docker 与 Compose 配置

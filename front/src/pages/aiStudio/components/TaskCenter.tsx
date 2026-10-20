@@ -17,8 +17,8 @@ import {
 } from './taskUiStore'
 import { useResolvedTaskCenterTasks } from './taskCenterMeta'
 
-const TASK_CENTER_OPEN_STORAGE_KEY = 'jellyfish_task_center_open_v1'
-const TASK_CENTER_POSITION_STORAGE_KEY = 'jellyfish_task_center_position_v1'
+const TASK_CENTER_OPEN_STORAGE_KEY = 'dyeingtime_task_center_open_v1'
+const TASK_CENTER_POSITION_STORAGE_KEY = 'dyeingtime_task_center_position_v1'
 const TASK_CENTER_EDGE_PADDING = 24
 const TASK_CENTER_BUTTON_WIDTH = 132
 const TASK_CENTER_BUTTON_HEIGHT = 40

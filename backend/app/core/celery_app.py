@@ -14,7 +14,7 @@ from app.core.db import reset_db_runtime
 
 
 celery_app = Celery(
-    "jellyfish",
+    "dyeingtime",
     broker=settings.celery_broker_url,
     include=["app.tasks.execute_task"],
 )

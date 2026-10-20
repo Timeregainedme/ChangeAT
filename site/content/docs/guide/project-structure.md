@@ -1,13 +1,13 @@
 ---
 title: "项目结构"
 weight: 1
-description: "快速理解 Jellyfish 的顶层目录和主业务链路。"
+description: "快速理解 DyeingTime 的顶层目录和主业务链路。"
 ---
 
 ## 顶层目录
 
 ```text
-jellyfish/
+dyeingtime/
 ├── backend/    # FastAPI、服务层、模型层、AI 工作流
 ├── front/      # React + Vite 前端工作台
 ├── deploy/     # Docker 与 Compose 配置

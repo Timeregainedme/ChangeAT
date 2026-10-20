@@ -1,7 +1,7 @@
 ---
 title: "贡献指南"
 weight: 1
-description: "参与 Jellyfish 代码和文档协作的起点。"
+description: "参与 DyeingTime 代码和文档协作的起点。"
 ---
 
 ## 贡献方式

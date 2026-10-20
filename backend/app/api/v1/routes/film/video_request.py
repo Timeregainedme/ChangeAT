@@ -44,7 +44,7 @@ class VideoGenerationTaskRequest(BaseModel):
             "再继承项目的 default_video_ratio"
         ),
     )
-    # A5：平台自带的提示词优化，默认关闭（由 Jellyfish 自己控制提示词内容）。
+    # A5：平台自带的提示词优化，默认关闭（由 DyeingTime 自己控制提示词内容）。
     use_context_ir: bool = Field(
         False, description="是否使用供应商平台自带的提示词优化，默认关闭"
     )

@@ -126,7 +126,7 @@ def build_compshare_video_body(input_: VideoGenerationInput) -> dict[str, Any]:
     - 首尾帧模式：用 role=first_frame/last_frame 提交（平台对图片支持 Data URL，上限 30 MiB）；
     - 参考图模式：每张图一个 role=reference_image，**顺序即提示词里 <Picture N> 的编号顺序**。
 
-    参考视频只接受公网 HTTP(S)，Jellyfish 暂不产生该素材；
+    参考视频只接受公网 HTTP(S)，DyeingTime 暂不产生该素材；
     参考音频同样只接受公网 HTTP(S)，已支持（配音产物直接使用对象存储公开 URL）。
     """
     validate_h3_reference_material(input_)
@@ -198,7 +198,7 @@ def build_compshare_video_body(input_: VideoGenerationInput) -> dict[str, Any]:
         body["ratio"] = input_.ratio
     if input_.watermark is not None:
         body["aigc_watermark"] = bool(input_.watermark)
-    # A5：平台自带的提示词优化，默认关闭（提示词内容由 Jellyfish 自己控制）。
+    # A5：平台自带的提示词优化，默认关闭（提示词内容由 DyeingTime 自己控制）。
     if input_.use_context_ir:
         body["use_context_ir"] = True
         if input_.skill_id:

@@ -57,7 +57,7 @@ class VideoGenerationInput(BaseModel):
         description="随机种子，-1 或 [0, 2^32-1]，供应商/模型可能有差异",
     )
     watermark: Optional[bool] = Field(None, description="是否包含水印，供应商/模型可能有差异")
-    # 平台自带的提示词优化（可选开关，默认关闭：由 Jellyfish 自己控制提示词内容）。
+    # 平台自带的提示词优化（可选开关，默认关闭：由 DyeingTime 自己控制提示词内容）。
     use_context_ir: Optional[bool] = Field(
         None, description="是否使用供应商平台自带的提示词优化，默认关闭"
     )

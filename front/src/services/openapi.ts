@@ -1,14 +1,6 @@
 import { OpenAPI } from './generated'
 import { getStoredToken } from '../store/useAuthStore'
 
-declare global {
-  interface Window {
-    __ENV?: {
-      BACKEND_URL?: string
-    }
-  }
-}
-
 /**
  * 初始化由 OpenAPI 生成的请求客户端。
  *

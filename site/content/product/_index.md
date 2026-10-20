@@ -1,7 +1,7 @@
 ---
 title: "产品"
 weight: 1
-description: "理解 Jellyfish 的定位、能力结构、工作流和路线图。"
+description: "理解 DyeingTime 的定位、能力结构、工作流和路线图。"
 images:
   - /images/og-default.svg
 cascade:
@@ -9,7 +9,7 @@ cascade:
     toc: false
 ---
 
-Jellyfish 是一个面向 **AI 短剧生产** 的工作台型产品，重点不是单点生成，而是把脚本、分镜、资产、生成、剪辑这些环节串成一条可复用、可追踪的生产链。
+DyeingTime 是一个面向 **AI 短剧生产** 的工作台型产品，重点不是单点生成，而是把脚本、分镜、资产、生成、剪辑这些环节串成一条可复用、可追踪的生产链。
 
 ## 你可以把它理解成什么
 

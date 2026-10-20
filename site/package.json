@@ -1,5 +1,5 @@
 {
-  "name": "jellyfish-site",
+  "name": "dyeingtime-site",
   "private": true,
   "scripts": {
     "dev": "hugo server --buildDrafts --disableFastRender",

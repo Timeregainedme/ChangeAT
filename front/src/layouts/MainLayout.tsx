@@ -244,7 +244,7 @@ const MainLayout: React.FC = () => {
               onChange={(value) => {
                 setLanguage(value)
                 void i18n.changeLanguage(value)
-                window.localStorage.setItem('jellyfish_language', value)
+                window.localStorage.setItem('dyeingtime_language', value)
                 document.documentElement.lang = value === 'en-US' ? 'en' : 'zh-CN'
               }}
               options={[

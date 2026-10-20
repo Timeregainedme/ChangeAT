@@ -344,7 +344,7 @@ async def export_project_timeline(db: AsyncSession, *, project_id: str) -> Timel
     files_by_id = {item.id: item for item in rows}
 
     size = _export_size(timeline.video_ratio)
-    workdir = Path(tempfile.mkdtemp(prefix="jellyfish-export-"))
+    workdir = Path(tempfile.mkdtemp(prefix="dyeingtime-export-"))
     try:
         normalized: list[Path] = []
         for position, clip in enumerate(timeline.clips, start=1):

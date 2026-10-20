@@ -1,7 +1,7 @@
 ---
 title: "路线图"
 weight: 4
-description: "了解 Jellyfish 已完成能力与后续重点方向。"
+description: "了解 DyeingTime 已完成能力与后续重点方向。"
 ---
 
 当前版本已具备项目管理、章节工作台、模型管理等核心交互与部分后端能力。后续重点方向包括：

@@ -68,7 +68,7 @@ Agent 提示词种子同样由生成器产出（`backend/scripts/gen_agent_promp
 应用方式：
 
 ```bash
-docker exec -i compose-mysql-1 mysql -uroot -p"$DB_PASS" --default-character-set=utf8mb4 jellyfish \
+docker exec -i compose-mysql-1 mysql -uroot -p"$DB_PASS" --default-character-set=utf8mb4 dyeingtime \
   < backend/sql/012-rewrite-prompt-templates.sql
 ```
 

@@ -19,7 +19,7 @@ from app.core.integrations.provider_capabilities import PrefixCapabilityStore
 if TYPE_CHECKING:
     from app.core.contracts.image_generation import ImageGenerationInput
 
-# PIX 支持的画幅与 Jellyfish 的 ImageTargetRatio 字面量取交集后的结果。
+# PIX 支持的画幅与 DyeingTime 的 ImageTargetRatio 字面量取交集后的结果。
 PIX_IMAGE_RATIOS = {"16:9", "4:3", "1:1", "3:4", "9:16", "21:9", "3:2", "2:3"}
 PIX_IMAGE_SIZES = {"1K", "2K", "4K"}
 

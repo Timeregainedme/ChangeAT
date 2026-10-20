@@ -19,14 +19,14 @@ class Settings(BaseSettings):
     )
 
     # App
-    app_name: str = "Jellyfish API"
+    app_name: str = "DyeingTime API"
     debug: bool = False
 
     # API
     api_v1_prefix: str = "/api/v1"
 
     # Database
-    database_url: str = "sqlite+aiosqlite:///./jellyfish.db"
+    database_url: str = "sqlite+aiosqlite:///./dyeingtime.db"
 
     # Redis / Celery Broker
     redis_host: str = "localhost"
@@ -57,7 +57,7 @@ class Settings(BaseSettings):
     s3_access_key_id: str | None = None
     s3_secret_access_key: str | None = None
     s3_bucket_name: str | None = None
-    # 可选：统一前缀，方便按环境/项目隔离，如 "jellyfish/dev"
+    # 可选：统一前缀，方便按环境/项目隔离，如 "dyeingtime/dev"
     s3_base_path: str = ""
     # 可选：对外访问基址（CDN 或自定义域名），为空则使用 S3 自带 URL 或预签名 URL
     s3_public_base_url: str | None = None
@@ -71,6 +71,22 @@ class Settings(BaseSettings):
     # 这是刻意设计：避免用内置默认值签发可被伪造的令牌。
     jwt_secret: str = ""
     jwt_expire_minutes: int = 60 * 12
+
+    # --- Google 登录 ---
+    # client_id 会下发给前端（通过 nginx 生成的 env.js），不属于机密；
+    # client_secret 只存服务端，保留给后续「服务端 code 交换」流程使用，
+    # 当前采用的是 GIS ID Token 校验流程（不需要 secret）。
+    google_client_id: str = ""
+    google_client_secret: str = ""
+    # 允许登录的 Google 邮箱，逗号分隔；支持 `@domain.com` 形式按域放行。
+    # 留空表示「任何已验证邮箱都可登录」——公网部署建议务必填写。
+    google_allowed_emails: str = ""
+    # Google ID Token 校验端点（测试可替换）
+    google_tokeninfo_url: str = "https://oauth2.googleapis.com/tokeninfo"
+
+    @property
+    def google_allowed_email_set(self) -> set[str]:
+        return {x.strip().lower() for x in (self.google_allowed_emails or "").split(",") if x.strip()}
 
     def model_post_init(self, __context: object) -> None:
         if not self.celery_broker_url or not str(self.celery_broker_url).strip():

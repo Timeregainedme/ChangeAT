@@ -10,6 +10,9 @@ export type UserRead = {
     username: string;
     display_name?: (string | null);
     is_active: boolean;
+    email?: (string | null);
+    avatar_url?: (string | null);
+    auth_provider?: string;
     created_at?: (string | null);
 };
 

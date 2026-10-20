@@ -6,14 +6,14 @@
 > 注意：截至 2026-10-21 01:15，`git@github.com:Timeregainedme/DyeingTime.git`
 > 仍返回 `Repository not found`（改名未生效或尚未推送），因此 `origin` 暂时保留
 > 可用的旧地址，并新增别名 `dyeingtime` 指向新地址；改名生效后执行
-> `git remote set-url origin git@github.com:Timeregainedme/DyeingTime.git && git remote remove dyeingtime` 即可。服务端目录 `/srv/changeAT`、systemd 单元
+> `git remote set-url origin git@github.com:Timeregainedme/DyeingTime.git && git remote remove dyeingtime` 即可。服务端目录 `/srv/dyeingtime`、systemd 单元
 > `changeat-api` / `changeat-celery`、内部包名 `jellyfish-backend` / `jellyfish-frontend`
 > 均属于内部标识，未做重命名（改动需要重建 venv/lock 与服务单元，收益低风险高）。
 
 - **主机**：`ip-172-31-2-3`（EC2 us-east-2a，公网 EIP `18.225.232.63`）
 - **域 / 网络**：`ChangeAT-Staging / AWS / Albany, OH`
 - **起止时间**：UTC `08:18 ~ 08:55` （2026-10-17）
-- **本机部署位置**：`/srv/changeAT`（HEAD = `32fe12a Add acknowledgment section in README`）
+- **本机部署位置**：`/srv/dyeingtime`（HEAD = `32fe12a Add acknowledgment section in README`）
 - **仓库原型**：`github.com/Timeregainedme/ChangeAT`（仓名是习惯名，内容上是 jellyfish，请参阅 jellyfish 的 README）
 
 > 本文档由 OpenCode 协助产出；**仅作 staging**，未启用 CA、CN2/CUG 等生产姿态。
@@ -28,7 +28,7 @@
 
 **未做**（按你“晚点时间”安排）：
 - 真实域名 / DNS 调整 / Let's Encrypt 证书
-- `/srv/changeAT/backend/.env` 里的真实 API key
+- `/srv/dyeingtime/backend/.env` 里的真实 API key
 - SG 中的进一步收紧、ufw 启动
 
 ---
@@ -89,8 +89,8 @@
   - 现有 ingress 包括：80/0.0.0.0/0、22/18.138.232.218/32、8443/0.0.0.0/0
 
 ### 4.6 后端
-- `/srv/changeAT/backend/.venv` 是 uv 创建的 venv，全部包从 `uv.lock` 解
-- `/srv/changeAT/backend/jellyfish.db` 是空 sqlite schema，由 `init_db.py` 创建
+- `/srv/dyeingtime/backend/.venv` 是 uv 创建的 venv，全部包从 `uv.lock` 解
+- `/srv/dyeingtime/backend/jellyfish.db` 是空 sqlite schema，由 `init_db.py` 创建
 
 ---
 
@@ -128,7 +128,7 @@
 
 ### 6.2 API key 填充顺序
 
-打开 `/srv/changeAT/backend/.env`，按下面表格填。填好后 `sudo systemctl restart changeat-api changeat-celery`。
+打开 `/srv/dyeingtime/backend/.env`，按下面表格填。填好后 `sudo systemctl restart changeat-api changeat-celery`。
 
 | Key | 填什么 | 影响 / 备注 |
 |-----|--------|-------|
@@ -181,7 +181,7 @@ aws ec2 revoke-security-group-ingress \
   --region us-east-2
 
 # 5. 拿掉部署本体
-sudo rm -rf /srv/changeAT
+sudo rm -rf /srv/dyeingtime
 
 # 6. （可选）拋弃 apt 装的东西。 **需慎重**：可能影响其他项目
 sudo apt purge --autoremove \
@@ -197,8 +197,8 @@ SSH 接口（22 / 443 / 2222 / 8443）未动，全过程不清零。
 
 1. **nginx `listen 443` 撞 sshd**——ssh.socket 里设了 `ListenStream=443`、`8443`、`2222`。一开始的 443 TLS 尝试 bind 后 0 worker active。后改 9443。
 2. **nexttrace 参数 parsing bug**——v1.7.4 --target 必须以唯一 positional 参数传，不能带 flag。报 `unknown arguments 1.1.1.1`。
-3. **ChangeAT 仓名 vs jellyfish 名同名**——仓库叫 `Timeregainedme/ChangeAT`，内容上完全与 jellyfish 一致；jellyfish 项目是从 `Forget-C/Jellyfish` fork + 改名的。HEAD 多一个 `32fe12a Add acknowledgment section in README`。
-4. **后端 `WorkingDirectory` 必须为 \`/srv/changeAT/backend\`**——sqlite 是相对路径 `jellyfish.db`，不设 systemd working dir 会建到 `/jellyfish.db`。
+3. **ChangeAT 仓名 vs jellyfish 名同名**——仓库叫 `Timeregainedme/ChangeAT`，内容上完全与 jellyfish 一致；jellyfish 项目是从 `Forget-C/DyeingTime` fork + 改名的。HEAD 多一个 `32fe12a Add acknowledgment section in README`。
+4. **后端 `WorkingDirectory` 必须为 \`/srv/dyeingtime/backend\`**——sqlite 是相对路径 `jellyfish.db`，不设 systemd working dir 会建到 `/jellyfish.db`。
 5. **`pnpm` 在 apt nodejs 18.19 下不默认提供**——装了 npm 然后 `npm i -g pnpm@9.15.9`。corepack 未启用是因为 apt nodejs 不带。
 
 ---
@@ -360,7 +360,7 @@ sudo cp /etc/nginx/nginx.conf.bak.<stamp> /etc/nginx/nginx.conf && sudo systemct
 
 ---
 
-> 本次部署在 forwarding、redeployment、reading-only 这些动作中没有修改任何你 jellyfish 仓库源文件。部署与仓库完全独立：仓库的源代码 + EC2 上的 \`/srv/changeAT\` 是两份独立副本，必要时你可以 \`rm -rf /srv/changeAT\` 同步环境重拉。
+> 本次部署在 forwarding、redeployment、reading-only 这些动作中没有修改任何你 jellyfish 仓库源文件。部署与仓库完全独立：仓库的源代码 + EC2 上的 \`/srv/dyeingtime\` 是两份独立副本，必要时你可以 \`rm -rf /srv/dyeingtime\` 同步环境重拉。
 
 ### 9.7 2026-10-20：模型供应商配置 + 账号登录
 
@@ -414,7 +414,7 @@ Celery worker 内部为函数调用，不经 HTTP，不受影响。
 **现象**：访问资产编辑页 `/assets/costumes/<id>/edit` 返回 404，nginx 日志：
 
 ```
-open() "/srv/changeAT/front/dist/assets/costumes/costume-xxx/edit" failed (2: No such file or directory)
+open() "/srv/dyeingtime/front/dist/assets/costumes/costume-xxx/edit" failed (2: No such file or directory)
 ```
 
 **根因**：前端路由与静态资源目录重名。
@@ -932,7 +932,7 @@ HTTP 错误分支：自合并 400、不存在 404、非法类型 400。
 
 **品牌名**：
 
-- 浏览器标题：`Jellyfish` → `DyeingTime`
+- 浏览器标题：`DyeingTime` → `DyeingTime`
 - 侧边栏标题 / 登录页主标题：`DyeingTime`（i18n `layout.title`，中英同步）
 - 欢迎语：`欢迎使用 DyeingTime` / `Welcome to DyeingTime`
 - 登录页与侧边栏 logo 的 `alt` 同步为 `DyeingTime`
@@ -955,9 +955,115 @@ HTTP 错误分支：自合并 400、不存在 404、非法类型 400。
 - `origin` 保留可用地址 `ChangeAT.git`（GitHub 改名后会 302 到新仓库，推送不受阻）；
 - 新增 `dyeingtime` 别名指向新地址，改名生效后一条命令切换。
 
-**未改动（内部标识）**：`/srv/changeAT` 部署目录、`changeat-*` systemd 单元、
+**未改动（内部标识）**：`/srv/dyeingtime` 部署目录、`changeat-*` systemd 单元、
 `jellyfish-backend` / `jellyfish-frontend` 包名、`jellyfish_*` 本地存储 key
 （改 key 会让已登录用户被登出、偏好重置）。
 
 **验证**：`pnpm typecheck` 通过；`/` 的 `<title>` 为 `DyeingTime`；
 `/logo.png`、`/favicon.png`、`/favicon-32.png`、`/apple-touch-icon.png` 均 200。
+
+### 9.20 2026-10-21：Google 登录
+
+**流程**：前端用 Google Identity Services（GIS）按钮拿到 ID Token → `POST /api/v1/auth/google`
+→ 服务端向 Google 校验 → 找到/创建账号 → 签发与本地登录相同的 JWT。
+
+**为什么用 ID Token 而不是服务端 code 交换**：不需要 redirect_uri / state / 回跳，前端只多一个官方
+按钮；校验交给 Google `tokeninfo` 端点，避免自管 JWKS 轮换。`GOOGLE_CLIENT_SECRET` 已存入
+服务端 `.env`，当前流程不使用，保留给后续 code 交换方案。
+
+**后端**：
+
+- 迁移 `backend/sql/021-add-google-oauth.sql`：
+  - `password_hash` 改为可空（Google 账号无本地密码）；
+  - 新增 `email`（唯一）、`google_sub`（唯一）、`avatar_url`、`auth_provider`（默认 local）。
+- `app/core/google_auth.py`：校验 `aud` / `iss` / `email_verified` / `sub`；
+  `is_email_allowed` 支持精确邮箱与 `@domain` 白名单。
+- `app/services/auth_accounts.py`：按 `google_sub` → `email` → 新建 的顺序匹配账号；
+  新建时 username 取邮箱前缀并做唯一化。
+- `POST /auth/google`；密码登录在 `password_hash` 为空时拒绝（Google 专用账号）。
+- `UserRead` 增加 `email` / `avatar_url` / `auth_provider`。
+
+**前端**：
+
+- 新增 `components/GoogleSignInButton.tsx`（按需加载 GIS 脚本、官方按钮样式）。
+- 登录页新增「或 / 使用 Google 账号登录」，仅在 `window.__ENV.GOOGLE_CLIENT_ID` 非空时展示。
+- `GOOGLE_CLIENT_ID` 由 nginx 生成的 `/env.js` 注入，换配置无需重新构建前端。
+
+**线上配置**（`/srv/dyeingtime/backend/.env`）：
+
+```bash
+GOOGLE_CLIENT_ID=110364971932-sa3mmor060sq6ahum6m96b2jsk2p2a2a.apps.googleusercontent.com
+GOOGLE_CLIENT_SECRET=***            # 仅服务端，权限 600
+GOOGLE_ALLOWED_EMAILS=              # 空 = 任何已验证 Google 邮箱可登录
+```
+
+**上线前必须在 Google 控制台补一项**：OAuth 客户端的「已获授权的 JavaScript 来源」
+加入 `https://tim.run.place`，否则按钮会提示 origin 不匹配。
+
+**安全建议**：`GOOGLE_ALLOWED_EMAILS` 为空时任何 Google 账号都能进入并消耗付费额度。
+公网环境建议填成 `you@gmail.com` 或 `@yourcompany.com`，改完 `systemctl restart dyeingtime-api` 生效。
+
+**验证**：非法 credential → 401；空 credential → 422；密码登录仍 200；
+登录页 Google 按钮正常渲染（见截图）；`/auth/me` 返回新增字段。
+
+---
+
+### 9.21 2026-10-21：内部标识统一改名（jellyfish / changeAT → DyeingTime）
+
+**代码层**：
+
+| 位置 | 旧 | 新 |
+| --- | --- | --- |
+| 包名 | `jellyfish-frontend` / `jellyfish-backend` | `dyeingtime-frontend` / `dyeingtime-backend` |
+| 后端 app 名 | `Jellyfish API` | `DyeingTime API` |
+| Celery app | `jellyfish` | `dyeingtime` |
+| 导出临时目录前缀 | `jellyfish-export-` | `dyeingtime-export-` |
+| SQLite 默认路径 | `./jellyfish.db` | `./dyeingtime.db` |
+| 前端存储键 | `jellyfish_token` / `jellyfish_user` / `jellyfish_language` / `jellyfish_*` | `dyeingtime_*` |
+| 部署脚本 | `scripts/jellyfish-docker.sh` | `scripts/dyeingtime-docker.sh` |
+| CI 镜像 | `ghcr.io/.../jellyfish-backend` / `-front` | `dyeingtime-backend` / `-front` |
+| 文档站 | title / package / homepage 数据 | DyeingTime |
+
+**存储键迁移**：`useAuthStore` 与 `i18n` 在启动时把旧键值搬到新键并删除旧键
+（幂等、只在目标键为空时写入），因此改名不会让已登录用户掉线、不会重置语言偏好。
+纯缓存类键（布局、隐藏镜头、任务中心位置等）直接改名，丢了会自动重建。
+
+**服务器层**：
+
+| 项 | 旧 | 新 |
+| --- | --- | --- |
+| 部署目录 | `/srv/changeAT` | `/srv/dyeingtime` |
+| systemd | `changeat-api` / `changeat-celery` | `dyeingtime-api` / `dyeingtime-celery` |
+| MySQL 库 | `jellyfish` | `dyeingtime` |
+| MySQL 账号 | `jellyfish@127.0.0.1` / `@localhost` | `dyeingtime@...`（`RENAME USER`，密码不变） |
+| nginx 站点 | `changeat` | `dyeingtime` |
+| nginx 日志 | `changeat*.log` | `dyeingtime*.log` |
+| 素材反代路径 | `/jellyfish-assets/` | `/dyeingtime-assets/`（DB 中无存量引用，已确认） |
+
+**执行要点**：
+
+- 改名前 `mysqldump` 全库 + 备份 `.env`、systemd 单元、nginx 配置到
+  `/srv/backup-rename-<ts>/`；
+- 目录移动后批量修正 venv 脚本 shebang 与 `pyvenv.cfg` 内的绝对路径
+  （否则 `.venv/bin/uvicorn` 会指向不存在的旧路径）；
+- 新建库 → 导入 → `RENAME USER` → 对新库授权 → 切 `.env` → 启新单元 → 摘旧单元；
+- **旧库 `jellyfish` 暂未删除**，作为回滚保险。确认稳定后可执行：
+  `sudo mysql -e "DROP DATABASE jellyfish;"`
+
+**回滚方式**（若新环境异常）：
+
+```bash
+sudo systemctl stop dyeingtime-api dyeingtime-celery
+sudo mv /srv/dyeingtime /srv/changeAT
+sudo mysql -e "DROP DATABASE dyeingtime;"
+# 恢复 /srv/backup-rename-<ts>/ 下的 .env、systemd 单元、nginx 配置后 daemon-reload
+```
+
+**验证**：
+
+- `dyeingtime-api` / `dyeingtime-celery` active，Celery `celery@... ready`；
+- `SELECT COUNT(*) FROM users` = 1（新库数据完整）；
+- `/` 200、`/api/v1/health` 200、密码登录 200、素材下载 302；
+- 旧存储键迁移实测：`jellyfish_token` → `dyeingtime_token`，旧键被删除，
+  刷新后仍停留在 `/projects` 且已登录；
+- `uv lock --check` 通过（顺带补上了此前缺失的 bcrypt / pyjwt 锁定项）。

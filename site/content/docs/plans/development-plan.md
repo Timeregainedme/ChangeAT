@@ -1,7 +1,7 @@
 ---
 title: "开发规划"
 weight: 6
-description: "Jellyfish 下一阶段的开发重点、优先级与实施方向。"
+description: "DyeingTime 下一阶段的开发重点、优先级与实施方向。"
 ---
 
 > 本文属于“任务计划”文档，描述当前仍在推进中的阶段目标与执行优先级。

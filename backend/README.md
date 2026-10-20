@@ -1,5 +1,5 @@
 
-# Jellyfish Backend
+# DyeingTime Backend
 
 基于 FastAPI + LangChain/LangGraph + SQLAlchemy 的后端 API，使用 **uv** 管理依赖。
 
@@ -106,7 +106,7 @@ cp .env.example .env
 
 ### 4. 初始化数据库（可选，MySQL/PostgreSQL 等）
 
-如果你使用的是 **SQLite 默认配置**（`DATABASE_URL=sqlite+aiosqlite:///./jellyfish.db`），可以跳过本节，首次访问时会自动创建文件。
+如果你使用的是 **SQLite 默认配置**（`DATABASE_URL=sqlite+aiosqlite:///./dyeingtime.db`），可以跳过本节，首次访问时会自动创建文件。
 
 若切换到 **MySQL / PostgreSQL 等外部数据库**，建议先手动初始化表结构：
 
@@ -114,13 +114,13 @@ cp .env.example .env
 
    ```env
    # SQLite（默认）
-   # DATABASE_URL=sqlite+aiosqlite:///./jellyfish.db
+   # DATABASE_URL=sqlite+aiosqlite:///./dyeingtime.db
 
    # MySQL（使用 aiomysql 驱动）
-   # DATABASE_URL=mysql+aiomysql://user:pass@localhost:3306/jellyfish
+   # DATABASE_URL=mysql+aiomysql://user:pass@localhost:3306/dyeingtime
 
    # PostgreSQL
-   # DATABASE_URL=postgresql+asyncpg://user:pass@localhost:5432/jellyfish
+   # DATABASE_URL=postgresql+asyncpg://user:pass@localhost:5432/dyeingtime
    ```
 
 2. 运行初始化脚本（使用 uv）：

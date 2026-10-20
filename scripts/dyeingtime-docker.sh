@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
-# Jellyfish Docker 部署管理脚本
+# DyeingTime Docker 部署管理脚本
 #
 # 用法：
-#   ./scripts/jellyfish-docker.sh up        # 构建并启动全部服务
-#   ./scripts/jellyfish-docker.sh init      # 初始化数据库表/素材 bucket（幂等）
-#   ./scripts/jellyfish-docker.sh down      # 停止并移除容器（保留数据卷）
-#   ./scripts/jellyfish-docker.sh destroy   # 停止并删除数据卷（会清空 MySQL/素材！）
-#   ./scripts/jellyfish-docker.sh ps        # 查看容器状态
-#   ./scripts/jellyfish-docker.sh logs [svc]# 跟踪日志（默认 backend）
-#   ./scripts/jellyfish-docker.sh check     # 端到端健康检查
+#   ./scripts/dyeingtime-docker.sh up        # 构建并启动全部服务
+#   ./scripts/dyeingtime-docker.sh init      # 初始化数据库表/素材 bucket（幂等）
+#   ./scripts/dyeingtime-docker.sh down      # 停止并移除容器（保留数据卷）
+#   ./scripts/dyeingtime-docker.sh destroy   # 停止并删除数据卷（会清空 MySQL/素材！）
+#   ./scripts/dyeingtime-docker.sh ps        # 查看容器状态
+#   ./scripts/dyeingtime-docker.sh logs [svc]# 跟踪日志（默认 backend）
+#   ./scripts/dyeingtime-docker.sh check     # 端到端健康检查
 set -euo pipefail
 
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -25,15 +25,15 @@ compose() {
 
 # 等待后端健康接口可用，最长约 5 分钟
 wait_backend() {
-  echo "[jellyfish] 等待后端就绪 ..."
+  echo "[dyeingtime] 等待后端就绪 ..."
   for _ in $(seq 1 60); do
     if [ "$(curl -s -m 5 -o /dev/null -w '%{http_code}' http://localhost:8000/api/v1/health)" = "200" ]; then
-      echo "[jellyfish] 后端就绪"
+      echo "[dyeingtime] 后端就绪"
       return 0
     fi
     sleep 5
   done
-  echo "[jellyfish] 后端超时未就绪，请检查 ./scripts/jellyfish-docker.sh logs backend" >&2
+  echo "[dyeingtime] 后端超时未就绪，请检查 ./scripts/dyeingtime-docker.sh logs backend" >&2
   return 1
 }
 
@@ -53,7 +53,7 @@ case "${1:-}" in
     compose down --remove-orphans
     ;;
   destroy)
-    echo "[jellyfish] 即将删除全部数据卷（MySQL 数据与素材文件都会丢失）"
+    echo "[dyeingtime] 即将删除全部数据卷（MySQL 数据与素材文件都会丢失）"
     read -r -p "确认请输入 yes: " ans
     [ "$ans" = "yes" ] || { echo "已取消"; exit 1; }
     compose down --remove-orphans -v

@@ -375,7 +375,7 @@ async def build_run_args(
             "seconds": shot_detail.duration,
         }
 
-    # A5：平台自带的提示词优化，默认关闭（提示词内容由 Jellyfish 自己控制）。
+    # A5：平台自带的提示词优化，默认关闭（提示词内容由 DyeingTime 自己控制）。
     if use_context_ir:
         input_payload["use_context_ir"] = True
         if skill_id:

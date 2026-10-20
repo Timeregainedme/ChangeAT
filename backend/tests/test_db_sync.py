@@ -10,10 +10,10 @@ from app.models.task import GenerationDeliveryMode, GenerationTask, GenerationTa
 
 def test_to_sync_database_url_converts_async_drivers() -> None:
     assert (
-        _to_sync_database_url("mysql+aiomysql://root:123456@localhost:3306/jellyfish")
+        _to_sync_database_url("mysql+aiomysql://root:123456@localhost:3306/dyeingtime")
         == "mysql+pymysql://root:123456@localhost:3306/jellyfish"
     )
-    assert _to_sync_database_url("sqlite+aiosqlite:///./jellyfish.db") == "sqlite:///./jellyfish.db"
+    assert _to_sync_database_url("sqlite+aiosqlite:///./dyeingtime.db") == "sqlite:///./jellyfish.db"
 
 
 def test_sync_task_store_roundtrip() -> None:
