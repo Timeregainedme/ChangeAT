@@ -31,12 +31,16 @@ from app.models.studio import (
     Prop,
     Scene,
     Shot,
+    ShotCharacterLink,
     ShotExtractedCandidate,
 )
 from app.models.types import ShotCandidateStatus
+from app.schemas.studio.cast import ShotCharacterLinkCreate
 from app.services.studio.entity_crud import create_entity
 from app.services.studio.entity_specs import LINK_MODEL_BY_ENTITY
+from app.services.studio.shot_character_links import upsert as upsert_shot_character_link
 from app.services.studio.shot_extracted_candidates import mark_linked_by_name
+from app.utils.project_links import upsert_project_link
 
 # 候选类型 → 实体类型名（与 entities 路由的 entity_type 对齐）。
 _CANDIDATE_ENTITY_TYPE: dict[str, str] = {
@@ -100,6 +104,88 @@ async def _find_existing_entity(
         )
     row = (await db.execute(stmt)).scalars().first()
     return str(row) if row is not None else None
+
+
+async def _link_existing_entity_to_shot(
+    db: AsyncSession,
+    *,
+    entity_type: str,
+    entity_id: str,
+    project_id: str,
+    chapter_id: str,
+    shot_id: str,
+) -> None:
+    """把「已存在」的实体关联到当前镜头。
+
+    为什么需要这个函数：
+        批量创建时若项目内已有同名实体，原逻辑走 existing 分支只做了
+        `mark_linked_by_name`（把候选标记为 linked），**没有写入
+        shot_character_links / project_prop_links / project_scene_links /
+        project_costume_links**。于是只有「首次出现该实体的那个镜头」建立了关联，
+        后续镜头虽然候选显示已关联，但 `linked-assets` 查不到，前端
+        「关联图片（参考图）」显示不全。
+
+    幂等：已存在关联时直接返回，不重复插入。
+    """
+    if entity_type == "character":
+        exists = (
+            await db.execute(
+                select(ShotCharacterLink.id)
+                .where(
+                    ShotCharacterLink.shot_id == shot_id,
+                    ShotCharacterLink.character_id == entity_id,
+                )
+                .limit(1)
+            )
+        ).scalars().first()
+        if exists is not None:
+            return
+        max_index = (
+            await db.execute(
+                select(ShotCharacterLink.index)
+                .where(ShotCharacterLink.shot_id == shot_id)
+                .order_by(ShotCharacterLink.index.desc())
+                .limit(1)
+            )
+        ).scalars().first()
+        await upsert_shot_character_link(
+            db,
+            body=ShotCharacterLinkCreate(
+                shot_id=shot_id,
+                character_id=entity_id,
+                index=(max_index if isinstance(max_index, int) else -1) + 1,
+                note="",
+            ),
+        )
+        return
+
+    link_pair = LINK_MODEL_BY_ENTITY.get(entity_type)
+    if link_pair is None:
+        return
+    link_model, asset_field = link_pair
+
+    exists = (
+        await db.execute(
+            select(link_model.id)
+            .where(
+                getattr(link_model, asset_field) == entity_id,
+                link_model.shot_id == shot_id,
+            )
+            .limit(1)
+        )
+    ).scalars().first()
+    if exists is not None:
+        return
+
+    await upsert_project_link(
+        db,
+        model=link_model,
+        asset_field=asset_field,  # type: ignore[arg-type]
+        asset_id=entity_id,
+        project_id=project_id,
+        chapter_id=chapter_id,
+        shot_id=shot_id,
+    )
 
 
 async def _create_entity_from_candidate(
@@ -231,6 +317,16 @@ async def create_assets_from_extraction_candidates(
                     )
                 else:
                     entity_id = existing_id
+                    # 复用已有实体时也必须建立「镜头 ↔ 资产」关联，
+                    # 否则后续镜头看不到该资产（前端参考图显示不全）。
+                    await _link_existing_entity_to_shot(
+                        db,
+                        entity_type=entity_type,
+                        entity_id=entity_id,
+                        project_id=project_id,
+                        chapter_id=chapter_id,
+                        shot_id=cand.shot_id,
+                    )
 
                 await mark_linked_by_name(
                     db,

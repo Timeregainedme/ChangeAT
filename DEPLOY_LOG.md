@@ -581,3 +581,69 @@ ValueError('明确错误')      → '明确错误'
 
 **遗留**：失败任务 `84b7bd310e07470b90575b8dcc2a2580`（角色图，13:29）不会自动
 重跑，需要在前端重新发起生成。
+
+### 9.12 2026-10-20：修复分镜参考图显示不全（复用实体时未建立镜头关联）
+
+**现象**：分镜编辑页「关联图片（参考图）」显示不全，部分镜头一张图都没有。
+
+**排查**：不是前端渲染问题，是**关联数据缺失**。
+
+| 表 | 修复前 | 说明 |
+| --- | --- | --- |
+| `shot_extracted_candidates` 中 `linked` 状态 | 角色 12 / 道具 6 / 场景 6 / 服装 6 | 候选都说「已关联」 |
+| `shot_character_links` | **3** | 实际只写了 3 条 |
+| `project_prop_links` | 5 | |
+| `project_scene_links` | 3 | |
+| `project_costume_links` | 2 | |
+
+典型例子：镜头 2「护工推门手电光束照向卧床老人」的 6 个候选全部 `linked`，
+但 `linked-assets` 只返回 1 条（手电筒）。
+
+**根因**：`batch_candidate_assets.py`（一键提取资产）的循环里：
+
+```python
+if existing_id is None:
+    entity_id = await _create_entity_from_candidate(...)  # create_entity 内部会写关联表
+else:
+    entity_id = existing_id                               # ← 只复用 ID，没有任何关联写入
+
+await mark_linked_by_name(...)                            # 只把候选标记为 linked
+```
+
+`create_entity` 内部会调用 `upsert_project_link` / `upsert_shot_character_link`
+建立关联，但「复用已有实体」的分支完全跳过了这一步。
+于是只有**首次出现该实体的那个镜头**建立了关联，后续镜头虽然候选显示
+已关联，`linked-assets` 却查不到 → 参考图缺失。
+
+这正是「7 个镜头引用 12 次角色，但 `shot_character_links` 只有 3 条」的成因。
+
+**修复（代码）**：
+
+- `batch_candidate_assets.py` 新增 `_link_existing_entity_to_shot()`：
+  对已存在实体补写对应关联（character → `shot_character_links`，
+  scene/prop/costume → `project_*_links`），带幂等判断避免重复插入。
+- existing 分支改为调用该函数。
+
+**修复（历史数据）**：一次性回填脚本遍历所有 `linked` 且
+`linked_entity_id` 非空的候选，补写缺失关联。
+
+```
+检查 30 个 linked 候选
+  补写关联: 30
+  跳过    : 0
+  失败    : 0
+```
+
+**验证**：
+
+| 关联类型 | 修复前 | 修复后 |
+| --- | --- | --- |
+| 角色 | 3 | **12** |
+| 道具 | 5 | **6** |
+| 场景 | 3 | **6** |
+| 服装 | 2 | **6** |
+
+`linked-assets` 返回的参考图总数 **7 → 26 张**；镜头 2 由 1 条变 6 条。
+
+**遗留**：镜头 7 的「场景」仍为空，属提取阶段未识别出场景，与关联写入无关。
+部分资产无缩略图（如「旁白」角色）是因为从未发起过该实体的图片生成任务。
