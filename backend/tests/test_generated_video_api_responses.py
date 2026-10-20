@@ -37,6 +37,14 @@ class _FakeDB:
     async def commit(self) -> None:
         self.committed = True
 
+    async def scalar(self, _stmt):  # noqa: ANN001
+        """工作区归属解析一律放行。
+
+        任务创建前会经 `resolve_workspace_id` 反查项目工作区，本替身没有业务数据，
+        返回占位对象让流程继续；隔离语义由 `test_workspace_multitenancy.py` 覆盖。
+        """
+        return "ws-test"
+
 
 async def _async_noop(*_args, **_kwargs) -> None:
     return None

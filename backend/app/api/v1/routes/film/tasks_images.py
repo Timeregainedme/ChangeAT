@@ -14,6 +14,8 @@ from app.services.film.shot_frame_prompt_tasks import (
 from app.services.studio.shot_status import mark_shot_generating
 from app.tasks.execute_task import enqueue_task_execution
 
+from app.services.common.workspace import resolve_workspace_id
+
 from .common import (
     ShotFramePromptRequest,
     TaskCreated,
@@ -43,11 +45,13 @@ async def create_shot_frame_prompt_task(
         frame_type=frame_type,
     )
 
+    workspace_id = await resolve_workspace_id(db, shot_id=body.shot_id)
     task_record = await tm.create(
         task=_CreateOnlyTask(),
         mode=DeliveryMode.async_polling,
         task_kind="shot_frame_prompt",
         run_args=run_args,
+        workspace_id=workspace_id,
     )
     db.add(
         GenerationTaskLink(

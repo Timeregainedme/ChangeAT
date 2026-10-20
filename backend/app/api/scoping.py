@@ -24,6 +24,8 @@ from app.models.studio import (
     Chapter,
     Character,
     Costume,
+    FileItem,
+    FileUsage,
     Project,
     ProjectActorLink,
     ProjectCostumeLink,
@@ -36,6 +38,8 @@ from app.models.studio import (
     ShotDialogLine,
     ShotFrameImage,
 )
+from app.models.task import GenerationTask
+from app.models.task_links import GenerationTaskLink
 from app.services.common import entity_not_found
 
 
@@ -293,6 +297,84 @@ async def get_shot_link_in_workspace(
         status_code=status.HTTP_404_NOT_FOUND,
         detail=entity_not_found("ShotLink"),
     )
+
+
+async def get_task_in_workspace(
+    db: AsyncSession,
+    task_id: str,
+    ctx: WorkspaceContext,
+):
+    """校验生成任务归属（任务表自带 workspace_id，一次主键查询即可）。"""
+    obj = await db.scalar(
+        select(GenerationTask).where(
+            GenerationTask.id == task_id,
+            GenerationTask.workspace_id == ctx.workspace_id,
+        )
+    )
+    if obj is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=entity_not_found("Task"),
+        )
+    return obj
+
+
+async def get_task_link_in_workspace(
+    db: AsyncSession,
+    link_id: str,
+    ctx: WorkspaceContext,
+):
+    """校验任务关联行归属（link → task → workspace）。"""
+    obj = await db.scalar(
+        select(GenerationTaskLink)
+        .join(GenerationTask, GenerationTask.id == GenerationTaskLink.task_id)
+        .where(
+            GenerationTaskLink.id == _as_int(link_id),
+            GenerationTask.workspace_id == ctx.workspace_id,
+        )
+    )
+    if obj is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=entity_not_found("Task link"),
+        )
+    return obj
+
+
+async def get_file_in_workspace(
+    db: AsyncSession,
+    file_id: str,
+    ctx: WorkspaceContext,
+):
+    """校验素材文件归属。
+
+    `files` 表自身没有归属列：一个文件可以被多个项目复用（演员定妆照、公共 BGM），
+    唯一可靠的归属记录在 `file_usages.project_id`。因此这里用 EXISTS 语义：
+    **任一条使用记录指向当前工作区的项目即放行**。
+
+    这样做的取舍：
+    - 不新增 `files.workspace_id`，避免「上传时还不知道会挂到哪个项目」的时序问题；
+    - 代价是未被任何项目引用的孤儿文件（上传后立刻删除关联）对所有租户不可见，
+      这是可接受的：孤儿文件本就不该被业务读取。
+    """
+    obj = await db.scalar(
+        select(FileItem).where(
+            FileItem.id == file_id,
+            select(FileUsage.id)
+            .join(Project, Project.id == FileUsage.project_id)
+            .where(
+                FileUsage.file_id == FileItem.id,
+                Project.workspace_id == ctx.workspace_id,
+            )
+            .exists(),
+        )
+    )
+    if obj is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=entity_not_found("File"),
+        )
+    return obj
 
 
 def _as_int(raw: str) -> int:

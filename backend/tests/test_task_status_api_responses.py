@@ -39,6 +39,31 @@ class _FakeTaskDB:
             return self.links.get(entity_id)
         return None
 
+    async def scalar(self, stmt):  # noqa: ANN001
+        """模拟任务/任务关联行的工作区守卫查询。
+
+        按主键回查内存字典，并按语句里出现的 workspace 条件做匹配：
+        任务自身有 workspace_id 列，关联行没有（归属经 task 继承），
+        因此关联行只校验存在性。
+        """
+        entity = stmt.column_descriptions[0]["entity"]
+        stores = {GenerationTask: self.tasks, GenerationTaskLink: self.links}
+        store = stores.get(entity)
+        if store is None:
+            return None
+        params = stmt.compile().params
+        pk = next((v for k, v in params.items() if k.split("_")[0] == "id"), None)
+        if pk is None:
+            return None
+        obj = store.get(pk)
+        if obj is None:
+            return None
+        expected_ws = next((v for k, v in params.items() if k.startswith("workspace_id")), None)
+        owner = getattr(obj, "workspace_id", None)
+        if expected_ws is not None and owner is not None and owner != expected_ws:
+            return None
+        return obj
+
     async def execute(self, *_args, **_kwargs):
         rows = list(self.links.values())
         return _FakeResult(rows)
@@ -62,6 +87,27 @@ class _FakeTaskDB:
     async def delete(self, obj: object) -> None:
         if isinstance(obj, GenerationTaskLink):
             self.links.pop(obj.id, None)
+
+
+def _seed_task_row(db: "_FakeTaskDB", task_id: str) -> None:
+    """给守卫准备一条任务行。
+
+    工作区守卫会在处理请求前按主键查一次任务，否则直接 404；
+    这些用例本来只 mock 了 store，不建任务行，加上 seed 才能走到被测逻辑。
+    """
+    from app.models.task import GenerationTask
+
+    db.tasks[task_id] = GenerationTask(
+        id=task_id,
+        workspace_id="ws-test",
+        mode="async_polling",
+        task_kind="test_task",
+        status="pending",
+        progress=0,
+        payload={},
+        result=None,
+        error="",
+    )
 
 
 def _override_db(db: _FakeTaskDB):
@@ -127,6 +173,7 @@ def test_cancel_task_returns_success_envelope(client: TestClient, monkeypatch) -
     monkeypatch.setattr(task_status_route, "SqlAlchemyTaskStore", _FakeStore)
     monkeypatch.setattr(task_status_route, "revoke_task_execution", lambda _task_id: False)
     db = _FakeTaskDB()
+    _seed_task_row(db, "task-1")
     app.dependency_overrides[get_db] = _override_db(db)
     try:
         response = client.post("/api/v1/film/tasks/task-1/cancel", json={"reason": "用户取消"})
@@ -183,6 +230,7 @@ def test_cancel_task_revokes_celery_and_marks_cancelled(client: TestClient, monk
     monkeypatch.setattr(task_status_route, "SqlAlchemyTaskStore", _FakeStore)
     monkeypatch.setattr(task_status_route, "revoke_task_execution", lambda task_id: task_id == "task-2")
     db = _FakeTaskDB()
+    _seed_task_row(db, "task-2")
     app.dependency_overrides[get_db] = _override_db(db)
     try:
         response = client.post("/api/v1/film/tasks/task-2/cancel", json={"reason": "立即取消"})
@@ -350,6 +398,7 @@ def test_get_task_result_returns_success_envelope(client: TestClient) -> None:
     started_at = datetime.now(UTC)
     finished_at = started_at
     task = GenerationTask(
+        workspace_id="ws-test",
         id="task-1",
         mode=GenerationDeliveryMode.async_polling,
         status=GenerationTaskStatus.succeeded,
@@ -405,6 +454,7 @@ def test_get_task_status_returns_timing_fields(client: TestClient, monkeypatch) 
 
     monkeypatch.setattr(task_status_route, "SqlAlchemyTaskStore", _FakeStore)
     db = _FakeTaskDB()
+    _seed_task_row(db, "task-1")
     app.dependency_overrides[get_db] = _override_db(db)
     try:
         response = client.get("/api/v1/film/tasks/task-1/status")

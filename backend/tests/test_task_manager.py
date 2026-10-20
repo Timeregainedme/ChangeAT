@@ -58,7 +58,7 @@ async def test_inmemory_async_polling_strategy_updates_status_progress_and_resul
         },
     )
 
-    task = await tm.create(task=DummyTask(), mode=DeliveryMode.async_polling, run_args={"a": 1})
+    task = await tm.create(task=DummyTask(), mode=DeliveryMode.async_polling, run_args={"a": 1}, workspace_id="ws-test")
     assert task.status == TaskStatus.pending
     assert task.progress == 0
 
@@ -97,7 +97,7 @@ async def test_inmemory_streaming_strategy_yields_chunks_and_marks_succeeded() -
         },
     )
 
-    task = await tm.create(task=DummyTask(), mode=DeliveryMode.streaming, run_args={"p": "x"})
+    task = await tm.create(task=DummyTask(), mode=DeliveryMode.streaming, run_args={"p": "x"}, workspace_id="ws-test")
     it = await tm.start(task_id=task.id)
     assert it is not None
 
@@ -132,7 +132,7 @@ async def test_sqlalchemy_store_create_and_get_status_view_sqlite_memory() -> No
             },
         )
 
-        task = await tm.create(task=DummyTask(), mode=DeliveryMode.async_polling, run_args={"k": "v"})
+        task = await tm.create(task=DummyTask(), mode=DeliveryMode.async_polling, run_args={"k": "v"}, workspace_id="ws-test")
         view = await tm.get_status(task_id=task.id)
         assert view.id == task.id
         assert view.status == TaskStatus.pending
@@ -172,12 +172,12 @@ async def test_sqlalchemy_store_list_task_views_relation_filter_deduplicates_tas
             payload={"run_args": {"chapter_id": "chapter-1"}},
             mode=DeliveryMode.async_polling,
             task_kind="script_extract",
-        )
+         workspace_id="ws-test")
         second = await store.create(
             payload={"run_args": {"chapter_id": "chapter-2"}},
             mode=DeliveryMode.async_polling,
             task_kind="script_extract",
-        )
+         workspace_id="ws-test")
         await store.set_status(first.id, TaskStatus.running)
         await store.set_status(second.id, TaskStatus.running)
 
@@ -226,7 +226,7 @@ async def test_request_cancel_keeps_running_task_pending_cancellation() -> None:
     store = InMemoryTaskStore()
     tm = TaskManager(store=store, strategies={})
 
-    task = await tm.create(task=DummyTask(), mode=DeliveryMode.async_polling, run_args={"a": 1})
+    task = await tm.create(task=DummyTask(), mode=DeliveryMode.async_polling, run_args={"a": 1}, workspace_id="ws-test")
     await store.set_status(task.id, TaskStatus.running)
 
     rec = await tm.request_cancel(task_id=task.id, reason="用户取消")

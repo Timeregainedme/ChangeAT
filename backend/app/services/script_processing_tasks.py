@@ -17,6 +17,7 @@ from app.core.db import async_session_maker
 from app.core.task_manager import DeliveryMode, SqlAlchemyTaskStore, TaskManager
 from app.core.task_manager.types import TaskStatus
 from app.dependencies import get_llm
+from app.services.common.workspace import resolve_workspace_id
 from app.models.task import GenerationTask, GenerationTaskStatus
 from app.models.task_links import GenerationTaskLink
 from app.chains.agents import EntityMergerAgent, VariantAnalyzerAgent
@@ -78,6 +79,7 @@ class AsyncTaskCreateResult:
     relation_entity_id: str
 
 
+
 async def _cancel_if_requested(
     store: SqlAlchemyTaskStore,
     task_id: str,
@@ -135,6 +137,7 @@ async def create_divide_task(
     chapter_id: str,
     script_text: str,
     write_to_db: bool,
+    workspace_id: str | None = None,
 ) -> AsyncTaskCreateResult:
     existing = await find_active_divide_task(db, chapter_id=chapter_id)
     if existing is not None:
@@ -159,6 +162,7 @@ async def create_divide_task(
         mode=DeliveryMode.async_polling,
         task_kind=SCRIPT_DIVIDE_TASK_KIND,
         run_args=run_args,
+        workspace_id=workspace_id,
     )
     db.add(
         GenerationTaskLink(
@@ -287,6 +291,7 @@ async def create_extract_task(
     script_division: dict,
     consistency: dict | None,
     refresh_cache: bool,
+    workspace_id: str | None = None,
 ) -> AsyncTaskCreateResult:
     existing = await find_active_extract_task(db, chapter_id=chapter_id)
     if existing is not None:
@@ -313,6 +318,7 @@ async def create_extract_task(
         mode=DeliveryMode.async_polling,
         task_kind=SCRIPT_EXTRACT_TASK_KIND,
         run_args=run_args,
+        workspace_id=workspace_id,
     )
     db.add(
         GenerationTaskLink(
@@ -341,6 +347,7 @@ async def create_merge_task(
     script_division: dict | None,
     previous_merge: dict | None,
     conflict_resolutions: list[dict] | None,
+    workspace_id: str | None = None,
 ) -> AsyncTaskCreateResult:
     existing = await find_active_merge_task(db, relation_entity_id=relation_entity_id)
     if existing is not None:
@@ -362,11 +369,13 @@ async def create_merge_task(
         "previous_merge": previous_merge,
         "conflict_resolutions": conflict_resolutions,
     }
+    workspace_id = workspace_id or await resolve_workspace_id(db, relation_entity_id=relation_entity_id)
     task_record = await tm.create(
         task=_CreateOnlyTask(),
         mode=DeliveryMode.async_polling,
         task_kind=SCRIPT_MERGE_TASK_KIND,
         run_args=run_args,
+        workspace_id=workspace_id,
     )
     db.add(
         GenerationTaskLink(
@@ -391,6 +400,7 @@ async def create_consistency_task(
     *,
     relation_entity_id: str,
     script_text: str,
+    workspace_id: str | None = None,
 ) -> AsyncTaskCreateResult:
     existing = await find_active_consistency_task(db, relation_entity_id=relation_entity_id)
     if existing is not None:
@@ -405,11 +415,13 @@ async def create_consistency_task(
 
     store = SqlAlchemyTaskStore(db)
     tm = TaskManager(store=store, strategies={})
+    workspace_id = workspace_id or await resolve_workspace_id(db, relation_entity_id=relation_entity_id)
     task_record = await tm.create(
         task=_CreateOnlyTask(),
         mode=DeliveryMode.async_polling,
         task_kind=SCRIPT_CONSISTENCY_TASK_KIND,
         run_args={"script_text": script_text},
+        workspace_id=workspace_id,
     )
     db.add(
         GenerationTaskLink(
@@ -436,6 +448,7 @@ async def create_variant_task(
     merged_library: dict,
     all_shot_extractions: list[dict],
     script_division: dict | None,
+    workspace_id: str | None = None,
 ) -> AsyncTaskCreateResult:
     existing = await find_active_variant_task(db, relation_entity_id=relation_entity_id)
     if existing is not None:
@@ -450,6 +463,7 @@ async def create_variant_task(
 
     store = SqlAlchemyTaskStore(db)
     tm = TaskManager(store=store, strategies={})
+    workspace_id = workspace_id or await resolve_workspace_id(db, relation_entity_id=relation_entity_id)
     task_record = await tm.create(
         task=_CreateOnlyTask(),
         mode=DeliveryMode.async_polling,
@@ -459,6 +473,7 @@ async def create_variant_task(
             "all_shot_extractions": all_shot_extractions,
             "script_division": script_division,
         },
+        workspace_id=workspace_id,
     )
     db.add(
         GenerationTaskLink(
@@ -485,6 +500,7 @@ async def _create_analysis_task(
     relation_type: str,
     relation_entity_id: str,
     run_args: dict,
+    workspace_id: str | None = None,
 ) -> AsyncTaskCreateResult:
     existing = await _find_active_analysis_task(db, relation_type=relation_type, relation_entity_id=relation_entity_id)
     if existing is not None:
@@ -499,11 +515,13 @@ async def _create_analysis_task(
 
     store = SqlAlchemyTaskStore(db)
     tm = TaskManager(store=store, strategies={})
+    workspace_id = workspace_id or await resolve_workspace_id(db, relation_entity_id=relation_entity_id)
     task_record = await tm.create(
         task=_CreateOnlyTask(),
         mode=DeliveryMode.async_polling,
         task_kind=task_kind,
         run_args=run_args,
+        workspace_id=workspace_id,
     )
     db.add(
         GenerationTaskLink(
@@ -529,6 +547,7 @@ async def create_character_portrait_task(
     relation_entity_id: str,
     character_context: str | None,
     character_description: str,
+    workspace_id: str | None = None,
 ) -> AsyncTaskCreateResult:
     return await _create_analysis_task(
         db,
@@ -539,7 +558,8 @@ async def create_character_portrait_task(
             "character_context": character_context,
             "character_description": character_description,
         },
-    )
+    
+        workspace_id=workspace_id,)
 
 
 async def create_prop_info_task(
@@ -548,6 +568,7 @@ async def create_prop_info_task(
     relation_entity_id: str,
     prop_context: str | None,
     prop_description: str,
+    workspace_id: str | None = None,
 ) -> AsyncTaskCreateResult:
     return await _create_analysis_task(
         db,
@@ -558,7 +579,8 @@ async def create_prop_info_task(
             "prop_context": prop_context,
             "prop_description": prop_description,
         },
-    )
+    
+        workspace_id=workspace_id,)
 
 
 async def create_scene_info_task(
@@ -567,6 +589,7 @@ async def create_scene_info_task(
     relation_entity_id: str,
     scene_context: str | None,
     scene_description: str,
+    workspace_id: str | None = None,
 ) -> AsyncTaskCreateResult:
     return await _create_analysis_task(
         db,
@@ -577,7 +600,8 @@ async def create_scene_info_task(
             "scene_context": scene_context,
             "scene_description": scene_description,
         },
-    )
+    
+        workspace_id=workspace_id,)
 
 
 async def create_costume_info_task(
@@ -586,6 +610,7 @@ async def create_costume_info_task(
     relation_entity_id: str,
     costume_context: str | None,
     costume_description: str,
+    workspace_id: str | None = None,
 ) -> AsyncTaskCreateResult:
     return await _create_analysis_task(
         db,
@@ -596,7 +621,8 @@ async def create_costume_info_task(
             "costume_context": costume_context,
             "costume_description": costume_description,
         },
-    )
+    
+        workspace_id=workspace_id,)
 
 
 async def create_script_optimization_task(
@@ -605,6 +631,7 @@ async def create_script_optimization_task(
     relation_entity_id: str,
     script_text: str,
     consistency: dict,
+    workspace_id: str | None = None,
 ) -> AsyncTaskCreateResult:
     return await _create_analysis_task(
         db,
@@ -615,7 +642,8 @@ async def create_script_optimization_task(
             "script_text": script_text,
             "consistency": consistency,
         },
-    )
+    
+        workspace_id=workspace_id,)
 
 
 async def create_script_simplification_task(
@@ -623,6 +651,7 @@ async def create_script_simplification_task(
     *,
     relation_entity_id: str,
     script_text: str,
+    workspace_id: str | None = None,
 ) -> AsyncTaskCreateResult:
     return await _create_analysis_task(
         db,
@@ -632,7 +661,8 @@ async def create_script_simplification_task(
         run_args={
             "script_text": script_text,
         },
-    )
+    
+        workspace_id=workspace_id,)
 
 
 def spawn_extract_task(task_id: str) -> None:

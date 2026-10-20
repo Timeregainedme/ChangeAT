@@ -27,6 +27,7 @@ from app.services.studio.file_usages import upsert_file_usage
 from app.services.studio.image_task_runner import _CreateOnlyTask
 from app.services.worker.async_task_support import cancel_if_requested_async
 from app.services.worker.task_logging import log_task_event, log_task_failure
+from app.services.common.workspace import resolve_workspace_id
 from app.utils.files import create_file_from_url_or_b64
 
 __all__ = [
@@ -393,11 +394,19 @@ async def create_audio_task_and_link(
     if shot_id:
         run_args["shot_id"] = shot_id
 
+    # 音频任务可能只挂在 shot 上，也可能挂在角色/项目上，统一由多态解析回溯。
+    workspace_id = await resolve_workspace_id(
+        db,
+        project_id=run_args.get("project_id"),
+        shot_id=shot_id,
+        relation_entity_id=relation_entity_id,
+    )
     task_record = await tm.create(
         task=_CreateOnlyTask(),
         mode=DeliveryMode.async_polling,
         task_kind="audio_generation",
         run_args=run_args,
+        workspace_id=workspace_id,
     )
 
     db.add(

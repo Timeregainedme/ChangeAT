@@ -14,7 +14,14 @@ from app.models.studio import ShotCharacterLink
 
 
 class _DummyDB:
-    pass
+    """空替身：本文件只验证响应壳，service 调用均被 monkeypatch。
+
+    守卫会先查一次镜头归属，这里返回占位对象表示通过；
+    越权语义由 `test_workspace_multitenancy.py` 用真实 DB 覆盖。
+    """
+
+    async def scalar(self, _stmt):  # noqa: ANN001
+        return object()
 
 
 def _override_db(db: _DummyDB):

@@ -37,6 +37,7 @@ class TaskManager:
         mode: DeliveryMode,
         task_kind: str | None = None,
         run_args: dict[str, Any] | None = None,
+        workspace_id: str | None = None,
     ) -> TaskRecord:
         """创建任务记录。
 
@@ -44,16 +45,25 @@ class TaskManager:
         - task: 实际要执行的 Task 对象，必须实现 run/status/is_done/get_result
         - mode: 结果交付方式（流式 / 任务+轮询）
         - run_args: 传给 task.run 的参数（会序列化到 payload，便于后续 worker 使用）
+        - workspace_id: 任务所属工作区。必传（或在 run_args 里带上），
+          否则任务无法被租户隔离。同时写入 payload，让 worker 侧
+          （`run_args["workspace_id"]`）在产出文件时能继承同一归属。
         """
+        run_args = dict(run_args or {})
+        resolved_workspace_id = workspace_id or run_args.get("workspace_id")
+        if resolved_workspace_id:
+            # 双写：payload 供 worker 读取，列供 SQL 过滤。
+            run_args.setdefault("workspace_id", resolved_workspace_id)
         payload: dict[str, Any] = {
             "task_class": task.__class__.__name__,
             "task_kind": task_kind or task.__class__.__name__,
-            "run_args": run_args or {},
+            "run_args": run_args,
         }
         return await self.store.create(
             payload=payload,
             mode=mode,
             task_kind=str(payload["task_kind"]),
+            workspace_id=resolved_workspace_id,
         )
 
     async def start(self, *, task_id: str) -> Optional[AsyncIterator[Any]]:

@@ -17,8 +17,17 @@ from app.schemas.studio.files import FileRead, FileTypeEnum
 
 
 class _DummyDB:
+    """最小替身：文件读写行为由各用例 monkeypatch 的 service 负责。
+
+    守卫会先查一次「文件是否属于当前工作区」，这里统一返回占位对象表示通过；
+    「不存在」的分支由 service 层自身的 not found 覆盖。
+    """
+
     async def get(self, *_args, **_kwargs):
         return None
+
+    async def scalar(self, _stmt):  # noqa: ANN001
+        return object()
 
     async def delete(self, *_args, **_kwargs) -> None:
         return None

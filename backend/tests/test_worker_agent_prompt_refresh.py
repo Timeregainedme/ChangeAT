@@ -95,6 +95,7 @@ def _seed_task(maker: sessionmaker[Session], *, task_id: str = "task-1") -> None
     with maker() as db:
         db.add(
             GenerationTask(
+                workspace_id="ws-test",
                 id=task_id,
                 mode="async_polling",
                 task_kind="test_refresh",
@@ -150,6 +151,7 @@ def _build_executor(tmp_path):
     with session_local() as db:
         db.add(
             GenerationTask(
+                workspace_id="ws-test",
                 id="task-1",
                 mode="async_polling",
                 task_kind="test_refresh",

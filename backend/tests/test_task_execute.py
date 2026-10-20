@@ -51,7 +51,7 @@ async def test_task_manager_create_persists_task_kind() -> None:
             mode=DeliveryMode.async_polling,
             task_kind="script_divide",
             run_args={"chapter_id": "chapter-1"},
-        )
+         workspace_id="ws-test")
 
         row = await db.get(GenerationTask, record.id)
         assert row is not None
@@ -72,6 +72,7 @@ def test_run_task_celery_routes_by_task_kind(monkeypatch, tmp_path) -> None:
     with sync_session_local() as db:
         db.add(
             GenerationTask(
+                workspace_id="ws-test",
                 id="task-1",
                 mode="async_polling",
                 task_kind="script_divide",
@@ -114,6 +115,7 @@ def test_enqueue_task_execution_records_executor(monkeypatch, tmp_path) -> None:
     with sync_session_local() as db:
         db.add(
             GenerationTask(
+                workspace_id="ws-test",
                 id="task-2",
                 mode="async_polling",
                 task_kind="script_extract",
@@ -156,6 +158,7 @@ def test_revoke_task_execution_revokes_celery_task(monkeypatch, tmp_path) -> Non
     with sync_session_local() as db:
         db.add(
             GenerationTask(
+                workspace_id="ws-test",
                 id="task-revoke",
                 mode="async_polling",
                 task_kind="video_generation",
@@ -212,6 +215,7 @@ def test_async_delegating_executor_marks_failed_on_timeout(monkeypatch, tmp_path
     with sync_session_local() as db:
         db.add(
             GenerationTask(
+                workspace_id="ws-test",
                 id="task-timeout",
                 mode="async_polling",
                 task_kind="video_generation",
@@ -261,6 +265,7 @@ def test_async_delegating_executor_marks_cancelled_before_start(monkeypatch, tmp
     with sync_session_local() as db:
         db.add(
             GenerationTask(
+                workspace_id="ws-test",
                 id="task-cancelled",
                 mode="async_polling",
                 task_kind="image_generation",
@@ -314,6 +319,7 @@ def test_async_delegating_executor_closes_db_in_same_event_loop(monkeypatch, tmp
     with sync_session_local() as db:
         db.add(
             GenerationTask(
+                workspace_id="ws-test",
                 id="task-close-loop",
                 mode="async_polling",
                 task_kind="image_generation",
@@ -361,6 +367,7 @@ def test_sync_executor_marks_failed_on_boundary_timeout(tmp_path) -> None:
     with sync_session_local() as db:
         db.add(
             GenerationTask(
+                workspace_id="ws-test",
                 id="task-sync-timeout",
                 mode="async_polling",
                 task_kind="script_divide",

@@ -41,7 +41,7 @@ async def test_run_video_generation_task_marks_cancelled_before_execute(monkeypa
             payload={"task_kind": "video_generation", "run_args": {"shot_id": "shot-1"}},
             mode=DeliveryMode.async_polling,
             task_kind="video_generation",
-        )
+         workspace_id="ws-test")
         await store.request_cancel(task.id, "用户取消")
         await db.commit()
 
@@ -78,7 +78,7 @@ async def test_run_image_generation_task_marks_cancelled_before_execute(monkeypa
             },
             mode=DeliveryMode.async_polling,
             task_kind="image_generation",
-        )
+         workspace_id="ws-test")
         await store.request_cancel(task.id, "用户取消")
         await db.commit()
 
@@ -115,7 +115,7 @@ async def test_run_shot_frame_prompt_task_marks_cancelled_before_execute(monkeyp
             payload={"task_kind": "shot_frame_prompt", "run_args": {"shot_id": "shot-1", "frame_type": "first"}},
             mode=DeliveryMode.async_polling,
             task_kind="shot_frame_prompt",
-        )
+         workspace_id="ws-test")
         await store.request_cancel(task.id, "用户取消")
         await db.commit()
 
@@ -181,7 +181,7 @@ async def test_run_shot_frame_prompt_task_persists_debug_context(monkeypatch, tm
             },
             mode=DeliveryMode.async_polling,
             task_kind="shot_frame_prompt",
-        )
+         workspace_id="ws-test")
         await db.commit()
 
     class _FakeAgent:
@@ -270,7 +270,7 @@ async def test_run_shot_frame_prompt_task_retries_when_result_contains_mapping_t
             },
             mode=DeliveryMode.async_polling,
             task_kind="shot_frame_prompt",
-        )
+         workspace_id="ws-test")
         await db.commit()
 
     class _FakeAgent:

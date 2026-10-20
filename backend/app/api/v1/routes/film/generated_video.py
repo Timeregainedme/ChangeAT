@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.services.common.workspace import resolve_workspace_id
 from app.core.task_manager import DeliveryMode, SqlAlchemyTaskStore, TaskManager
 from app.dependencies import get_db
 from app.models.task_links import GenerationTaskLink
@@ -94,11 +95,13 @@ async def create_video_generation_task(
         skill_id=body.skill_id,
     )
 
+    workspace_id = await resolve_workspace_id(db, shot_id=body.shot_id)
     task_record = await tm.create(
         task=_CreateOnlyTask(),
         mode=DeliveryMode.async_polling,
         task_kind="video_generation",
         run_args=run_args,
+        workspace_id=workspace_id,
     )
     db.add(
         GenerationTaskLink(

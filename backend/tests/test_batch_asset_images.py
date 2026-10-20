@@ -281,7 +281,14 @@ async def test_create_batch_asset_image_tasks_marks_failed_when_enqueue_raises(m
     async def _fake_create_single(db, *, asset_type, asset_id, image_id):
         # 真实 stage 会落一行 generation_tasks；这里补一行，好验证失败状态确实落库。
         task_id = f"task-{asset_id}"
-        db.add(GenerationTask(id=task_id, mode="async_polling", task_kind="image_generation"))
+        db.add(
+            GenerationTask(
+                id=task_id,
+                workspace_id="ws-test",
+                mode="async_polling",
+                task_kind="image_generation",
+            )
+        )
         await db.flush()
         return task_id, f"prompt for {asset_id}"
 

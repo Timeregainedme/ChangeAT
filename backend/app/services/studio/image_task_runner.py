@@ -42,6 +42,7 @@ from app.services.studio.shot_status import mark_shot_generating, recompute_shot
 from app.services.studio.image_tasks import load_provider_config, resolve_image_model
 from app.services.worker.async_task_support import cancel_if_requested_async
 from app.services.worker.task_logging import log_task_event, log_task_failure
+from app.services.common.workspace import resolve_workspace_id
 from app.utils.files import create_file_from_url_or_b64
 
 logger = logging.getLogger(__name__)
@@ -290,11 +291,13 @@ async def stage_image_task_and_link(
     if render_context:
         run_args["render_context"] = render_context
 
+    workspace_id = await resolve_workspace_id(db, relation_entity_id=relation_entity_id)
     task_record = await tm.create(
         task=_CreateOnlyTask(),
         mode=DeliveryMode.async_polling,
         task_kind="image_generation",
         run_args=run_args,
+        workspace_id=workspace_id,
     )
 
     db.add(

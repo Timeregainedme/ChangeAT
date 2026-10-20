@@ -5,6 +5,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.scoping import get_file_in_workspace, require_scoped_resource
 from app.dependencies import get_db
 from app.schemas.common import ApiResponse, PaginatedData, created_response, empty_response, paginated_response, success_response
 from app.schemas.studio import FileDetailRead, FileRead, FileUpdate
@@ -19,7 +20,10 @@ from app.services.studio.files import (
     upload_file,
 )
 # 受保护路由：列表 / 上传 / 详情 / 更新 / 删除
-router = APIRouter()
+router = APIRouter(
+    # 文件归属经 file_usages → projects 反查（files 表自身无归属列）。
+    dependencies=[Depends(require_scoped_resource("file_id", get_file_in_workspace))],
+)
 
 # 匿名路由：仅「下载二进制内容」。
 #

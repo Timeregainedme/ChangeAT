@@ -11,7 +11,8 @@ from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.contracts.audio_generation import AudioFormat, AudioVoiceSource
-from app.dependencies import get_db
+from app.dependencies import WorkspaceContext, get_db, get_workspace_context
+from app.services.common.workspace import resolve_workspace_id
 from app.schemas.common import ApiResponse, created_response, success_response
 from app.api.v1.routes.film.common import TaskCreated
 from app.services.studio.audio_task_runner import create_audio_task_and_link as _create_audio_task_and_link_service
@@ -81,11 +82,23 @@ class VoiceItem(BaseModel):
 async def create_speech_task(
     body: StudioAudioTaskRequest,
     db: AsyncSession = Depends(get_db),
+    ctx: WorkspaceContext = Depends(get_workspace_context),
 ) -> ApiResponse[TaskCreated]:
     """创建语音合成任务（异步轮询）。
 
     参数在请求期即按供应商能力校验（评审 R-20），非法参数返回 422 而不是先建任务再失败。
     """
+    # 本端点的业务 ID 全在请求体里，路径上没有可守卫的参数，
+    # 因此在这里显式解析归属并比对，避免给别家项目/镜头创建配音任务。
+    target_workspace = await resolve_workspace_id(
+        db,
+        project_id=body.project_id,
+        chapter_id=body.chapter_id,
+        shot_id=body.shot_id,
+        relation_entity_id=body.relation_entity_id,
+    )
+    if target_workspace != ctx.workspace_id:
+        raise HTTPException(status_code=404, detail="Shot not found")
     task_id = await _create_audio_task_and_link_service(
         db=db,
         model_id=body.model_id,

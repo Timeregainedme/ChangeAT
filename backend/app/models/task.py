@@ -12,7 +12,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Any
 
-from sqlalchemy import JSON, Boolean, DateTime, Index, Integer, String, Text
+from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.db import Base
@@ -37,6 +37,18 @@ class GenerationTask(Base, TimestampMixin):
     __tablename__ = "generation_tasks"
 
     id: Mapped[str] = mapped_column(String(64), primary_key=True, comment="任务 ID")
+
+    # 多租户归属。任务表不挂在 project 下（一次任务可能跨项目产出多个文件），
+    # 且 `payload` 是自由 JSON 不能作为过滤依据，因此必须独立持有 workspace_id。
+    # NOT NULL 且不给默认值：漏传会直接报错，逼着每个创建点显式注入，
+    # 而不是产生一批「所有租户都能看到」的匿名任务。
+    workspace_id: Mapped[str] = mapped_column(
+        String(64),
+        ForeignKey("workspaces.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+        comment="所属工作区（多租户边界）",
+    )
 
     mode: Mapped[GenerationDeliveryMode] = mapped_column(
         String(32),

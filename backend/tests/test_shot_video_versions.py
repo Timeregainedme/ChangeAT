@@ -94,6 +94,7 @@ async def _add_version(
     resource_type: str = "video",
 ) -> None:
     task = GenerationTask(
+        workspace_id="ws-test",
         id=task_id,
         mode=GenerationDeliveryMode.async_polling,
         task_kind=task_kind,

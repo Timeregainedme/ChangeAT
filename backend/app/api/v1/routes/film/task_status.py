@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 from app.api.utils import apply_order, paginate
 from app.core.task_manager import SqlAlchemyTaskStore
 from app.core.task_manager.types import TaskStatus
+from app.api.scoping import get_task_in_workspace, get_task_link_in_workspace, require_scoped_resource
 from app.dependencies import get_db
 from app.models.task_links import GenerationTaskLink
 from app.schemas.common import ApiResponse, PaginatedData, created_response, empty_response, paginated_response, success_response
@@ -26,7 +27,14 @@ from .common import (
     ensure_single_bind_target,
 )
 
-router = APIRouter()
+router = APIRouter(
+    # 任务与任务关联行都必须校验工作区归属：任务 ID 全局唯一，
+    # 没有这道守卫时任何登录账号都能读/取消别家的生成任务。
+    dependencies=[
+        Depends(require_scoped_resource("task_id", get_task_in_workspace)),
+        Depends(require_scoped_resource("link_id", get_task_link_in_workspace)),
+    ],
+)
 TASK_LINK_ORDER_FIELDS = {"updated_at", "created_at", "id", "status"}
 
 

@@ -181,7 +181,13 @@ def _task_record_from_row(row: GenerationTask) -> TaskRecord:
 class TaskStore(Protocol):
     """任务存储抽象：可替换为内存、MySQL/SQLite(通过 SQLAlchemy) 等。"""
 
-    async def create(self, payload: dict[str, Any], mode: DeliveryMode, task_kind: str) -> TaskRecord: ...
+    async def create(
+        self,
+        payload: dict[str, Any],
+        mode: DeliveryMode,
+        task_kind: str,
+        workspace_id: str | None = None,
+    ) -> TaskRecord: ...
     async def get(self, task_id: str) -> Optional[TaskRecord]: ...
     async def get_status_view(self, task_id: str) -> Optional[TaskStatusView]: ...
     async def list_task_views(
@@ -210,7 +216,13 @@ class InMemoryTaskStore(TaskStore):
         self._lock = asyncio.Lock()
         self._data: dict[str, TaskRecord] = {}
 
-    async def create(self, payload: dict[str, Any], mode: DeliveryMode, task_kind: str) -> TaskRecord:
+    async def create(
+        self,
+        payload: dict[str, Any],
+        mode: DeliveryMode,
+        task_kind: str,
+        workspace_id: str | None = None,
+    ) -> TaskRecord:
         async with self._lock:
             task_id = _new_id()
             ts = _now_ts()
@@ -383,10 +395,20 @@ class SqlAlchemyTaskStore(TaskStore):
     def __init__(self, db: AsyncSession) -> None:
         self.db = db
 
-    async def create(self, payload: dict[str, Any], mode: DeliveryMode, task_kind: str) -> TaskRecord:
+    async def create(
+        self,
+        payload: dict[str, Any],
+        mode: DeliveryMode,
+        task_kind: str,
+        workspace_id: str | None = None,
+    ) -> TaskRecord:
         task_id = _new_id()
+        # workspace_id 为 NOT NULL：缺省时直接抛错，避免产生跨租户可见的匿名任务。
+        if workspace_id is None and not payload.get("workspace_id"):
+            raise ValueError("workspace_id is required when creating a generation task")
         row = GenerationTask(
             id=task_id,
+            workspace_id=workspace_id or str(payload["workspace_id"]),
             mode=_to_db_mode(mode),
             task_kind=task_kind,
             status=_to_db_status(TaskStatus.pending),

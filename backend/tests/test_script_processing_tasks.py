@@ -60,7 +60,7 @@ async def test_create_divide_task_creates_task_and_link() -> None:
             chapter_id="chapter-1",
             script_text="一段剧本",
             write_to_db=True,
-        )
+         workspace_id="ws-test")
 
         assert result.reused is False
         assert result.status == TaskStatus.pending
@@ -101,13 +101,13 @@ async def test_create_divide_task_reuses_existing_active_task() -> None:
             chapter_id="chapter-1",
             script_text="第一版",
             write_to_db=True,
-        )
+         workspace_id="ws-test")
         second = await create_divide_task(
             db,
             chapter_id="chapter-1",
             script_text="第二版",
             write_to_db=True,
-        )
+         workspace_id="ws-test")
 
         assert second.reused is True
         assert second.task_id == first.task_id
@@ -141,7 +141,7 @@ async def test_request_cancel_marks_pending_task_cancelled_immediately() -> None
 
     async with SessionLocal() as db:
         store = SqlAlchemyTaskStore(db)
-        task = await store.create(payload={"k": "v"}, mode=DeliveryMode.async_polling, task_kind="test_task")
+        task = await store.create(payload={"k": "v"}, mode=DeliveryMode.async_polling, task_kind="test_task", workspace_id="ws-test")
         rec = await store.request_cancel(task.id, "用户取消")
         assert rec is not None
         assert rec.cancel_requested is True
@@ -174,7 +174,7 @@ async def test_create_extract_task_creates_task_and_link() -> None:
             script_division={"shots": []},
             consistency=None,
             refresh_cache=False,
-        )
+         workspace_id="ws-test")
 
         assert result.reused is False
         assert result.status == TaskStatus.pending
@@ -217,7 +217,7 @@ async def test_create_extract_task_reuses_existing_active_task() -> None:
             script_division={"shots": []},
             consistency=None,
             refresh_cache=False,
-        )
+         workspace_id="ws-test")
         second = await create_extract_task(
             db,
             project_id="project-1",
@@ -225,7 +225,7 @@ async def test_create_extract_task_reuses_existing_active_task() -> None:
             script_division={"shots": [{"index": 1}]},
             consistency={"ok": True},
             refresh_cache=True,
-        )
+         workspace_id="ws-test")
 
         assert second.reused is True
         assert second.task_id == first.task_id
@@ -267,7 +267,7 @@ async def test_create_merge_task_creates_task_and_link() -> None:
             script_division=None,
             previous_merge=None,
             conflict_resolutions=None,
-        )
+         workspace_id="ws-test")
 
         assert result.reused is False
         assert result.status == TaskStatus.pending
@@ -308,7 +308,7 @@ async def test_create_merge_task_reuses_existing_active_task() -> None:
             script_division=None,
             previous_merge=None,
             conflict_resolutions=None,
-        )
+         workspace_id="ws-test")
         second = await create_merge_task(
             db,
             relation_entity_id="chapter-1",
@@ -317,7 +317,7 @@ async def test_create_merge_task_reuses_existing_active_task() -> None:
             script_division={"shots": []},
             previous_merge=None,
             conflict_resolutions=[],
-        )
+         workspace_id="ws-test")
 
         assert second.reused is True
         assert second.task_id == first.task_id
@@ -346,7 +346,7 @@ async def test_create_consistency_task_creates_task_and_link() -> None:
             db,
             relation_entity_id="chapter-1",
             script_text="完整剧本",
-        )
+         workspace_id="ws-test")
 
         assert result.reused is False
         assert result.status == TaskStatus.pending
@@ -383,12 +383,12 @@ async def test_create_consistency_task_reuses_existing_active_task() -> None:
             db,
             relation_entity_id="chapter-1",
             script_text="完整剧本 A",
-        )
+         workspace_id="ws-test")
         second = await create_consistency_task(
             db,
             relation_entity_id="chapter-1",
             script_text="完整剧本 B",
-        )
+         workspace_id="ws-test")
 
         assert second.reused is True
         assert second.task_id == first.task_id
@@ -419,7 +419,7 @@ async def test_create_variant_task_creates_task_and_link() -> None:
             merged_library={},
             all_shot_extractions=[],
             script_division=None,
-        )
+         workspace_id="ws-test")
 
         assert result.reused is False
         assert result.status == TaskStatus.pending
@@ -458,14 +458,14 @@ async def test_create_variant_task_reuses_existing_active_task() -> None:
             merged_library={},
             all_shot_extractions=[],
             script_division=None,
-        )
+         workspace_id="ws-test")
         second = await create_variant_task(
             db,
             relation_entity_id="chapter-1",
             merged_library={"characters": []},
             all_shot_extractions=[{"a": 1}],
             script_division={"shots": []},
-        )
+         workspace_id="ws-test")
 
         assert second.reused is True
         assert second.task_id == first.task_id
@@ -495,7 +495,7 @@ async def test_create_character_portrait_task_creates_task_and_link() -> None:
             relation_entity_id="chapter-1",
             character_context=None,
             character_description="人物描述",
-        )
+         workspace_id="ws-test")
         assert result.relation_type == CHARACTER_PORTRAIT_ANALYSIS_RELATION_TYPE
 
     await engine.dispose()
@@ -518,7 +518,7 @@ async def test_create_prop_info_task_creates_task_and_link() -> None:
             relation_entity_id="chapter-1",
             prop_context=None,
             prop_description="道具描述",
-        )
+         workspace_id="ws-test")
         assert result.relation_type == PROP_INFO_ANALYSIS_RELATION_TYPE
 
     await engine.dispose()
@@ -541,7 +541,7 @@ async def test_create_scene_info_task_creates_task_and_link() -> None:
             relation_entity_id="chapter-1",
             scene_context=None,
             scene_description="场景描述",
-        )
+         workspace_id="ws-test")
         assert result.relation_type == SCENE_INFO_ANALYSIS_RELATION_TYPE
 
     await engine.dispose()
@@ -564,7 +564,7 @@ async def test_create_costume_info_task_creates_task_and_link() -> None:
             relation_entity_id="chapter-1",
             costume_context=None,
             costume_description="服装描述",
-        )
+         workspace_id="ws-test")
         assert result.relation_type == COSTUME_INFO_ANALYSIS_RELATION_TYPE
 
     await engine.dispose()
@@ -587,7 +587,7 @@ async def test_create_script_optimization_task_creates_task_and_link() -> None:
             relation_entity_id="chapter-1",
             script_text="原始剧本",
             consistency={"has_issues": True},
-        )
+         workspace_id="ws-test")
         assert result.relation_type == SCRIPT_OPTIMIZATION_RELATION_TYPE
 
     await engine.dispose()
@@ -609,7 +609,7 @@ async def test_create_script_simplification_task_creates_task_and_link() -> None
             db,
             relation_entity_id="chapter-1",
             script_text="原始剧本",
-        )
+         workspace_id="ws-test")
         assert result.relation_type == SCRIPT_SIMPLIFICATION_RELATION_TYPE
 
     await engine.dispose()
@@ -671,7 +671,7 @@ async def test_run_extract_task_marks_cancelled_when_cancel_requested_before_sta
             script_division={"shots": []},
             consistency=None,
             refresh_cache=False,
-        )
+         workspace_id="ws-test")
         store = SqlAlchemyTaskStore(db)
         await store.request_cancel(created.task_id, "用户取消")
         await db.commit()
@@ -741,7 +741,7 @@ async def test_run_extract_task_marks_cancelled_at_stage_boundary(monkeypatch, t
             script_division={"shots": []},
             consistency=None,
             refresh_cache=True,
-        )
+         workspace_id="ws-test")
         await db.commit()
         setattr(_cancel_during_sync, "task_id", created.task_id)
 

@@ -27,6 +27,7 @@ def test_sync_task_store_roundtrip() -> None:
 
     with SessionLocal() as db:
         row = GenerationTask(
+            workspace_id="ws-test",
             id="task-1",
             mode=GenerationDeliveryMode.async_polling,
             status=GenerationTaskStatus.pending,
