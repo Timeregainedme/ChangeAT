@@ -273,6 +273,81 @@ location = /env.js {
 - 当前可访问地址仍是 `https://18.225.232.63:9443`（自签证书，浏览器会提示不安全）。
 - 已就绪、等 DNS 生效即可启用：ACME 挑战路径（公网 200）、`certbot 2.9.0`、`server_name tim.run.place`、Cloudflare real_ip（22 个官方网段）。
 
+### 9.6 2026-10-20 晚：标准 443 + Let's Encrypt + gzip（已完成）
+
+免费域名的根域 NS 无法改到 Cloudflare（`freedomain.one` 只给子域面板），
+因此放弃 Cloudflare 全托管，改走「DNSExit 加 A 记录 + Let's Encrypt」。
+
+**结果**：`https://tim.run.place` 已可用，浏览器绿锁。
+
+| 项 | 值 |
+| --- | --- |
+| A 记录 | `tim.run.place → 18.225.232.63`（DNSExit，TTL 8h） |
+| 证书 | Let's Encrypt，`CN=tim.run.place`，2026-10-20 → 2027-01-18 |
+| 自动续期 | `certbot.timer` enabled |
+| 证书链校验 | `Verify return code: 0 (ok)` |
+
+**SSH 端口调整**（为腾出 443）：
+
+| 项 | 改前 | 改后 |
+| --- | --- | --- |
+| sshd 监听 | 22, 2222, 443, 8443 | **22, 2222, 8443** |
+| 本机 `~/.ssh/config` | `Port 443` | **`Port 8443`** |
+
+- 配置源：`/etc/ssh/sshd_config.d/99-atk-ports.conf`（移除 `Port 443`）。
+  注意 443/8443/2222 是 `sshd-socket-generator` 从该文件自动生成的，不是手写 socket 单元。
+- 迁移脚本带自动回滚，日志：`/var/log/ssh-port-migration.log`。
+- 兜底：AWS SSM（`amazon-ssm-agent` active）。
+
+**nginx 监听**：
+
+| 端口 | 用途 |
+| --- | --- |
+| 80 | 301 → `https://$host$request_uri`（不再带端口） |
+| **443** | **主入口**，Let's Encrypt 证书 |
+| 9443 | 兼容旧链接，同一张 LE 证书 |
+
+**证书权限**（`www-data` 需读私钥）：
+
+- `/etc/letsencrypt/{live,archive}` → `0750 root:ssl-cert`
+- `privkey*.pem` → `0640 root:ssl-cert`
+- `www-data` 加入 `ssl-cert` 组
+- deploy-hook `/etc/letsencrypt/renewal-hooks/deploy/10-nginx-perms.sh`：续期后自动修权限并 reload nginx（续期会新建私钥文件，权限会重置，所以必须靠 hook）
+
+**⚠️ 关键性能修复：gzip**
+
+`/etc/nginx/nginx.conf` 只有 `gzip on;`，`gzip_types` 全被注释 →
+**默认只压缩 text/html，JS/CSS/JSON 全部裸传**。
+
+叠加 us-east-2→中国 约 40KB/s 的国际带宽：
+
+| 资源 | 修复前 | 修复后 |
+| --- | --- | --- |
+| `index-*.js` | 1.79 MB / **44.7 s** | 539 KB / **2.5 s** |
+| `index-*.css` | 38 KB | 8 KB / 1.6 s |
+| `openapi.json` | 307 KB | 38 KB / 1.3 s |
+
+**这是「前端各种加载失败」的真正主因** —— 不是报错，是 45 秒加载超时。
+
+已启用：`gzip_static`、`gzip_vary`、`gzip_proxied any`、`gzip_comp_level 6`，
+`gzip_types` 覆盖 js/css/json/xml/svg/wasm/manifest。
+
+**回退方式**：
+
+```bash
+# 恢复 SSH 443
+sudo cp /etc/ssh/sshd_config.d/99-atk-ports.conf.bak.<stamp> /etc/ssh/sshd_config.d/99-atk-ports.conf
+sudo systemctl daemon-reload && sudo systemctl restart ssh.socket ssh.service
+# 本机 ~/.ssh/config 把 Port 8443 改回 443
+
+# 恢复 nginx（自签 9443）
+sudo cp /etc/nginx/sites-available/changeat.bak-before443.<stamp> /etc/nginx/sites-available/changeat
+sudo nginx -t && sudo systemctl reload nginx
+
+# 恢复 gzip
+sudo cp /etc/nginx/nginx.conf.bak.<stamp> /etc/nginx/nginx.conf && sudo systemctl reload nginx
+```
+
 ---
 
 > 本次部署在 forwarding、redeployment、reading-only 这些动作中没有修改任何你 jellyfish 仓库源文件。部署与仓库完全独立：仓库的源代码 + EC2 上的 \`/srv/changeAT\` 是两份独立副本，必要时你可以 \`rm -rf /srv/changeAT\` 同步环境重拉。
