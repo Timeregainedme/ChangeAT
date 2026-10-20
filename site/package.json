@@ -4,6 +4,6 @@
   "scripts": {
     "dev": "hugo server --buildDrafts --disableFastRender",
     "build": "hugo --minify"
-  }
+  },
+  "license": "UNLICENSED"
 }
-

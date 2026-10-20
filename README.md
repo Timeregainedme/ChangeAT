@@ -5,8 +5,8 @@
 </p>
 
 <p align="center">
-  <a href="https://www.apache.org/licenses/LICENSE-2.0">
-    <img src="https://img.shields.io/badge/License-Apache%202.0-blue.svg" alt="License" />
+  <a href="./LICENSE">
+    <img src="https://img.shields.io/badge/License-Proprietary-red.svg" alt="License: Proprietary" />
   </a>
   <a href="https://img.shields.io/badge/%E5%89%8D%E7%AB%AF-React%20%2B%20Vite-61DAFB">
     <img src="https://img.shields.io/badge/%E5%89%8D%E7%AB%AF-React%20%2B%20Vite-61DAFB" alt="Frontend" />
@@ -378,9 +378,14 @@ dyeingtime/
 
 ---
 
-## 📄 开源协议
+## 📄 版权与许可
 
-本项目采用 [Apache-2.0](./LICENSE) 开源协议。
+本项目为**闭源专有软件**，著作权归 **Timeregainedme** 所有，保留所有权利。
+
+未经著作权人事先书面许可，不得复制、修改、分发、再发布、公开传播、转授权或商用。
+完整条款见 [LICENSE](./LICENSE)。
+
+> 第三方依赖（FastAPI、React、Ant Design 等）仍遵循各自的许可协议。
 
 ## 🙏 致谢
 

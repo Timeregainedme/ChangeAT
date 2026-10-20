@@ -2,6 +2,7 @@
 name = "dyeingtime-backend"
 version = "0.1.0"
 description = "DyeingTime AI 短剧工厂 - 后端 API"
+license = { text = "Proprietary - All Rights Reserved" }
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [

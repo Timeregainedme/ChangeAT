@@ -1155,3 +1155,22 @@ GOOGLE_ALLOWED_EMAILS=15068441889an@gmail.com,gimeregained@gmail.com,wpt031019@g
    再禁用旧密钥（注意：切换后新上传对象仍可用，历史对象不受影响）。
 3. **登录密码** —— `Timeregained` 的初始密码在对话中出现过，建议自行更换
    （当前无修改密码界面，可用 `python -c` 生成 bcrypt 后直接更新 `users.password_hash`）。
+
+### 9.25 2026-10-21：许可协议更换为专有授权
+
+项目已完成重写，不再沿用上游的开源许可，改为仅著作权人本人持有的专有授权。
+
+| 文件 | 变更 |
+| --- | --- |
+| `LICENSE` | Apache-2.0 全文 → 中英双语「All Rights Reserved / 专有保密」声明 |
+| `README.md` | 徽章 `License-Apache 2.0` → `License-Proprietary`；「开源协议」章节改为「版权与许可」 |
+| `front/package.json` | 新增 `"license": "UNLICENSED"` |
+| `site/package.json` | 新增 `"license": "UNLICENSED"` |
+| `backend/pyproject.toml` | 新增 `license = { text = "Proprietary - All Rights Reserved" }` |
+| `site/content/product/_index.md` | 「开源项目骨架」→「项目骨架」 |
+
+第三方依赖（FastAPI / React / Ant Design 等）仍在 LICENSE 中明确保留各自许可。
+
+**注意**：Apache-2.0 是**不可撤销**的——已经以 Apache-2.0 发布出去的副本，
+接收者对其持有的那份代码仍享有 Apache-2.0 授予的权利。本次变更作用于此后版本的授权声明，
+不影响历史分发。若需要完全与上游解耦，建议后续以全新仓库（不含旧历史）发布。
