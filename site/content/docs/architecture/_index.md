@@ -12,6 +12,7 @@ description: "记录当前真实生效的系统结构、状态流转、页面边
 推荐阅读：
 
 - [项目结构](/docs/architecture/project-structure/)
+- [多租户与工作区隔离](/docs/architecture/workspace-multitenancy/)
 - [任务执行架构](/docs/architecture/task-execution/)
 - [LLM 默认模型解析](/docs/architecture/llm-default-model-resolution/)
 - [分镜状态流转说明](/docs/architecture/shot-status-flow/)
