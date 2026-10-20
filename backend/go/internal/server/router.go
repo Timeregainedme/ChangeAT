@@ -58,10 +58,29 @@ func NewRouter(deps Deps) http.Handler {
 				store.NewWorkspaceStore(deps.DB),
 			)
 
+			projectHandler := handler.NewProject(
+				store.NewProjectStore(deps.DB),
+				store.NewWorkspaceStore(deps.DB),
+			)
+			chapterHandler := handler.NewChapter(
+				store.NewChapterStore(deps.DB),
+				store.NewWorkspaceStore(deps.DB),
+			)
+
 			// 受保护路由：与 Python 的 `/auth/me` 同契约。
 			r.Group(func(r chi.Router) {
 				r.Use(middleware.RequireAuth(deps.JWTSecret))
 				r.Get("/auth/me", authHandler.Me)
+
+				// 项目 / 章节只读。写操作（POST/PATCH/DELETE）仍留 Python：
+				// 读错了最多是"看到错数据"，写错了是"写坏数据"，风险等级不同。
+				r.Get("/studio/projects", projectHandler.List)
+				// 必须显式声明：chi 的路由优先级里静态段高于参数段，
+				// 但这里的顺序仍写在参数路由之前，避免读代码时误判。
+				r.Get("/studio/projects/style-options", projectHandler.StyleOptions)
+				r.Get("/studio/projects/{project_id}", projectHandler.Get)
+				r.Get("/studio/chapters", chapterHandler.List)
+				r.Get("/studio/chapters/{chapter_id}", chapterHandler.Get)
 
 				// 任务状态与结果查询：前端任务中心的高频轮询入口。
 				r.Get("/film/tasks/{task_id}/status", taskHandler.Status)
