@@ -9,7 +9,7 @@ from typing import Any
 from urllib.parse import quote
 
 from fastapi import HTTPException, UploadFile, status
-from fastapi.responses import StreamingResponse
+from fastapi.responses import RedirectResponse, Response, StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -247,13 +247,24 @@ async def build_download_response(
     *,
     file_id: str,
     range_header: str | None = None,
-) -> StreamingResponse:
+) -> Response:
     """根据 file_id 构建下载响应，支持单段 HTTP ``Range``（206）。
 
     浏览器 ``<video>`` 拖拽进度条依赖 206 响应；此前恒返回 200 全量，
     导致播放器无法 seek。
     """
     file_item = await get_or_404(db, FileItem, file_id, detail=entity_not_found("File"))
+
+    # 对象存储已配置公开访问时，直接重定向，避免后端代理整段二进制。
+    #
+    # 收益（在跨洋链路上尤其明显）：
+    #   - EC2 不再占用出网带宽转发视频/大图
+    #   - Range 请求交给对象存储（R2/OSS 均支持），<video> seek 正常
+    #   - 可被 CDN 缓存
+    # 仅在 thumbnail 不是绝对 URL（私有桶 / 未配公开域名）时回退到流式代理。
+    public_url = (file_item.thumbnail or "").strip()
+    if public_url.startswith(("http://", "https://")):
+        return RedirectResponse(url=public_url, status_code=status.HTTP_302_FOUND)
 
     filename = _build_download_filename(file_item)
     media_type = _resolve_download_media_type(filename)

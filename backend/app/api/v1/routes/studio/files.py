@@ -18,7 +18,17 @@ from app.services.studio.files import (
     update_file_meta as update_file_meta_service,
     upload_file,
 )
+# 受保护路由：列表 / 上传 / 详情 / 更新 / 删除
 router = APIRouter()
+
+# 匿名路由：仅「下载二进制内容」。
+#
+# 为什么单独拆出来：
+# - 浏览器 <img src> / <video src> 无法携带 Authorization 头，若下载端点
+#   要求登录会一律 401，导致所有素材在前端裂图（实测 24 处前端调用受影响）。
+# - 素材本身存放于已配置公共读的对象存储（Cloudflare R2），且 file_id 与
+#   对象 key 均为不可枚举的 UUID/hash，匿名按 file_id 取用不比现状更不安全。
+public_router = APIRouter()
 
 
 @router.get(
@@ -101,15 +111,24 @@ async def upload_file_api(
     return created_response(FileRead.model_validate(obj))
 
 
-@router.get(
+@public_router.get(
     "/{file_id}/download",
-    summary="下载文件二进制内容",
+    summary="下载文件二进制内容（匿名可访问，重定向到对象存储公开 URL）",
 )
 async def download_file_api(
     file_id: str,
     request: Request,
     db: AsyncSession = Depends(get_db),
 ):
+    """下载/内联展示素材二进制。
+
+    必须匿名可访问：浏览器 <img>/<video> 无法携带 Authorization 头。
+    若对象存储已给出公开 URL（files.thumbnail），直接 302 重定向：
+      - 不占用 EC2 出网带宽（视频可达数百 MB）
+      - Range 请求由对象存储处理，播放器可正常 seek
+      - 可被 CDN 缓存
+    仅在无公开 URL 时回退到后端流式代理。
+    """
     return await build_download_response(
         db,
         file_id=file_id,

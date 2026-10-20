@@ -9,6 +9,7 @@
 from fastapi import APIRouter, Depends
 
 from app.api.v1.routes import auth, film, health, llm, script_processing, studio
+from app.api.v1.routes.studio import files as studio_files
 from app.dependencies import require_auth
 
 router = APIRouter()
@@ -23,4 +24,10 @@ _auth_only = [Depends(require_auth)]
 router.include_router(film.router, prefix="/film", tags=["film"], dependencies=_auth_only)
 router.include_router(llm.router, prefix="/llm", tags=["llm"], dependencies=_auth_only)
 router.include_router(studio.router, prefix="/studio", dependencies=_auth_only)
+
+# 素材下载保持匿名可访问（不从属于 studio 的鉴权依赖）。
+# 原因：浏览器 <img>/<video> 无法携带 Authorization 头；素材本身位于
+# 已配置公共读的对象存储，file_id 为不可枚举 UUID，匿名取用不比现状更不安全。
+# 该路由会把请求 302 到对象存储公开 URL，不占用本机出网带宽。
+router.include_router(studio_files.public_router, prefix="/studio/files", tags=["studio/files"])
 router.include_router(script_processing.router, dependencies=_auth_only)

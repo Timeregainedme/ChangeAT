@@ -470,3 +470,55 @@ character 3 个 → 无缩略图（未发起过角色图生成任务，character
 
 **注意**：`character` / `actor` 的图片需要单独发起生成任务；仅创建
 `*_images` 占位记录（`file_id = NULL`）不会产生缩略图。
+
+### 9.10 2026-10-20：素材下载端点改为匿名 + 302 重定向到对象存储
+
+**现象**：视频生成提示词预览里的参考图（角色/场景/道具/服装）全部显示不出来。
+
+**根因**：前端全站 **24 处** 使用 `buildFileDownloadUrl(fileId)`，拼出的是
+`/api/v1/studio/files/{fileId}/download`。该端点挂在 `studio` 路由下，
+整体受 `require_auth` 保护；而浏览器 `<img src>` / `<video src>` **无法携带
+Authorization 头**，于是全部 401 → 裂图。
+
+这与 9.9 的 `thumbnail` 问题是同一根因的不同表现，区别在于：
+- 9.9 修的是「API 返回的 URL 字段」
+- 9.10 修的是「前端按 file_id 自行拼出的下载 URL」
+
+**修复（两处）**：
+
+1. `backend/app/api/v1/routes/studio/files.py`
+   把 `download` 端点从受保护的 `router` 移到新增的 `public_router`。
+2. `backend/app/api/v1/__init__.py`
+   单独挂载 `studio_files.public_router`（不附带 `require_auth`），
+   其余 studio 路由保持不变。
+
+3. `backend/app/services/studio/files.py`
+   `build_download_response` 增加短路：若 `files.thumbnail` 是绝对 URL
+   （对象存储公开地址），直接 **302** 重定向，不再后端流式代理。
+
+**为什么匿名是可接受的**：
+- 素材本就存放在已配置公共读的 R2 上，`files.thumbnail` 就是公开 URL；
+- `file_id` 为 UUID、对象 key 带随机 hash，均不可枚举；
+- 匿名按 file_id 取用**不比现状更不安全**，却能让浏览器直接渲染。
+
+**额外收益**：视频不再经 EC2 转发（数百 MB 级别），
+Range 请求交给 R2 处理，出网带宽与 CPU 都省下来。
+
+**验证**：
+
+| 检查 | 结果 |
+| --- | --- |
+| 匿名 `GET /studio/files/<id>/download` | **302 → R2 → 200 image/jpeg** |
+| 带 token 同上 | 302（同样重定向） |
+| `GET /studio/files`（列表）无 token | **401**（仍受保护） |
+| `/studio/projects`、`/llm/*`、`/film/*` 无 token | 401（仍受保护） |
+| `Range: bytes=0-1023` | **206**、1024 字节（视频 seek 正常） |
+
+视频提示词预览的 4 类参考图实测：
+
+```
+characters 护工           200  233,246 bytes
+props      手表           200  293,753 bytes
+costumes   护工护理工作服   200  228,155 bytes
+scene      深夜卧室        200  263,004 bytes
+```
