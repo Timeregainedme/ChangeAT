@@ -67,6 +67,7 @@ async def _build_session() -> tuple[AsyncSession, object]:
 
 async def _seed_graph(db: AsyncSession) -> Shot:
     project = Project(
+        workspace_id="ws-test",
         id="project-1",
         name="项目一",
         description="",

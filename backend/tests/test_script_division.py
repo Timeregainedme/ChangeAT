@@ -58,6 +58,7 @@ async def test_write_division_result_to_empty_chapter_creates_shots_and_details(
     db, engine = await _build_session()
     async with db:
         project = Project(
+            workspace_id="ws-test",
             id="p1",
             name="项目一",
             description="",
@@ -89,6 +90,7 @@ async def test_write_division_result_refuses_when_chapter_already_has_shots() ->
     db, engine = await _build_session()
     async with db:
         project = Project(
+            workspace_id="ws-test",
             id="p1",
             name="项目一",
             description="",

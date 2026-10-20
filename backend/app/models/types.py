@@ -31,6 +31,27 @@ class ChapterStatus(str, Enum):
     done = "done"
 
 
+class WorkspaceRole(str, Enum):
+    """工作区成员角色（RBAC 的最小集合）。
+
+    取值设计：
+    - `owner`：创建者，唯一且不可被移除，可转让；
+    - `admin`：管理成员与项目，不能删除工作区；
+    - `editor`：可创建/修改项目内容（分镜、资产、生成任务）；
+    - `viewer`：只读，用于外部审片或甲方预览。
+
+    为什么用枚举而不是 roles/permissions 两张表：
+    当前 MCN 内部团队规模小（个位数成员）、权限维度只有「能否改内容」一层，
+    引入完整 RBAC 表会让每次鉴权多两次 join，收益不足。等出现「按项目授权」
+    这类真实需求再升级为关系表，届时本枚举可平滑映射为初始角色数据。
+    """
+
+    owner = "owner"
+    admin = "admin"
+    editor = "editor"
+    viewer = "viewer"
+
+
 class ShotStatus(str, Enum):
     """镜头生成状态（更多是“生产流程”而非剧情状态）。"""
 

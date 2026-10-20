@@ -34,6 +34,7 @@ async def _seed_graph(db: AsyncSession) -> None:
     db.add_all(
         [
             Project(
+                workspace_id="ws-test",
                 id="p1",
                 name="项目一",
                 description="",
@@ -162,6 +163,7 @@ async def _seed_character_with_costume_name(db: AsyncSession, *, costume_name: s
     db.add_all(
         [
             Project(
+                workspace_id="ws-test",
                 id="p1",
                 name="项目一",
                 description="",

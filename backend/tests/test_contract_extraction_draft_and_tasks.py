@@ -71,6 +71,7 @@ def _seed_project_chapter() -> list[object]:
     """公共种子：一个项目 + 一个章节。"""
     return [
         Project(
+            workspace_id="ws-test",
             id="p1",
             name="项目一",
             description="",

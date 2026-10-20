@@ -40,6 +40,7 @@ async def _seed_shot(db: AsyncSession, *, shot_id: str = "s1", current: str | No
     if await db.get(Project, "p1") is None:
         db.add(
             Project(
+                workspace_id="ws-test",
                 id="p1",
                 name="项目一",
                 description="",

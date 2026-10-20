@@ -7,7 +7,8 @@ from app.models.llm import Model, ModelSettings, Provider
 from app.models.auth import User
 from app.models.task import GenerationTask
 from app.models.task_links import GenerationTaskLink
-from app.models.types import FileUsageKind
+from app.models.types import FileUsageKind, WorkspaceRole
+from app.models.workspace import Workspace, WorkspaceMember
 
 from app.models.studio import (
     Actor,
@@ -43,6 +44,9 @@ __all__ = [
     "Base",
     "TimestampMixin",
     "User",
+    "Workspace",
+    "WorkspaceMember",
+    "WorkspaceRole",
     "Project",
     "Chapter",
     "Shot",

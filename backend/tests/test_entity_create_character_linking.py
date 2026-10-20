@@ -22,6 +22,7 @@ async def _seed_graph(db: AsyncSession) -> None:
     db.add_all(
         [
             Project(
+                workspace_id="ws-test",
                 id="p1",
                 name="项目一",
                 description="",

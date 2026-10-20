@@ -58,6 +58,10 @@ class ProjectRead(ProjectBase):
     model_config = ConfigDict(from_attributes=True)
 
     id: str
+    # 多租户归属对外可见：前端切换工作区、展示「谁建的」都依赖这两个字段。
+    # 只读——不接受通过 ProjectUpdate 修改，避免客户端把自己项目搬进别的租户。
+    workspace_id: str = Field(..., description="所属工作区 ID")
+    created_by: int | None = Field(None, description="创建者账号 ID")
 
 
 class ChapterBase(BaseModel):

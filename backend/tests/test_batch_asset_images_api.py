@@ -130,6 +130,7 @@ async def _seed_graph(db: AsyncSession) -> None:
     db.add_all(
         [
             Project(
+                workspace_id="ws-test",
                 id="p1",
                 name="项目一",
                 description="",
@@ -137,6 +138,7 @@ async def _seed_graph(db: AsyncSession) -> None:
                 visual_style=ProjectVisualStyle.live_action,
             ),
             Project(
+                workspace_id="ws-test",
                 id="p2",
                 name="项目二",
                 description="",
@@ -169,6 +171,7 @@ async def _seed_over_cap(db: AsyncSession) -> None:
     """种子数据：p1 下超过单次批量上限（200）的角色，用于触发上限保护。"""
     db.add(
         Project(
+            workspace_id="ws-test",
             id="p1",
             name="项目一",
             description="",

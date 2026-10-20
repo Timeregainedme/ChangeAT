@@ -54,5 +54,13 @@ export type ProjectRead = {
      */
     stats?: Record<string, any>;
     id: string;
+    /**
+     * 所属工作区 ID
+     */
+    workspace_id: string;
+    /**
+     * 创建者账号 ID
+     */
+    created_by?: (number | null);
 };
 

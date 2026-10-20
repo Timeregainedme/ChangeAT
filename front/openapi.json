@@ -15697,13 +15697,31 @@
           "id": {
             "type": "string",
             "title": "Id"
+          },
+          "workspace_id": {
+            "type": "string",
+            "title": "Workspace Id",
+            "description": "所属工作区 ID"
+          },
+          "created_by": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created By",
+            "description": "创建者账号 ID"
           }
         },
         "type": "object",
         "required": [
           "name",
           "style",
-          "id"
+          "id",
+          "workspace_id"
         ],
         "title": "ProjectRead"
       },

@@ -6,19 +6,23 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.scoping import apply_workspace_filter, get_project_in_workspace
 from app.api.utils import apply_keyword_filter, apply_order, paginate
-from app.dependencies import get_db
+from app.dependencies import (
+    WorkspaceContext,
+    get_db,
+    require_editor,
+    require_viewer,
+)
 from app.models.studio import Project
 from app.models.types import ProjectStyle, ProjectVisualStyle
 from app.schemas.common import ApiResponse, PaginatedData, created_response, empty_response, paginated_response, success_response
 from app.services.common import (
     create_and_refresh,
-    delete_if_exists,
     entity_already_exists,
     entity_not_found,
     ensure_not_exists,
     flush_and_refresh,
-    get_or_404,
     patch_model,
 )
 from app.schemas.studio.projects import (
@@ -91,6 +95,7 @@ async def get_project_style_options(
 )
 async def list_projects(
     db: AsyncSession = Depends(get_db),
+    ctx: WorkspaceContext = Depends(require_viewer),
     q: str | None = Query(None, description="关键字，过滤 name/description"),
     order: str | None = Query(None, description="排序字段"),
     is_desc: bool = Query(False, description="是否倒序"),
@@ -98,6 +103,7 @@ async def list_projects(
     page_size: int = Query(10, ge=1, le=100),
 ) -> ApiResponse[PaginatedData[ProjectRead]]:
     stmt = select(Project)
+    stmt = apply_workspace_filter(stmt, ctx)
     stmt = apply_keyword_filter(stmt, q=q, fields=[Project.name, Project.description])
     stmt = apply_order(stmt, model=Project, order=order, is_desc=is_desc, allow_fields=PROJECT_ORDER_FIELDS, default="created_at")
     items, total = await paginate(db, stmt=stmt, page=page, page_size=page_size)
@@ -113,6 +119,7 @@ async def list_projects(
 async def create_project(
     body: ProjectCreate,
     db: AsyncSession = Depends(get_db),
+    ctx: WorkspaceContext = Depends(require_editor),
 ) -> ApiResponse[ProjectRead]:
     await ensure_not_exists(
         db,
@@ -124,7 +131,16 @@ async def create_project(
         _validate_project_style_combo(visual_style=body.visual_style, style=body.style)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
-    obj = await create_and_refresh(db, Project(**body.model_dump()))
+    # workspace_id 与 created_by 一律由服务端注入，不接受客户端指定：
+    # 否则调用方可以把项目直接建进别人的工作区。
+    obj = await create_and_refresh(
+        db,
+        Project(
+            **body.model_dump(),
+            workspace_id=ctx.workspace_id,
+            created_by=ctx.user_id,
+        ),
+    )
     return created_response(ProjectRead.model_validate(obj))
 
 
@@ -136,8 +152,9 @@ async def create_project(
 async def get_project(
     project_id: str,
     db: AsyncSession = Depends(get_db),
+    ctx: WorkspaceContext = Depends(require_viewer),
 ) -> ApiResponse[ProjectRead]:
-    obj = await get_or_404(db, Project, project_id, detail=entity_not_found("Project"))
+    obj = await get_project_in_workspace(db, project_id, ctx)
     return success_response(ProjectRead.model_validate(obj))
 
 
@@ -149,11 +166,13 @@ async def get_project(
 async def get_project_production_readiness_api(
     project_id: str,
     db: AsyncSession = Depends(get_db),
+    ctx: WorkspaceContext = Depends(require_viewer),
 ) -> ApiResponse[ProjectProductionReadinessRead]:
     """开工前一次性检查：默认模型与 API Key、比例、每角色音色、分镜参考图、提取确认。
 
     只读聚合，不修改任何状态；返回 `ready=false` 时逐项给出缺失原因。
     """
+    await get_project_in_workspace(db, project_id, ctx)
     data = await get_project_production_readiness(db, project_id=project_id)
     return success_response(data)
 
@@ -166,6 +185,7 @@ async def get_project_production_readiness_api(
 async def get_project_character_recurrence_api(
     project_id: str,
     db: AsyncSession = Depends(get_db),
+    ctx: WorkspaceContext = Depends(require_viewer),
 ) -> ApiResponse[ProjectCharacterRecurrenceRead]:
     """回答「这个项目里哪些角色是主角级、需要绑定演员」。
 
@@ -173,7 +193,7 @@ async def get_project_character_recurrence_api(
     而章节数必须经 `shot_character_links ⋈ shots` 才能算出来。做成一次项目级只读查询，
     前端在新建/编辑角色时就能把「仅 1 集，可不绑」与「跨 N 集，建议绑」直接标在卡片上。
     """
-    await get_or_404(db, Project, project_id, detail=entity_not_found("Project"))
+    await get_project_in_workspace(db, project_id, ctx)
     data = await get_project_character_recurrence(db, project_id=project_id)
     return success_response(data)
 
@@ -187,8 +207,9 @@ async def update_project(
     project_id: str,
     body: ProjectUpdate,
     db: AsyncSession = Depends(get_db),
+    ctx: WorkspaceContext = Depends(require_editor),
 ) -> ApiResponse[ProjectRead]:
-    obj = await get_or_404(db, Project, project_id, detail=entity_not_found("Project"))
+    obj = await get_project_in_workspace(db, project_id, ctx)
     update_data = body.model_dump(exclude_unset=True)
     visual_style = update_data.get("visual_style", obj.visual_style)
     style = update_data.get("style", obj.style)
@@ -210,6 +231,10 @@ async def update_project(
 async def delete_project(
     project_id: str,
     db: AsyncSession = Depends(get_db),
+    ctx: WorkspaceContext = Depends(require_editor),
 ) -> ApiResponse[None]:
-    await delete_if_exists(db, Project, project_id)
+    # 先校验归属再删；直接 delete_by_id 会跨租户删掉别家项目。
+    obj = await get_project_in_workspace(db, project_id, ctx)
+    await db.delete(obj)
+    await db.flush()
     return empty_response()

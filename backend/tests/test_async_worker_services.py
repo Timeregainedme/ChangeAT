@@ -147,6 +147,7 @@ async def test_run_shot_frame_prompt_task_persists_debug_context(monkeypatch, tm
         db.add_all(
             [
                 Project(
+                    workspace_id="ws-test",
                     id="project-1",
                     name="项目一",
                     description="",
@@ -235,6 +236,7 @@ async def test_run_shot_frame_prompt_task_retries_when_result_contains_mapping_t
         db.add_all(
             [
                 Project(
+                    workspace_id="ws-test",
                     id="project-1",
                     name="项目一",
                     description="",

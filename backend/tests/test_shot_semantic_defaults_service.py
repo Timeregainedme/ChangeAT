@@ -27,6 +27,7 @@ async def _seed_async_graph(db: AsyncSession) -> str:
     """构造最小项目/章节/镜头图，便于验证镜头语言默认值写回。"""
 
     project = Project(
+        workspace_id="ws-test",
         id="project-1",
         name="项目一",
         style=ProjectStyle.guoman,
@@ -50,6 +51,7 @@ def _seed_sync_graph(db: Session) -> str:
     """同步版本的最小项目/章节/镜头图。"""
 
     project = Project(
+        workspace_id="ws-test",
         id="project-1",
         name="项目一",
         style=ProjectStyle.guoman,

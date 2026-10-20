@@ -46,6 +46,7 @@ async def _build_session() -> tuple[AsyncSession, object]:
 
 async def _seed_shot_graph(db: AsyncSession) -> None:
     project = Project(
+        workspace_id="ws-test",
         id="p1",
         name="项目一",
         description="",
@@ -165,6 +166,7 @@ async def _seed_shot_graph(db: AsyncSession) -> None:
 
 async def _seed_fear_reaction_shot_graph(db: AsyncSession) -> None:
     project = Project(
+        workspace_id="ws-test",
         id="fear-p1",
         name="惊恐项目",
         description="",
@@ -311,6 +313,7 @@ async def test_build_run_args_requires_shot_detail() -> None:
     db, engine = await _build_session()
     async with db:
         project = Project(
+            workspace_id="ws-test",
             id="p1",
             name="项目一",
             description="",

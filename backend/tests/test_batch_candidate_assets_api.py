@@ -105,6 +105,7 @@ def _make_env(seed: Callable[[AsyncSession], Coroutine[Any, Any, None]]) -> _DbE
 def _project(project_id: str = "p1", name: str = "项目一") -> Project:
     """构造一个满足非空约束的项目行。"""
     return Project(
+        workspace_id="ws-test",
         id=project_id,
         name=name,
         description="",

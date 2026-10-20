@@ -91,6 +91,7 @@ def _character(character_id: str, name: str, *, project_id: str = "p1") -> Chara
 def _project(project_id: str, name: str) -> Project:
     """构造项目行。"""
     return Project(
+        workspace_id="ws-test",
         id=project_id,
         name=name,
         description="",

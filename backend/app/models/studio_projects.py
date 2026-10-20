@@ -12,6 +12,7 @@ from app.models.types import ChapterStatus, ProjectStyle, ProjectVisualStyle
 if TYPE_CHECKING:
     from app.models.studio_assets import Actor, Character, Costume, Prop, Scene
     from app.models.studio_shots import Shot
+    from app.models.workspace import Workspace
 
 
 class Project(Base, TimestampMixin):
@@ -61,6 +62,26 @@ class Project(Base, TimestampMixin):
         comment="项目级默认图片分辨率档位（standard/high；为空时回落到提供方默认档位）",
     )
     stats: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict, comment="聚合统计（JSON）")
+
+    # --- 多租户归属（Phase 1）---
+    # 放在 projects 而不是给 54 张表都加列：章节/镜头/资产均通过项目间接归属，
+    # 鉴权时只需校验一次项目归属即可覆盖其下全部资源。
+    workspace_id: Mapped[str] = mapped_column(
+        String(64),
+        ForeignKey("workspaces.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+        comment="所属工作区（多租户边界）",
+    )
+    created_by: Mapped[int | None] = mapped_column(
+        Integer,
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+        comment="创建者账号（账号删除后置空，项目保留）",
+    )
+
+    workspace: Mapped["Workspace"] = relationship(back_populates="projects")
 
     chapters: Mapped[list["Chapter"]] = relationship(
         back_populates="project",

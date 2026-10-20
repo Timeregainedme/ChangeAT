@@ -11,6 +11,8 @@ from fastapi.testclient import TestClient
 
 try:
     from app.main import app  # type: ignore
+
+    from app.models.types import WorkspaceRole
 except Exception:  # noqa: BLE001
     # 测试环境里有些可选依赖（例如 langgraph）可能未安装。
     # 不要让整个测试套件在导入 conftest 时直接失败；仅在需要 client 的测试里跳过。
@@ -54,11 +56,21 @@ def _bypass_route_auth():
         is_active=True,
         auth_provider="local",
     )
+    # 工作区上下文同样默认放行：同名项目 ID 在测试里被大量复用，
+    # 若走真实解析（查询 workspace_members）会因测试库没有成员行而全部 403。
+    # 需要验证多租户隔离的用例，应显式 pop 本覆盖并用真实 DB 断言。
+    fake_ctx = dependencies.WorkspaceContext(
+        workspace_id="ws-test",
+        user_id=1,
+        role=WorkspaceRole.editor,
+    )
     app.dependency_overrides[dependencies.require_auth] = lambda: fake_user
+    app.dependency_overrides[dependencies.get_workspace_context] = lambda: fake_ctx
     try:
         yield
     finally:
         app.dependency_overrides.pop(dependencies.require_auth, None)
+        app.dependency_overrides.pop(dependencies.get_workspace_context, None)
 
 
 def pytest_configure(config: pytest.Config) -> None:

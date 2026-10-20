@@ -31,6 +31,7 @@ async def _build_session() -> tuple[AsyncSession, object]:
 
 async def _seed_base_graph(db: AsyncSession) -> None:
     project = Project(
+        workspace_id="ws-test",
         id="p1",
         name="项目一",
         description="",
@@ -38,6 +39,7 @@ async def _seed_base_graph(db: AsyncSession) -> None:
         visual_style=ProjectVisualStyle.live_action,
     )
     other_project = Project(
+        workspace_id="ws-test",
         id="p2",
         name="项目二",
         description="",

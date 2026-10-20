@@ -134,6 +134,7 @@ def _override_db(db: _FakeShotSubresourceDB):
 def _seed_project_and_shot(db: _FakeShotSubresourceDB) -> None:
     now = datetime.now(UTC)
     project = Project(
+        workspace_id="ws-test",
         id="proj-1",
         name="测试项目",
         description="项目说明",

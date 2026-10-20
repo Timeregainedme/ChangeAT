@@ -92,6 +92,38 @@ class _FakeStudioDB:
 
         return _EmptyResult()
 
+    async def scalar(self, stmt):  # noqa: ANN001
+        """模拟 `select(X).where(X.id == ..., [X.workspace_id == ...])` 的取值。
+
+        为什么不能直接返回 None：项目详情/删除接口已改为走 `db.scalar(...)` 做工作区
+        归属校验（见 `app/api/scoping.py`），若替身不实现取值，所有涉及项目的用例都会
+        变成 404，掩盖真实行为。
+
+        实现方式：从编译后的绑定参数里取主键与 workspace_id 条件，回查内存字典。
+        这只覆盖本文件用到的「按主键 + 工作区过滤」形态，不做通用 SQL 解释。
+        """
+        entity = stmt.column_descriptions[0]["entity"]
+        stores = {
+            Project: self.projects,
+            Chapter: self.chapters,
+            Shot: self.shots,
+            ShotDetail: self.shot_details,
+        }
+        store = stores.get(entity)
+        if store is None:
+            return None
+        params = stmt.compile().params
+        pk = next((v for k, v in params.items() if k.split("_")[0] == "id"), None)
+        if pk is None:
+            return None
+        obj = store.get(pk)
+        if obj is None:
+            return None
+        expected_ws = next((v for k, v in params.items() if k.startswith("workspace_id")), None)
+        if expected_ws is not None and getattr(obj, "workspace_id", None) != expected_ws:
+            return None
+        return obj
+
 
 def _override_db(db: _FakeStudioDB):
     async def _get_db() -> AsyncGenerator[_FakeStudioDB, None]:
@@ -103,6 +135,7 @@ def _override_db(db: _FakeStudioDB):
 def _seed_project(db: _FakeStudioDB, project_id: str = "proj-1") -> Project:
     now = datetime.now(UTC)
     obj = Project(
+        workspace_id="ws-test",
         id=project_id,
         name="测试项目",
         description="项目说明",
@@ -308,8 +341,11 @@ def test_create_chapter_missing_project_returns_api_response(client: TestClient)
     finally:
         app.dependency_overrides.clear()
 
-    assert response.status_code == 400
-    assert response.json() == {"code": 400, "message": "Project not found", "data": None, "meta": None}
+    # 语义变更（多租户）：引用不存在的项目现在回 404 而非 400。
+    # 原因：400 与「项目存在但不属于当前工作区」的 404 可区分，会泄露其他租户的
+    # project_id 是否存在。文案保持 `Project not found` 不变，前端无需改动。
+    assert response.status_code == 404
+    assert response.json() == {"code": 404, "message": "Project not found", "data": None, "meta": None}
 
 
 def test_get_chapter_not_found_returns_api_response(client: TestClient) -> None:
