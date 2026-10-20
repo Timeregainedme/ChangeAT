@@ -165,22 +165,48 @@ export const ChapterPrepareWizard: React.FC<ChapterPrepareWizardProps> = ({
     }
   }, [open, loadAssets])
 
-  /** 按需加载单个资产的最终提示词（避免一次性 N 次请求）。 */
+  /** 按需加载单个资产的最终提示词（避免一次性 N 次请求）。
+   *
+   * 注意 render-prompt 需要的是「资产图片行 ID」（costume_images.id 等），
+   * 不是资产本身 ID。因此先查该资产的图片行，取第一张（front 优先）的 id。
+   */
   const loadPrompt = useCallback(
     async (type: AssetType, assetId: string) => {
       const key = `${type}:${assetId}`
       if (promptCache[key] || promptLoading[key]) return
       setPromptLoading((prev) => ({ ...prev, [key]: true }))
       try {
+        // 1) 取该资产的图片行（每个资产创建时至少有一个 front 槽位）
+        const imagesResp = await StudioEntitiesService.listEntityImagesApiV1StudioEntitiesEntityTypeEntityIdImagesGet(
+          { entityType: type, entityId: assetId },
+        )
+        const rawImages = imagesResp.data as
+          | { items?: Array<{ id?: number; view_angle?: string }> }
+          | Array<{ id?: number; view_angle?: string }>
+          | undefined
+        const imageList = Array.isArray(rawImages) ? rawImages : (rawImages?.items ?? [])
+        if (!imageList.length) {
+          setPromptCache((prev) => ({ ...prev, [key]: '该资产还没有图片槽位，无法渲染提示词' }))
+          return
+        }
+        // front 视角优先，其次取第一条
+        const front = imageList.find((i) => String(i.view_angle ?? '').toUpperCase() === 'FRONT')
+        const imageId = Number((front ?? imageList[0]).id)
+        if (!Number.isFinite(imageId)) {
+          setPromptCache((prev) => ({ ...prev, [key]: '图片行 ID 非法，无法渲染提示词' }))
+          return
+        }
+
+        // 2) 用 image_id 渲染最终提示词
         const resp =
           await StudioImageTasksService.renderAssetImagePromptApiV1StudioImageTasksAssetsAssetTypeAssetIdRenderPromptPost(
             {
               assetType: type,
               assetId,
-              requestBody: { prompt: null, images: [] },
+              requestBody: { image_id: imageId, prompt: null, images: [] },
             },
           )
-        const rendered = (resp.data as { rendered_prompt?: string } | undefined)?.rendered_prompt ?? ''
+        const rendered = (resp.data as { prompt?: string } | undefined)?.prompt ?? ''
         setPromptCache((prev) => ({ ...prev, [key]: rendered || '（空提示词）' }))
       } catch (error) {
         setPromptCache((prev) => ({
@@ -336,14 +362,30 @@ export const ChapterPrepareWizard: React.FC<ChapterPrepareWizardProps> = ({
       }
 
       // --- 4. 按类目顺序生成资产图（每类内部并发生成）---
+      //
+      // 重要：只对「尚无参考图」的资产提交生成，避免对已出图的资产重复扣费。
+      // 后端 batch-image-tasks 不检查 file_id 是否已有值（其语义是「一键全部重新生成」），
+      // 因此这里用 asset_ids 显式限定范围；若某类资产已全部有图则直接跳过该阶段。
       for (const type of ASSET_ORDER) {
+        const pending = assets[type].filter((a) => !a.thumbnail)
         if (assets[type].length === 0) continue
         const key = `img:${type}`
-        updateStage(key, { status: 'running' })
+        if (pending.length === 0) {
+          updateStage(key, { status: 'skipped', detail: `全部 ${assets[type].length} 个资产已有图` })
+          bumpProgress(total)
+          continue
+        }
+        updateStage(key, { status: 'running', detail: `待生成 ${pending.length} / 共 ${assets[type].length}` })
         try {
           const resp =
             await StudioImageTasksService.createBatchAssetImageTasksApiV1StudioImageTasksAssetsBatchImageTasksPost(
-              { requestBody: { project_id: projectId, asset_type: type } },
+              {
+                requestBody: {
+                  project_id: projectId,
+                  asset_type: type,
+                  asset_ids: pending.map((a) => a.id),
+                },
+              },
             )
           const data = resp.data as
             | { tasks?: unknown[]; skipped?: unknown[]; enqueue_failed?: unknown[] }
@@ -405,7 +447,15 @@ export const ChapterPrepareWizard: React.FC<ChapterPrepareWizardProps> = ({
         type="info"
         showIcon
         message="生成顺序：服装 → 场景 → 道具 → 角色"
-        description="角色定妆照会引用服装图，因此服装必须先生成；每类内部并发生成，避免互相等待。"
+        description={
+          <div>
+            <div>角色定妆照会引用服装图，因此服装必须先生成；每类内部并发生成，避免互相等待。</div>
+            <div className="mt-1">
+              <Text strong>只会为「还没有参考图」的资产提交生成</Text>
+              ，已有图的资产不会重复扣费；如需重新抽图，请到对应资产页手动重抽。
+            </div>
+          </div>
+        }
       />
 
       <div>
