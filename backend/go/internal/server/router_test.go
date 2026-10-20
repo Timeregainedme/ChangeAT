@@ -12,7 +12,7 @@ import (
 // newTestRouter 构造一个不接数据库的路由，用于验证路由与响应信封。
 func newTestRouter() http.Handler {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	return NewRouter(Deps{Logger: logger, DB: nil})
+	return NewRouter(Deps{Logger: logger, DB: nil, JWTSecret: "test-secret"})
 }
 
 // decodeEnvelope 解出统一信封。

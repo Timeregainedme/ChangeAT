@@ -10,18 +10,24 @@ import (
 
 	"github.com/timeregainedme/dyeingtime/backend/go/internal/handler"
 	"github.com/timeregainedme/dyeingtime/backend/go/internal/middleware"
+	"github.com/timeregainedme/dyeingtime/backend/go/internal/store"
 )
 
 // Deps 是路由需要的依赖集合。
 type Deps struct {
-	Logger *slog.Logger
-	DB     *sql.DB
+	Logger    *slog.Logger
+	DB        *sql.DB
+	JWTSecret string
 }
 
 // NewRouter 构建控制面的 HTTP 路由。
 //
 // 路由分组刻意与 Python 侧平行：`/health`（根路径探活）与 `/api/v1/*`（业务）。
 // 这样 Nginx 可以按前缀分流，且切换某一条路径时不影响其他路径。
+//
+// 切流原则：**只注册已经真正实现的路径**。
+// 未接管的路径保持 404，让 Nginx 明确地把流量留给 Python；
+// 若提前注册空 handler，前端会拿到 200 空壳并把它误读成「没有数据」。
 func NewRouter(deps Deps) http.Handler {
 	r := chi.NewRouter()
 
@@ -40,6 +46,16 @@ func NewRouter(deps Deps) http.Handler {
 		r.Get("/health", health.Live)
 		// 切流专用的就绪探针，Python 侧没有对应实现，因此不改动既有契约。
 		r.Get("/ready", health.Ready)
+
+		if deps.DB != nil {
+			authHandler := handler.NewAuth(store.NewUserStore(deps.DB))
+
+			// 受保护路由：与 Python 的 `/auth/me` 同契约。
+			r.Group(func(r chi.Router) {
+				r.Use(middleware.RequireAuth(deps.JWTSecret))
+				r.Get("/auth/me", authHandler.Me)
+			})
+		}
 	})
 
 	return r
