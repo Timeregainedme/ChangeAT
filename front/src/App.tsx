@@ -25,6 +25,9 @@ import './App.css'
 const ProjectWorkbench = lazy(() => import('./pages/aiStudio/project/ProjectWorkbench'))
 const RoleDetailPage = lazy(() => import('./pages/aiStudio/project/ProjectWorkbench/RoleDetailPage'))
 const ChapterStudio = lazy(() => import('./pages/aiStudio/chapter/ChapterStudio'))
+const ChapterReviewPage = lazy(() =>
+  import('./pages/aiStudio/review/ChapterReviewPage').then((m) => ({ default: m.ChapterReviewPage })),
+)
 const AssetManager = lazy(() => import('./pages/aiStudio/assets/AssetManager'))
 const ActorAssetEditPage = lazy(() => import('./pages/aiStudio/assets/ActorAssetEditPage.tsx'))
 const SceneAssetEditPage = lazy(() => import('./pages/aiStudio/assets/SceneAssetEditPage.tsx'))
@@ -73,6 +76,7 @@ const App: React.FC = () => {
             <Route path="projects/:projectId/roles/:characterId/edit" element={<RoleDetailPage />} />
             <Route path="projects/:projectId/chapters/:chapterId/prep/*" element={<Navigate to="../shots" replace />} />
             <Route path="projects/:projectId/chapters/:chapterId/studio" element={<ChapterStudio />} />
+            <Route path="projects/:projectId/chapters/:chapterId/review" element={<ChapterReviewPage />} />
             <Route path="projects/:projectId/chapters/:chapterId/shots/:shotId/edit" element={<ChapterShotEditPage />} />
             <Route path="projects/:projectId/chapters/:chapterId/shots" element={<ChapterShotsPage />} />
             <Route path="projects/:projectId/chapters/:chapterId/prep-drafts" element={<Navigate to="../shots" replace />} />

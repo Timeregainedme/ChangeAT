@@ -1,39 +1,16 @@
 import { Button, Input, InputNumber, Select, Tag } from 'antd'
 import { SaveOutlined } from '@ant-design/icons'
-import type { ActionBeatPhaseRead, CameraAngle, CameraMovement, CameraShotType } from '../../../../services/generated'
-
-const CAMERA_SHOT_OPTIONS: Array<{ value: CameraShotType; label: string }> = [
-  { value: 'ECU', label: '大特写' },
-  { value: 'CU', label: '特写' },
-  { value: 'MCU', label: '中近景' },
-  { value: 'MS', label: '中景' },
-  { value: 'MLS', label: '中远景' },
-  { value: 'LS', label: '远景' },
-  { value: 'ELS', label: '大远景' },
-]
-
-const CAMERA_ANGLE_OPTIONS: Array<{ value: CameraAngle; label: string }> = [
-  { value: 'EYE_LEVEL', label: '平视' },
-  { value: 'HIGH_ANGLE', label: '高角度' },
-  { value: 'LOW_ANGLE', label: '低角度' },
-  { value: 'BIRD_EYE', label: '鸟瞰' },
-  { value: 'DUTCH', label: '荷兰式' },
-  { value: 'OVER_SHOULDER', label: '过肩' },
-]
-
-const CAMERA_MOVEMENT_OPTIONS: Array<{ value: CameraMovement; label: string }> = [
-  { value: 'STATIC', label: '固定镜头' },
-  { value: 'PAN', label: '平移' },
-  { value: 'TILT', label: '俯仰' },
-  { value: 'DOLLY_IN', label: '推近' },
-  { value: 'DOLLY_OUT', label: '拉远' },
-  { value: 'TRACK', label: '跟拍' },
-  { value: 'CRANE', label: '摇臂' },
-  { value: 'HANDHELD', label: '手持' },
-  { value: 'STEADICAM', label: '稳定器' },
-  { value: 'ZOOM_IN', label: '变焦推近' },
-  { value: 'ZOOM_OUT', label: '变焦拉远' },
-]
+import type {
+  ActionBeatPhaseRead,
+  CameraAngle,
+  CameraMovement,
+  CameraShotType,
+} from '../../../../services/generated'
+import {
+  CAMERA_ANGLE_OPTIONS,
+  CAMERA_MOVEMENT_OPTIONS,
+  CAMERA_SHOT_OPTIONS,
+} from '../shotOptions'
 
 type ShotSemanticDraft = {
   camera_shot?: CameraShotType

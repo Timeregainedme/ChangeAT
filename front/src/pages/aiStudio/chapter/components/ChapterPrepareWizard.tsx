@@ -138,7 +138,7 @@ export const ChapterPrepareWizard: React.FC<ChapterPrepareWizardProps> = ({
           const resp = await StudioEntitiesService.listEntitiesApiV1StudioEntitiesEntityTypeGet({
             entityType: type,
             page: 1,
-            pageSize: 200,
+            pageSize: 100,
           })
           const items = (resp.data as { items?: AssetRow[] } | undefined)?.items ?? []
           result[type] = items.map((it) => ({

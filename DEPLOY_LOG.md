@@ -880,3 +880,40 @@ ALTER TABLE `projects`
 | character 老人 → 护工 | images_dropped 1、links_moved 1、links_dropped 3、cross_refs_moved 4（台词说话人/对象）、candidates 4；源已删除 |
 
 HTTP 错误分支：自合并 400、不存在 404、非法类型 400。
+
+### 9.18 2026-10-21：P4 章节检查流程（参考图 → 分镜 → 对话）
+
+**需求**：进入工作室付费生成前，需要一个按顺序过一遍素材的自检位。
+
+**新增页面**：`/projects/:projectId/chapters/:chapterId/review`
+
+| 段 | 能力 | 写接口 |
+| --- | --- | --- |
+| ① 参考图 | 聚合本章镜头引用的角色/服装/场景/道具；缺图补图、有图重抽；列出待确认候选并跳分镜编辑页 | `POST /studio/image-tasks/assets/batch-image-tasks` |
+| ② 分镜 | 逐镜头就地改 时长/景别/角度/运镜/场景 | `PATCH /studio/shot-details/{shot_id}` |
+| ③ 对话 | 就地改台词与情绪、单句配音/重抽、镜头级补配音 | `PATCH /studio/shot-dialog-lines/{line_id}` + `POST /studio/audio-tasks/speech` |
+
+顶部三段进度：有图数 / 字段完整数 / 已配音数 + 待确认候选数。
+
+**入口**：章节列表卡片「检查」图标 + 操作菜单「检查流程（参考图 → 分镜 → 对话）」。
+
+**顺带修复（真实缺陷）**：多处 `pageSize: 200` 超过后端 `le=100` 上限，会直接 422：
+
+- `ChapterReviewPage` 镜头列表
+- `ChaptersTab.generateChapterAudio`（P3 引入的「一键配音」在镜头 >100 时会失败）
+- `ChapterPrepareWizard` 资产列表（P1 引入）
+
+统一改为 100。
+
+**顺带重构（去重）**：
+
+- 新增 `shots/tts.ts`（`runSpeechTaskForLine` / `describeSpeechError`），
+  `ChapterShotEditPage` 与 `ChaptersTab` 的 TTS 轮询改用该助手；
+- 新增 `shots/shotOptions.ts` 统一景别/角度/运镜中文选项，
+  `ChapterShotBasicInfoSection` 与检查页共用。
+
+**验证**：
+
+- 数据链路：章节 7 镜头 → prep-state 资产总览 4 项（含 R2 缩略图）、台词 1 条（已有配音）；
+- `PATCH shot-details` 200；`PATCH shot-dialog-lines` 200；
+- `pnpm typecheck` 通过，前端构建产出独立 `ChapterReviewPage` chunk（18.4 kB）。

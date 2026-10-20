@@ -23,7 +23,7 @@ import {
   StudioShotsService,
 } from '../../../services/generated'
 import { executeAsyncTaskCreate, executeTaskCancel, notifyExistingTask } from '../components/taskActionHelpers'
-import { FilmService, StudioAudioTasksService } from '../../../services/generated'
+import { runSpeechTaskForLine, describeSpeechError } from './tts'
 import { Link, Navigate, useNavigate, useParams } from 'react-router-dom'
 import { getChapterShotEditPath, getChapterShotsPath, getChapterStudioPath } from '../project/ProjectWorkbench/routes'
 import { DisplayImageCard } from '../assets/components/DisplayImageCard'
@@ -664,38 +664,11 @@ export function ChapterShotEditPage() {
       if (audioGeneratingIds[lineId]) return
       setAudioGeneratingIds((m) => ({ ...m, [lineId]: true }))
       try {
-        const resp = await StudioAudioTasksService.createSpeechTaskApiV1StudioAudioTasksSpeechPost({
-          requestBody: { dialog_line_id: lineId },
-        })
-        const taskId = (resp.data as { task_id?: string } | undefined)?.task_id ?? ''
-        if (!taskId) throw new Error('未返回任务 ID')
-
-        // 轮询到终态（TTS 通常 10-20 秒）
-        const started = Date.now()
-        let status = ''
-        while (Date.now() - started < 3 * 60 * 1000) {
-          const st = await FilmService.getTaskStatusApiV1FilmTasksTaskIdStatusGet({ taskId })
-          const data = st.data as { status?: string; error?: string } | undefined
-          status = String(data?.status ?? '')
-          if (status === 'succeeded') break
-          if (status === 'failed' || status === 'cancelled') {
-            throw new Error(data?.error || `配音任务${status}`)
-          }
-          await new Promise((r) => setTimeout(r, 2000))
-        }
-        if (status !== 'succeeded') throw new Error('配音超时（3 分钟）')
-
+        await runSpeechTaskForLine(lineId)
         await loadPreparationState({ silent: true })
         message.success('配音已生成')
       } catch (error) {
-        const detail =
-          error instanceof Error ? error.message : String(error)
-        // 422 常见原因：说话角色未配音色
-        message.error(
-          /音色|voice/i.test(detail)
-            ? `配音失败：${detail}（请先在角色或演员上配置音色）`
-            : `配音失败：${detail}`,
-        )
+        message.error(describeSpeechError(error))
       } finally {
         setAudioGeneratingIds((m) => ({ ...m, [lineId]: false }))
       }
@@ -723,25 +696,7 @@ export function ChapterShotEditPage() {
       for (const line of pending) {
         try {
           setAudioGeneratingIds((m) => ({ ...m, [line.id]: true }))
-          const resp = await StudioAudioTasksService.createSpeechTaskApiV1StudioAudioTasksSpeechPost({
-            requestBody: { dialog_line_id: line.id },
-          })
-          const taskId = (resp.data as { task_id?: string } | undefined)?.task_id ?? ''
-          if (!taskId) throw new Error('未返回任务 ID')
-
-          const started = Date.now()
-          let status = ''
-          while (Date.now() - started < 3 * 60 * 1000) {
-            const st = await FilmService.getTaskStatusApiV1FilmTasksTaskIdStatusGet({ taskId })
-            const data = st.data as { status?: string; error?: string } | undefined
-            status = String(data?.status ?? '')
-            if (status === 'succeeded') break
-            if (status === 'failed' || status === 'cancelled') {
-              throw new Error(data?.error || `配音任务${status}`)
-            }
-            await new Promise((r) => setTimeout(r, 2000))
-          }
-          if (status !== 'succeeded') throw new Error('配音超时')
+          await runSpeechTaskForLine(line.id)
           ok += 1
         } catch (error) {
           const detail = error instanceof Error ? error.message : String(error)

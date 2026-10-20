@@ -9,20 +9,20 @@ import {
   PlusOutlined,
   ScissorOutlined,
   StopOutlined,
+  CheckSquareOutlined,
   SoundOutlined,
   SyncOutlined,
   ThunderboltOutlined,
 } from '@ant-design/icons'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import {
-  FilmService,
   ScriptProcessingService,
-  StudioAudioTasksService,
   StudioChaptersService,
   StudioShotsService,
 } from '../../../../../services/generated'
+import { runSpeechTaskForLine } from '../../../shots/tts'
 import { chapterStatusMap } from '../constants'
-import { getChapterShotsPath, getChapterStudioPath } from '../routes'
+import { getChapterReviewPath, getChapterShotsPath, getChapterStudioPath } from '../routes'
 import { useChapters, newId, type Chapter } from '../hooks/useProjectData'
 import { ChapterRawTextEditorModal } from '../../../chapter/components/ChapterRawTextEditorModal'
 import { ChapterPrepareWizard } from '../../../chapter/components/ChapterPrepareWizard'
@@ -382,7 +382,7 @@ const { taskMap: chapterDivisionTaskMap, setTrackedTaskMap: setChapterDivisionTa
       const shotsResp = await StudioShotsService.listShotsApiV1StudioShotsGet({
         chapterId: record.id,
         page: 1,
-        pageSize: 200,
+        pageSize: 100,
       })
       const shots = ((shotsResp.data as { items?: Array<{ id: string }> } | undefined)?.items ?? []) as Array<{
         id: string
@@ -410,25 +410,7 @@ const { taskMap: chapterDivisionTaskMap, setTrackedTaskMap: setChapterDivisionTa
         const pending = lines.filter((l) => !l.generated_audio_file_id)
         for (const line of pending) {
           try {
-            const resp =
-              await StudioAudioTasksService.createSpeechTaskApiV1StudioAudioTasksSpeechPost({
-                requestBody: { dialog_line_id: line.id },
-              })
-            const taskId = (resp.data as { task_id?: string } | undefined)?.task_id ?? ''
-            if (!taskId) throw new Error('未返回任务 ID')
-            const started = Date.now()
-            let status = ''
-            while (Date.now() - started < 3 * 60 * 1000) {
-              const st = await FilmService.getTaskStatusApiV1FilmTasksTaskIdStatusGet({ taskId })
-              const data = st.data as { status?: string; error?: string } | undefined
-              status = String(data?.status ?? '')
-              if (status === 'succeeded') break
-              if (status === 'failed' || status === 'cancelled') {
-                throw new Error(data?.error || `配音任务${status}`)
-              }
-              await new Promise((r) => setTimeout(r, 2000))
-            }
-            if (status !== 'succeeded') throw new Error('配音超时')
+            await runSpeechTaskForLine(line.id)
             ok += 1
           } catch (error) {
             failures.push(`镜头${shot.id.slice(0, 6)} 第${line.index + 1}句: ${
@@ -464,6 +446,14 @@ const { taskMap: chapterDivisionTaskMap, setTrackedTaskMap: setChapterDivisionTa
         icon: <ScissorOutlined />,
         onClick: () => navigate(getChapterShotsPath(projectId, record.id)),
       },
+      (record.storyboardCount ?? 0) > 0
+        ? {
+            key: 'review',
+            label: '检查流程（参考图 → 分镜 → 对话）',
+            icon: <CheckSquareOutlined />,
+            onClick: () => navigate(getChapterReviewPath(projectId, record.id)),
+          }
+        : null,
       state.key !== 'prepare_shots' && (record.storyboardCount ?? 0) > 0
         ? {
             key: 'studio',
@@ -621,6 +611,15 @@ const { taskMap: chapterDivisionTaskMap, setTrackedTaskMap: setChapterDivisionTa
                 onClick={() => setPrepareChapter(record)}
               />
             </Tooltip>
+            {(record.storyboardCount ?? 0) > 0 ? (
+              <Tooltip title="检查流程：参考图 → 分镜 → 对话">
+                <Button
+                  size="small"
+                  icon={<CheckSquareOutlined />}
+                  onClick={() => navigate(getChapterReviewPath(projectId!, record.id))}
+                />
+              </Tooltip>
+            ) : null}
             <Dropdown
               trigger={['click']}
               menu={{ items: buildActionMenuItems(record) }}
