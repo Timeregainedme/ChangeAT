@@ -647,3 +647,45 @@ await mark_linked_by_name(...)                            # 只把候选标记�
 
 **遗留**：镜头 7 的「场景」仍为空，属提取阶段未识别出场景，与关联写入无关。
 部分资产无缩略图（如「旁白」角色）是因为从未发起过该实体的图片生成任务。
+
+### 9.13 2026-10-20：补齐系统依赖 ffmpeg/ffprobe（时间线导出成片）
+
+**现象**：导出成片失败，报「服务器未安装 ffprobe，无法导出成片」。
+
+**根因**：时间线导出走 `app/services/studio/timeline.py`，通过
+`asyncio.create_subprocess_exec` 调用系统 `ffmpeg` / `ffprobe`，
+用于「先把各分镜视频归一化到统一规格（scale+pad+setsar+fps），再 concat 拼接」。
+
+仓库的 `deploy/docker/backend.Dockerfile` 第 11 行**已声明** `ffmpeg`，
+但本环境是 **apt + systemd 部署（非 Docker）**，构建阶段不会执行 Dockerfile，
+因此这个系统依赖被漏掉了。
+
+**修复**：
+
+```bash
+apt-get install -y --no-install-recommends ffmpeg
+# → ffmpeg 6.1.1-3ubuntu5 / ffprobe 6.1.1，/usr/bin/ 下，ubuntu 用户可直接执行
+```
+
+**完整的外部命令依赖清单**（全仓库仅此两个）：
+
+| 命令 | 用途 |
+| --- | --- |
+| `ffmpeg` | 分镜视频归一化 + concat 拼接成片 |
+| `ffprobe` | 探测输入视频规格（分辨率/帧率/是否有音轨） |
+
+**导出链路烟雾测试（实测通过）**：
+
+```
+1. 造两段不同规格视频：640x360@25（无音轨）+ 1280x720@30（有音轨）
+2. 规格统一：都转成 720x1280@30；无音轨的自动用 anullsrc 补静音轨
+3. concat 拼接：-f concat -c copy（无损）
+4. ffprobe 校验产物：h264 + aac，时长 4.04s，86KB
+```
+
+所需滤镜/源全部可用：`scale` / `pad` / `setsar` / `fps` / `anullsrc` / `concat`，
+编码器 `libx264` / `aac` 齐全（Ubuntu 官方包为完整版，非精简构建）。
+
+**注意（重建实例时必做）**：apt + systemd 部署路径没有 Dockerfile 自动带依赖，
+重建主机后需手动补齐：`python3.12-venv redis-server build-essential pkg-config
+default-libmysqlclient-dev npm mysql-server ffmpeg xfsprogs`。
