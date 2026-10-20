@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.scoping import (
+    get_chapter_in_workspace,
     get_dialog_line_in_workspace,
     get_frame_image_in_workspace,
     get_shot_detail_in_workspace,
@@ -191,7 +192,11 @@ async def create_shot(
 async def list_shot_runtime_summary(
     chapter_id: str = Query(..., description="章节 ID"),
     db: AsyncSession = Depends(get_db),
+    ctx: WorkspaceContext = Depends(get_workspace_context),
 ) -> ApiResponse[list[ShotRuntimeSummaryRead]]:
+    # chapter_id 来自 query 而非路径，router 级守卫覆盖不到；
+    # 不校验归属时会返回别家工作区镜头的运行时状态（进度、错误原因）。
+    await get_chapter_in_workspace(db, chapter_id, ctx)
     rows = await list_shot_runtime_summary_by_chapter(db, chapter_id=chapter_id)
     return success_response(rows)
 

@@ -273,6 +273,7 @@ async def adopt_task_link(
 )
 async def list_task_links(
     db: AsyncSession = Depends(get_db),
+    ctx: WorkspaceContext = Depends(get_workspace_context),
     resource_type: str | None = Query(None, description="按 resource_type 过滤"),
     relation_type: str | None = Query(None, description="按 relation_type 过滤"),
     relation_entity_id: str | None = Query(None, description="按 relation_entity_id 过滤"),
@@ -283,7 +284,13 @@ async def list_task_links(
     page: int = Query(1, ge=1, description="页码"),
     page_size: int = Query(10, ge=1, le=100, description="每页条数"),
 ) -> ApiResponse[PaginatedData[GenerationTaskLinkRead]]:
-    stmt = select(GenerationTaskLink)
+    # 关联行自身没有 workspace_id，归属经 generation_tasks 继承。
+    # 所有过滤参数都是可选的 —— 不传即全表，不加这道 join 就会跨租户返回。
+    stmt = (
+        select(GenerationTaskLink)
+        .join(GenerationTask, GenerationTask.id == GenerationTaskLink.task_id)
+        .where(GenerationTask.workspace_id == ctx.workspace_id)
+    )
     if resource_type is not None:
         stmt = stmt.where(GenerationTaskLink.resource_type == resource_type)
     if relation_type is not None:
