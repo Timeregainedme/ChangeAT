@@ -70,7 +70,11 @@ function renderApp() {
 renderApp()
 
 async function enableMocking() {
-  if (import.meta.env.VITE_USE_MOCK !== 'true') {
+  // 必须用 import.meta.env.DEV 收口：Vite 在 production build 时会把
+  // `import.meta.env.DEV` 静态替换为 false，整个分支连同动态 import 一起被
+  // tree-shake 掉。若只用 VITE_USE_MOCK 判断，msw 与 handlers 仍会被打包成
+  // 一个 ~286KB 的 chunk（首屏不加载但白白增大产物体积、拖慢构建与部署）。
+  if (!import.meta.env.DEV || import.meta.env.VITE_USE_MOCK !== 'true') {
     return
   }
   try {
