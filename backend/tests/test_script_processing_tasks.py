@@ -624,6 +624,16 @@ def test_pick_analysis_relation_entity_id_prefers_chapter() -> None:
 class _FakeDraft:
     payload: dict
 
+    @property
+    def shots(self) -> list:
+        """模拟 `StudioScriptExtractionDraft.shots`。
+
+        服务层会用 `result.shots` 做镜头覆盖校验（缺 index 时补提取），
+        替身必须暴露同名属性，否则会以 AttributeError 的形式把任务打成 failed，
+        掩盖真正的取消语义回归。
+        """
+        return list(self.payload.get("shots") or [])
+
     def model_dump(self) -> dict:
         return self.payload
 

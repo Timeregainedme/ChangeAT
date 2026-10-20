@@ -1,15 +1,21 @@
-# 质量门禁：后端 pytest + 前端 tsc，在 PR / Merge queue 上运行。
+# 质量门禁：后端 pytest + 前端 tsc + OpenAPI 契约比对，在 PR / Merge queue 上运行。
 #
 # 背景（R-27）：此前唯一碰后端的工作流是 backend-pylint.yml，只跑 pylint；
 # 没有任何工作流执行 pytest，也没有前端类型检查，导致「任何测试通过的说法都不成立」。
 #
+# 契约门禁的由来：后端重写的硬约束是「前端无感切换」，即 `/api/v1` 的 URL、
+# 响应信封与字段名不允许悄悄变。仅靠 tsc 无法发现（generated client 会跟着
+# openapi.json 一起变），必须比对「后端当前产出的规格」与「前端冻结的基线」。
+#
 # 合并前置（GitHub 需在仓库设置中启用）：
 #   Settings → Rules / Branch protection → Require status checks to pass
-#   勾选「Quality Gates / backend-pytest」与「Quality Gates / front-typecheck」。
+#   勾选「Quality Gates / backend-pytest」「Quality Gates / front-typecheck」
+#   与「Quality Gates / openapi-contract」。
 #
 # 与本地命令一致：
 #   cd backend && uv run pytest tests -q
 #   cd front   && pnpm run typecheck
+#   cd front   && pnpm run openapi:check
 name: Quality Gates
 
 on:
@@ -78,3 +84,26 @@ jobs:
 
       - name: Typecheck (tsc --noEmit)
         run: pnpm run typecheck
+
+  openapi-contract:
+    name: openapi-contract
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          python-version-file: backend/.python-version
+
+      - name: Sync dependencies (dev)
+        run: uv sync --group dev
+
+      # 不做 --update：CI 只负责发现漂移，写回与重新生成必须由人确认后提交。
+      - name: Check OpenAPI contract against front/openapi.json
+        run: uv run python scripts/check_openapi_contract.py

@@ -9,11 +9,12 @@ from app.models.task import GenerationDeliveryMode, GenerationTask, GenerationTa
 
 
 def test_to_sync_database_url_converts_async_drivers() -> None:
+    """同步 URL 只替换 driver，库名/文件名原样保留（不参与改名）。"""
     assert (
         _to_sync_database_url("mysql+aiomysql://root:123456@localhost:3306/dyeingtime")
-        == "mysql+pymysql://root:123456@localhost:3306/jellyfish"
+        == "mysql+pymysql://root:123456@localhost:3306/dyeingtime"
     )
-    assert _to_sync_database_url("sqlite+aiosqlite:///./dyeingtime.db") == "sqlite:///./jellyfish.db"
+    assert _to_sync_database_url("sqlite+aiosqlite:///./dyeingtime.db") == "sqlite:///./dyeingtime.db"
 
 
 def test_sync_task_store_roundtrip() -> None:

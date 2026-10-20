@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
@@ -22,6 +23,42 @@ def client() -> TestClient:
     if app is None:
         pytest.skip("FastAPI app 依赖未满足（例如缺少 langgraph），跳过需要 client 的集成测试。")
     return TestClient(app)
+
+
+@pytest.fixture(autouse=True)
+def _bypass_route_auth():
+    """默认放行路由级鉴权，让接口测试只关注响应壳。
+
+    为什么需要：`app/api/v1/__init__.py` 给所有业务路由统一挂了
+    `require_auth` 依赖，而绝大多数接口测试只验证 `{code, message, data}`
+    信封，并不关心登录态。若每个用例各自准备 token，会让测试与被测逻辑
+    一起漂移（本次 121 个用例正是因为契约升级后集体 401）。
+
+    需要验证「未登录」行为的用例，可在用例外显式覆盖：
+
+        app.dependency_overrides.pop(require_auth, None)
+
+    autouse 的作用域限制：仅在用例执行期间生效，结束后恢复原状，不影响
+    其他用例对鉴权的断言。
+    """
+    if app is None:
+        yield
+        return
+
+    from app import dependencies
+
+    fake_user = SimpleNamespace(
+        id=1,
+        username="test-user",
+        display_name="测试用户",
+        is_active=True,
+        auth_provider="local",
+    )
+    app.dependency_overrides[dependencies.require_auth] = lambda: fake_user
+    try:
+        yield
+    finally:
+        app.dependency_overrides.pop(dependencies.require_auth, None)
 
 
 def pytest_configure(config: pytest.Config) -> None:

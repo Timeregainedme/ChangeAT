@@ -2,6 +2,10 @@ node_modules/
 dist/
 .env
 .env.local
+# 任何 .env 派生文件（含部署时的 .env.bak-* / .env.pre-* / .env.corrupt-*）一律不入库
+.env.*
+# 但示例文件必须保留，供其他人参照
+!.env.example
 .DS_Store
 *.log
 .pnpm-store/

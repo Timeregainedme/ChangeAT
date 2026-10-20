@@ -11,7 +11,8 @@
     "lint": "eslint . --ext .ts,.tsx",
     "lint:fix": "eslint . --ext .ts,.tsx --fix",
     "preview": "vite preview",
-    "openapi:fetch": "curl -sSf http://127.0.0.1:8000/openapi.json -o ./openapi.json",
+    "openapi:fetch": "cd ../backend && uv run python scripts/check_openapi_contract.py --update",
+    "openapi:check": "cd ../backend && uv run python scripts/check_openapi_contract.py",
     "openapi:gen": "pnpm exec -- openapi --input ./openapi.json --output ./src/services/generated --client fetch --useOptions --useUnionTypes",
     "openapi:update": "pnpm run openapi:fetch && pnpm run openapi:gen"
   },

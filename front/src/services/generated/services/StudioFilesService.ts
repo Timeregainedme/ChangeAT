@@ -190,19 +190,16 @@ export class StudioFilesService {
      * - Range 请求由对象存储处理，播放器可正常 seek
      * - 可被 CDN 缓存
      * 仅在无公开 URL 时回退到后端流式代理。
-     *
-     * 同时支持 HEAD：浏览器 <video>/<audio> 与部分下载器会先发 HEAD 探测
-     * Content-Length / Accept-Ranges，只注册 GET 会返回 405 Method Not Allowed。
      * @returns any Successful Response
      * @throws ApiError
      */
-    public static downloadFileApiApiV1StudioFilesFileIdDownloadHead({
+    public static downloadFile({
         fileId,
     }: {
         fileId: string,
     }): CancelablePromise<any> {
         return __request(OpenAPI, {
-            method: 'HEAD',
+            method: 'GET',
             url: '/api/v1/studio/files/{file_id}/download',
             path: {
                 'file_id': fileId,
@@ -213,28 +210,21 @@ export class StudioFilesService {
         });
     }
     /**
-     * 下载文件二进制内容（匿名可访问，重定向到对象存储公开 URL）
-     * 下载/内联展示素材二进制。
+     * 探测文件可下载性（HEAD，返回 Content-Length / Accept-Ranges）
+     * HEAD 探测，与 GET 共用同一套响应头。
      *
-     * 必须匿名可访问：浏览器 <img>/<video> 无法携带 Authorization 头。
-     * 若对象存储已给出公开 URL（files.thumbnail），直接 302 重定向：
-     * - 不占用 EC2 出网带宽（视频可达数百 MB）
-     * - Range 请求由对象存储处理，播放器可正常 seek
-     * - 可被 CDN 缓存
-     * 仅在无公开 URL 时回退到后端流式代理。
-     *
-     * 同时支持 HEAD：浏览器 <video>/<audio> 与部分下载器会先发 HEAD 探测
+     * 为什么必须有：浏览器 <video>/<audio> 与部分下载器会先发 HEAD 探测
      * Content-Length / Accept-Ranges，只注册 GET 会返回 405 Method Not Allowed。
      * @returns any Successful Response
      * @throws ApiError
      */
-    public static downloadFileApiApiV1StudioFilesFileIdDownloadHead1({
+    public static downloadFileHead({
         fileId,
     }: {
         fileId: string,
     }): CancelablePromise<any> {
         return __request(OpenAPI, {
-            method: 'GET',
+            method: 'HEAD',
             url: '/api/v1/studio/files/{file_id}/download',
             path: {
                 'file_id': fileId,

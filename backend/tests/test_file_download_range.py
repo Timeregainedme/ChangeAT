@@ -42,8 +42,15 @@ class _FakeStorage:
         return SimpleNamespace(size=self.size)
 
 
-def _patch(monkeypatch, *, size: int, name: str = "成片") -> _FakeStorage:
-    entry = SimpleNamespace(id="file-1", name=name, storage_key=STORAGE_KEY)
+def _patch(monkeypatch, *, size: int, name: str = "成片", thumbnail: str | None = None) -> _FakeStorage:
+    """注入假的 FileItem 与 storage。
+
+    ``thumbnail`` 需显式给出：服务层用它判断对象存储是否有公开域名，
+    绝对 URL 会走 302 重定向而非流式代理，两个分支都要能被调到。
+    """
+    entry = SimpleNamespace(
+        id="file-1", name=name, storage_key=STORAGE_KEY, thumbnail=thumbnail
+    )
     fake = _FakeStorage(size=size)
 
     async def _fake_get_or_404(db, model, entity_id, **kwargs):

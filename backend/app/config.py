@@ -73,11 +73,10 @@ class Settings(BaseSettings):
     jwt_expire_minutes: int = 60 * 12
 
     # --- Google 登录 ---
-    # client_id 会下发给前端（通过 nginx 生成的 env.js），不属于机密；
-    # client_secret 只存服务端，保留给后续「服务端 code 交换」流程使用，
-    # 当前采用的是 GIS ID Token 校验流程（不需要 secret）。
+    # client_id 会下发给前端（通过 nginx 生成的 env.js），不属于机密。
+    # 当前采用 GIS ID Token 校验流程，因此**不需要也不保存 client_secret**；
+    # 若将来改为服务端 code 交换，再引入 secret 并在 Google 控制台重新签发。
     google_client_id: str = ""
-    google_client_secret: str = ""
     # 允许登录的 Google 邮箱，逗号分隔；支持 `@domain.com` 形式按域放行。
     # 留空表示「任何已验证邮箱都可登录」——公网部署建议务必填写。
     google_allowed_emails: str = ""

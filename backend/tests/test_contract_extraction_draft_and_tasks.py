@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import logging
+from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
@@ -36,7 +37,10 @@ from app.models.studio import (
     Shot,
     ShotCharacterLink,
 )
-from app.schemas.skills.script_processing import ScriptDivisionResult
+from app.schemas.skills.script_processing import (
+    ScriptDivisionResult,
+    StudioScriptExtractionDraft,
+)
 from app.services.script_processing_worker import (
     _rebuild_script_division_from_shots,
     generate_extraction_result,
@@ -134,14 +138,35 @@ def _stub_extract_pipeline(monkeypatch, worker, captured: list[dict], rebuild_ca
         }
 
     class _FakeAgent:
-        """替身 ElementExtractorAgent：只记录收到的 script_division_json。"""
+        """替身 ElementExtractorAgent：只记录收到的 script_division_json。
+
+        真实 agent 返回的是 Pydantic 草稿对象（`StudioScriptExtractionDraft`），
+        服务层后续按属性访问 `result.shots` / `shot.index`；这里必须保持同一
+        形态，否则会用「测试替身与生产契约不一致」掩盖真实回归。
+        按输入 shots 的 index 回填，避免触发漏镜头补提取分支干扰断言。
+        """
 
         def __init__(self, llm) -> None:  # noqa: ANN001
             self.llm = llm
 
         def extract(self, **kwargs):  # noqa: ANN003
-            captured.append(json.loads(kwargs["script_division_json"]))
-            return {"characters": []}
+            payload = json.loads(kwargs["script_division_json"])
+            captured.append(payload)
+            shots = [
+                SimpleNamespace(index=int(shot["index"]), name="")
+                for shot in payload.get("shots") or []
+                if isinstance(shot, dict) and "index" in shot
+            ]
+            return StudioScriptExtractionDraft.model_construct(
+                project_id="p1",
+                chapter_id="c1",
+                script_text="",
+                characters=[],
+                scenes=[],
+                props=[],
+                costumes=[],
+                shots=shots,
+            )
 
     def _forbidden_write(*args, **kwargs):  # noqa: ANN002, ANN003
         raise AssertionError("提取路径不得写库覆盖分镜（否则会覆盖用户剧本）")

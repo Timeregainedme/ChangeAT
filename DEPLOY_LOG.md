@@ -968,8 +968,8 @@ HTTP 错误分支：自合并 400、不存在 404、非法类型 400。
 → 服务端向 Google 校验 → 找到/创建账号 → 签发与本地登录相同的 JWT。
 
 **为什么用 ID Token 而不是服务端 code 交换**：不需要 redirect_uri / state / 回跳，前端只多一个官方
-按钮；校验交给 Google `tokeninfo` 端点，避免自管 JWKS 轮换。`GOOGLE_CLIENT_SECRET` 已存入
-服务端 `.env`，当前流程不使用，保留给后续 code 交换方案。
+按钮；校验交给 Google `tokeninfo` 端点，避免自管 JWKS 轮换。> 注：`GOOGLE_CLIENT_SECRET` 曾短暂写入 `.env`，但当前流程不使用；
+> 2026-10-21 已在安全清理中**移除**（见 9.24），并建议在 Google 控制台轮换。
 
 **后端**：
 
@@ -1118,3 +1118,40 @@ GOOGLE_ALLOWED_EMAILS=15068441889an@gmail.com,gimeregained@gmail.com,wpt031019@g
 | 错误密码 | 401 |
 | 新 token 调 `/auth/me` | 200，username=Timeregained |
 | 白名单判定 | 3 个指定邮箱 True，其他邮箱 False |
+
+### 9.24 2026-10-21：安全清理与凭证轮换
+
+背景：内部标识改名过程中，服务器上留下了一份「同步前状态」的本地提交，
+其中包含 9 个早期部署阶段的 `.env.bak-*` / `.env.corrupt-*` 明文密钥快照；
+另有若干 `.env` 副本散落在 `/tmp` 与 `/srv/backup-*`。
+
+**已执行**：
+
+| # | 处理项 | 结果 |
+| --- | --- | --- |
+| 1 | 清除含密钥的本地提交 `d712b71` | `reflog expire` + `gc --prune=now`，`git cat-file` 已不可读，unreachable commit = 0 |
+| 2 | 删除磁盘上的 `.env` 副本 | `/tmp/env.bak.*`、`/srv/backup-*/**/env*`、`/tmp/rename-login.json`、`/tmp/switch_to_mysql.sh` |
+| 3 | 收紧运维快照权限 | 所有 `/srv/backup-*` → `700` |
+| 4 | 主密钥文件权限复核 | `backend/.env`、`.mysql_app_pw` 均 `600 ubuntu:ubuntu` |
+| 5 | 移除未使用的 `GOOGLE_CLIENT_SECRET` | 配置项与 `.env` 行一并删除（ID Token 流程不需要 secret） |
+| 6 | **轮换 MySQL 应用密码** | `dyeingtime@127.0.0.1` / `@localhost` 均改为新随机密码，同步 `.env` 与 `.mysql_app_pw`，服务重启后连通正常 |
+| 7 | `.gitignore` 加固 | 新增 `.env.*` + `!.env.example`，覆盖 `.env.bak-*` / `.env.pre-*` / `.env.corrupt-*` |
+
+**取证结论**：
+
+- GitHub 远端与本地仓库的历史中**没有**真实 `.env`（只有 `.env.example`）；
+- 系统日志中未出现 `sk-*` / `GOCSPX-` / AKIA 形式的密钥；
+- 泄密面仅限「服务器本地磁盘 + 本地 git 对象」，已全部清除。
+
+**验证**：`/api/v1/health` 200、`Timeregained` 登录 200、数据库连通（users=2）、
+`dyeingtime-api` / `dyeingtime-celery` active。
+
+**仍需在控制台侧完成（无法由服务器操作）**：
+
+1. **Google Client Secret 轮换** —— 该 secret 曾在对话中出现。虽然当前流程不使用，
+   仍建议在 Google Cloud Console → 凭据 → 对应 OAuth 客户端 → 重置密钥。
+2. **Cloudflare R2 密钥轮换** —— Access Key / Secret 曾出现在早前对话中。
+   建议新建一对密钥、更新 `.env` 的 `S3_ACCESS_KEY_ID` / `S3_SECRET_ACCESS_KEY` 后重启，
+   再禁用旧密钥（注意：切换后新上传对象仍可用，历史对象不受影响）。
+3. **登录密码** —— `Timeregained` 的初始密码在对话中出现过，建议自行更换
+   （当前无修改密码界面，可用 `python -c` 生成 bcrypt 后直接更新 `users.password_hash`）。

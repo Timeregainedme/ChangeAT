@@ -111,9 +111,27 @@ async def upload_file_api(
     return created_response(FileRead.model_validate(obj))
 
 
-@public_router.api_route(
+async def _serve_download(file_id: str, request: Request, db: AsyncSession):
+    """GET/HEAD 共用的下载响应构建。
+
+    单独拆出的原因：GET 与 HEAD 必须各自声明，才能给它们不同的
+    `operation_id`。此前用 `api_route(methods=["GET", "HEAD"])` 让一个函数
+    同时注册两个方法，FastAPI 生成 operationId 时取 `route.methods` 的第一个
+    元素，而 `methods` 是 set —— 顺序随 `PYTHONHASHSEED` 变化，导致
+    `/openapi.json` 在每台机器上产出不同的 operationId，契约基线无法稳定比对，
+    前端 generated client 也生成了 `...DownloadHead` 与 `...DownloadHead1`
+    这类无意义重名。
+    """
+    return await build_download_response(
+        db,
+        file_id=file_id,
+        range_header=request.headers.get("range"),
+    )
+
+
+@public_router.get(
     "/{file_id}/download",
-    methods=["GET", "HEAD"],
+    operation_id="download_file",
     summary="下载文件二进制内容（匿名可访问，重定向到对象存储公开 URL）",
 )
 async def download_file_api(
@@ -129,15 +147,26 @@ async def download_file_api(
       - Range 请求由对象存储处理，播放器可正常 seek
       - 可被 CDN 缓存
     仅在无公开 URL 时回退到后端流式代理。
+    """
+    return await _serve_download(file_id, request, db)
 
-    同时支持 HEAD：浏览器 <video>/<audio> 与部分下载器会先发 HEAD 探测
+
+@public_router.head(
+    "/{file_id}/download",
+    operation_id="download_file_head",
+    summary="探测文件可下载性（HEAD，返回 Content-Length / Accept-Ranges）",
+)
+async def download_file_head_api(
+    file_id: str,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    """HEAD 探测，与 GET 共用同一套响应头。
+
+    为什么必须有：浏览器 <video>/<audio> 与部分下载器会先发 HEAD 探测
     Content-Length / Accept-Ranges，只注册 GET 会返回 405 Method Not Allowed。
     """
-    return await build_download_response(
-        db,
-        file_id=file_id,
-        range_header=request.headers.get("range"),
-    )
+    return await _serve_download(file_id, request, db)
 
 
 @router.get(
