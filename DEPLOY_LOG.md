@@ -398,3 +398,42 @@ Celery worker 内部为函数调用，不经 HTTP，不受影响。
    - 授权重定向 URI：`https://tim.run.place/api/v1/auth/google/callback`
    - 拿到 `client_id` / `client_secret` 后即可实现（后端加 `/auth/google/*`，
      前端加一个按钮；账号密码登录作为兜底保留）。
+
+### 9.8 2026-10-20：修复 /assets 路由与静态目录同名冲突（404）
+
+**现象**：访问资产编辑页 `/assets/costumes/<id>/edit` 返回 404，nginx 日志：
+
+```
+open() "/srv/changeAT/front/dist/assets/costumes/costume-xxx/edit" failed (2: No such file or directory)
+```
+
+**根因**：前端路由与静态资源目录重名。
+
+| 角色 | 路径 |
+| --- | --- |
+| 前端路由 | `/assets/costumes/:costumeId/edit` 等 |
+| nginx 静态目录 | `location /assets/` → `dist/assets/`（vite 默认 `assetsDir`） |
+
+`location /assets/` 的前缀匹配优先级高于 `location /` 里的 SPA fallback，
+因此这些前端路由被当作静态文件请求，永远走不到 `try_files ... /index.html`。
+
+**修复**：静态资源目录改名 `assets` → `static`。
+
+- `front/vite.config.ts`：`build.assetsDir = 'static'`
+- nginx：`location /assets/ { alias .../dist/assets/ }` → `location /static/ { alias .../dist/static/ }`
+
+**验证**（14 条前端路由全部 200 + `text/html`）：
+
+```
+/assets                                    200  text/html
+/assets/costumes/<id>/edit                 200  text/html
+/assets/actors|scenes|props/<id>/edit      200  text/html
+/projects/<p>/chapters/<c>/shots           200  text/html
+/projects/<p>/chapters/<c>/studio          200  text/html
+/projects/<p>/editor                       200  text/html
+```
+
+静态资源 `/static/*` 正常，gzip 生效（主 chunk 1,023,089 → 319,655 字节）。
+
+**教训**：给 SPA 配置静态资源目录时，必须检查是否有同名前端路由。
+若前端保留 `/assets` 路径，静态目录应改用 `/static` 或其他不冲突的名字。

@@ -12,6 +12,11 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     sourcemap: false,
+    // 静态资源目录改为 static（默认是 assets）。
+    // 原因：前端有 /assets 路由（资产管理的子页面，如 /assets/costumes/:id/edit），
+    // 与默认的 dist/assets/ 目录同名；nginx 的 location /assets/ 优先级高于 SPA
+    // fallback，导致这些前端路由被当成静态文件请求而 404。
+    assetsDir: 'static',
     // 单个 chunk 超过 600KB 时告警，便于持续观察首屏体积
     chunkSizeWarningLimit: 600,
     // 不使用自定义 manualChunks：
