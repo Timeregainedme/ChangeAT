@@ -53,10 +53,19 @@ func NewRouter(deps Deps) http.Handler {
 		if deps.DB != nil {
 			authHandler := handler.NewAuth(store.NewUserStore(deps.DB))
 
+			taskHandler := handler.NewTask(
+				store.NewTaskStore(deps.DB),
+				store.NewWorkspaceStore(deps.DB),
+			)
+
 			// 受保护路由：与 Python 的 `/auth/me` 同契约。
 			r.Group(func(r chi.Router) {
 				r.Use(middleware.RequireAuth(deps.JWTSecret))
 				r.Get("/auth/me", authHandler.Me)
+
+				// 任务状态与结果查询：前端任务中心的高频轮询入口。
+				r.Get("/film/tasks/{task_id}/status", taskHandler.Status)
+				r.Get("/film/tasks/{task_id}/result", taskHandler.Result)
 			})
 
 			// 公开路由：素材下载必须匿名可访问（浏览器 <img>/<video> 无法带 Authorization）。
