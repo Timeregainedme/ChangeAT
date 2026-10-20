@@ -11,6 +11,7 @@ from app.core.task_manager import SqlAlchemyTaskStore
 from app.core.task_manager.types import TaskStatus
 from app.api.scoping import get_task_in_workspace, get_task_link_in_workspace, require_scoped_resource
 from app.dependencies import WorkspaceContext, get_db, get_workspace_context
+from app.models.task import GenerationTask
 from app.models.task_links import GenerationTaskLink
 from app.schemas.common import ApiResponse, PaginatedData, created_response, empty_response, paginated_response, success_response
 from app.services.common import entity_not_found
