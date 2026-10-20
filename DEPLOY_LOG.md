@@ -437,3 +437,36 @@ open() "/srv/changeAT/front/dist/assets/costumes/costume-xxx/edit" failed (2: No
 
 **教训**：给 SPA 配置静态资源目录时，必须检查是否有同名前端路由。
 若前端保留 `/assets` 路径，静态目录应改用 `/static` 或其他不冲突的名字。
+
+### 9.9 2026-10-20：修复生成图片在前端裂图（thumbnail 走了受鉴权代理）
+
+**现象**：R2 里图片存在且公开可访问，但前端资产页图片全部裂图。
+
+**排查结论**：数据关联完全正确，问题在 API 返回的 `thumbnail` 形态。
+
+| 访问方式 | 结果 |
+| --- | --- |
+| `<img src="/api/v1/studio/files/<id>/download">`（无 token） | **401** ❌ |
+| 同一路径带 `Authorization` 头 | 200 ✅ |
+| `files.thumbnail` 里的 R2 公开 URL（无鉴权） | 200 ✅ |
+
+**根因**：`backend/app/services/studio/entity_thumbnails.py` 硬编码
+`DOWNLOAD_URL_TEMPLATE = "/api/v1/studio/files/{file_id}/download"`。
+而 `studio` 路由整体挂了 `require_auth`，浏览器 `<img>` 无法携带
+`Authorization` 头，因此一律 401。R2 桶已配置公共读，本不需要后端代理。
+
+**修复**：优先返回 `files.thumbnail`（对象存储的公开 URL），
+仅当该列为空（例如换成私有桶、未配公开域名）时才回退到受鉴权代理路径。
+批量查询避免 N+1：一次 `select id, thumbnail from files where id in (...)`。
+
+**验证**（10 个实体全部通过）：
+
+```
+prop     5 个  → 全部 200，R2 公开 URL
+scene    3 个  → 全部 200
+costume  2 个  → 全部 200
+character 3 个 → 无缩略图（未发起过角色图生成任务，character_images.file_id 为 NULL）
+```
+
+**注意**：`character` / `actor` 的图片需要单独发起生成任务；仅创建
+`*_images` 占位记录（`file_id = NULL`）不会产生缩略图。
