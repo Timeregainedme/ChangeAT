@@ -178,7 +178,7 @@ export function ShotBoardPage() {
             return (
               <section
                 key={column.key}
-                className="flex h-full min-h-0 w-1/3 min-w-[220px] flex-col rounded-lg border border-border bg-muted/30"
+                className="flex h-full min-h-0 flex-1 basis-0 flex-col rounded-lg border border-border bg-muted/30"
               >
                 <div className="flex items-center gap-2 border-b border-border px-3 py-2.5">
                   <span className={cn('h-2 w-2 rounded-full', column.dot)} />
