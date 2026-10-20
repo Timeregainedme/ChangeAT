@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
-import { Card, Button, Tag, Space, Table, Empty, Modal, Input, Dropdown, message } from 'antd'
+import { Card, Button, Tag, Space, Table, Empty, Modal, Input, Dropdown, message, Tooltip } from 'antd'
 import type { MenuProps, TableColumnsType } from 'antd'
 import {
   EditOutlined,
@@ -10,6 +10,7 @@ import {
   ScissorOutlined,
   StopOutlined,
   SyncOutlined,
+  ThunderboltOutlined,
 } from '@ant-design/icons'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { ScriptProcessingService, StudioChaptersService } from '../../../../../services/generated'
@@ -17,6 +18,7 @@ import { chapterStatusMap } from '../constants'
 import { getChapterShotsPath, getChapterStudioPath } from '../routes'
 import { useChapters, newId, type Chapter } from '../hooks/useProjectData'
 import { ChapterRawTextEditorModal } from '../../../chapter/components/ChapterRawTextEditorModal'
+import { ChapterPrepareWizard } from '../../../chapter/components/ChapterPrepareWizard'
 import { ensureHasShotsBeforeShooting } from '../ensureHasShotsBeforeShooting'
 import { getChapterPreparationState } from '../chapterPreparation'
 import { loadChapterFlowStats, type ChapterFlowStats } from '../projectFlowStats'
@@ -58,7 +60,10 @@ export function ChaptersTab() {
       relationEntityId: id,
     })),
   )
-  const { taskMap: chapterDivisionTaskMap, setTrackedTaskMap: setChapterDivisionTaskMap } = useChapterDivisionTaskMapPolling({
+    /** 一键准备向导：保存待处理的章节，null 表示关闭 */
+  const [prepareChapter, setPrepareChapter] = useState<Chapter | null>(null)
+
+const { taskMap: chapterDivisionTaskMap, setTrackedTaskMap: setChapterDivisionTaskMap } = useChapterDivisionTaskMapPolling({
     chapterIds,
     onTasksSettled: async () => {
       await refresh()
@@ -500,6 +505,13 @@ export function ChaptersTab() {
             >
               {primaryText}
             </Button>
+            <Tooltip title="一键准备：拆分镜 → 提取 → 建资产 → 按类目生成资产图">
+              <Button
+                size="small"
+                icon={<ThunderboltOutlined />}
+                onClick={() => setPrepareChapter(record)}
+              />
+            </Tooltip>
             <Dropdown
               trigger={['click']}
               menu={{ items: buildActionMenuItems(record) }}
@@ -594,6 +606,20 @@ export function ChaptersTab() {
           if (editingChapter?.id && typeof next.rawText === 'string') {
             patchChapterLocal(editingChapter.id, { rawText: next.rawText })
           }
+          void refresh()
+        }}
+      />
+
+      <ChapterPrepareWizard
+        open={prepareChapter !== null}
+        projectId={projectId ?? ''}
+        chapterId={prepareChapter?.id ?? ''}
+        chapterIndex={prepareChapter?.index ?? 0}
+        chapterTitle={prepareChapter?.title ?? ''}
+        storyboardCount={prepareChapter?.storyboardCount ?? 0}
+        rawText={prepareChapter?.rawText ?? ''}
+        onClose={() => setPrepareChapter(null)}
+        onFinished={() => {
           void refresh()
         }}
       />
