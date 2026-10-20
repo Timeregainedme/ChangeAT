@@ -193,4 +193,86 @@ SSH 接口（22 / 443 / 2222 / 8443）未动，全过程不清零。
 
 ---
 
-> 本次部署在 forwarding、redeployment、reading-only 这些动作中没有修改任何你 jellyfish 仓库源文件。部署与仓库完全独立：仓库的源代码 + EC2 上的 \`/srv/changeAT\` 是两份独立副本，必要时你可以 \`rm -rf /srv/changeAT\` 同步环境重拉。
+## 9. 2026-10-20 增补：MySQL / RustFS / R2 / 前端加载修复
+
+### 9.1 数据库：SQLite → MySQL 8.0
+
+| 项 | 值 |
+| --- | --- |
+| 版本 | MySQL 8.0.46（Ubuntu apt） |
+| 库 / 用户 | `jellyfish` / `jellyfish`（仅 127.0.0.1） |
+| 密码存储 | `/root/.mysql_app_pw`、`/home/ubuntu/.mysql_app_pw`（0600） |
+| 认证插件 | **必须 `mysql_native_password`**——MySQL 8 默认 `caching_sha2_password`，`aiomysql 0.3` 不支持，会报 `Access denied (1045)` |
+| 建表 + seed | `init_db.py` 建 33 张表 → 依次执行 `backend/sql/*.sql`（18 个，纯 MySQL 方言） |
+| 结果 | `prompt_templates` 26 条（此前 SQLite 为 0 条，是「提示词页空白」的根因） |
+| 回退 | `.env` 里删掉 `DATABASE_URL` 即回到 SQLite |
+
+### 9.2 对象存储：RustFS（自建）→ Cloudflare R2
+
+自建 RustFS 已跑通（1.0.3 + 20GB gp3 EBS + XFS `/data/rustfs0`），随后切换到 R2：
+
+| 项 | 值 |
+| --- | --- |
+| 桶 | `ai-jellyfish`（APAC） |
+| Endpoint | `https://101ba930ddfdac280604d0d4303084ea.r2.cloudflarestorage.com` |
+| Region | `auto` |
+| 寻址 | `path` |
+| 公共读 | **r2.dev Public Development URL**（R2 不支持 `put_bucket_policy`，`NotImplemented`） |
+| `S3_PUBLIC_BASE_URL` | `https://pub-6dcd8c3d787044fab566bdda29f8b64b.r2.dev` |
+
+**踩坑**：
+1. **R2 不支持 `put_bucket_policy` / `get_bucket_policy`** → 项目里的 `init_storage_public.py` 在 R2 上会失败，公共读必须走 Custom Domain 或 r2.dev。
+2. **r2.dev 公共 URL 不含桶名**（由 R2 按桶路由）。写成 `<pub>/<bucket>/<key>` 会 404，正确是 `<pub>/<key>`。
+3. RustFS 仍保留（`rustfs.service` + `/data/rustfs0`），可随时回退；确认 R2 稳定后可 `systemctl disable --now rustfs` 并 detach 20GB 卷。
+
+### 9.3 前端加载失败的两个真 bug（已修）
+
+**Bug 1：`env.js` 运行时注入失效**
+
+- 现象：浏览器拿到的 `window.__ENV.BACKEND_URL` 是 `http://localhost:8000`，前端所有 API 请求打到「用户自己电脑的 8000」，全部失败。
+- 根因：原用 `sub_filter "BACKEND_URL: ''"` 做替换，但**重新部署 dist 时 `public/env.js` 原版覆盖了 `dist/env.js`**，字面量对不上，注入静默失效。
+- 修法：nginx 用 `return 200` 直接生成文件内容，彻底不依赖 `dist/env.js`：
+
+```nginx
+location = /env.js {
+    add_header Cache-Control "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0" always;
+    default_type application/javascript;
+    return 200 'window.__ENV = window.__ENV || {};\nwindow.__ENV.BACKEND_URL = "";\n';
+}
+```
+
+**Bug 2：`assets/utils.ts` 把空串兜底成 localhost**
+
+- `window.__ENV?.BACKEND_URL || ... || 'http://localhost:8000'` 用 `||`，空串（合法的「同源」语义）会被兜底成 `localhost:8000`，导致缩略图与素材直链全部失效。
+- 修法：优先用 `OpenAPI.BASE`；当其为空时用 `window.location.origin` 作为 `new URL()` 基准，而不是兜底到 localhost。
+
+**Bug 3（附带）：`index.html` 缓存策略**
+
+- dist 每次部署会换 bundle hash 并删除旧文件；入口 HTML 若被缓存，用户会请求**已不存在的旧 chunk** → 白屏 / 加载失败。
+- 修法（SPA 标准做法）：
+
+| 资源 | Cache-Control |
+| --- | --- |
+| `index.html` | `no-cache, no-store, must-revalidate` |
+| `env.js` | `no-store, no-cache, must-revalidate, max-age=0` |
+| `/assets/*` | `max-age=604800`（7d，文件名带 hash 所以安全） |
+
+### 9.4 页面滚动（`MainLayout` 的 `overflow:hidden` 约束）
+
+`MainLayout` 是 `height:100vh + overflow:hidden` 的应用壳，**每个页面必须自带滚动容器**，否则内容超出视口后被裁切且无法滚动。
+
+- 修复 `ProjectWorkbench`：Tab 内容区 `overflow-hidden` → `overflow-y-auto`（这是「分集 / 分镜页面不能滚」的根因）。
+- 修复 `AssetManager`：根节点补 `h-full overflow-y-auto`。
+- 已正确的页面：`ChapterShotsPage`（表格自带 `scroll={{y}}`）、`AssetEditPageBase`（`h-full overflow-auto`）、`PromptTemplateManager`、`ChapterStudio`、`VideoEditor`、`VoiceManager`。
+- 新增审计脚本 `scripts/audit_page_scroll.py`，用于后续排查同类问题。
+
+### 9.5 域名与 TLS 现状
+
+- 目标 URL：`https://tim.run.place`。
+- `run.place` 的 NS 目前仍在 `dnsexit.com`（`freedomain.one` 提供的免费域名），**尚未切到 Cloudflare**，因此 Cloudflare 全托管（含自定义域名、Universal SSL）暂未生效。
+- 当前可访问地址仍是 `https://18.225.232.63:9443`（自签证书，浏览器会提示不安全）。
+- 已就绪、等 DNS 生效即可启用：ACME 挑战路径（公网 200）、`certbot 2.9.0`、`server_name tim.run.place`、Cloudflare real_ip（22 个官方网段）。
+
+---
+
+> 本次部署在 forwarding、redeployment、reading-only 这些动作中没有修改任何你 jellyfish 仓库源文件。部署与仓库完全独立：仓库的源代码 + EC2 上的 \`/srv/changeAT\` 是两份独立副本，必要时你可以 \`rm -rf /srv/changeAT\` 同步环境重拉。
