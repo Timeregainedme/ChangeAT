@@ -418,7 +418,14 @@ const PromptTemplateManager: FC = () => {
   }
 
   return (
-    <div className="space-y-4">
+    // MainLayout 的 Content 是 height:100vh + overflow:hidden 的应用壳，
+    // 每个页面必须自带滚动容器，否则模板变多后底部内容无法下滑查看。
+    // 写法对齐 ChapterPrep.tsx：flex:1 + minHeight:0 + overflow:auto。
+    <div
+      className="h-full overflow-y-auto"
+      style={{ flex: 1, minHeight: 0 }}
+    >
+      <div className="space-y-4">
       <Card
         title="提示词模板管理"
         loading={loading && templates.length === 0}
@@ -568,6 +575,7 @@ const PromptTemplateManager: FC = () => {
           </Form.Item>
         </Form>
       </Modal>
+      </div>
     </div>
   )
 }

@@ -8,6 +8,11 @@ dist/
 .vscode/
 .idea/
 
+# AI 工具本地产物（会话日志 / 本地配置），不入库
+.claude/logs/
+.cursor/logs/
+.opencode/
+
 # Python / Backend
 __pycache__/
 *.py[cod]
