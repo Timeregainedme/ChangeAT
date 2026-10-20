@@ -21,6 +21,13 @@
 BEGIN;
 
 -- ========== 1. workspaces ==========
+-- 字符集与排序规则必须与既有表一致：
+-- 存量 `projects` 是 utf8mb4_unicode_ci，而 MySQL 8/9 的建库默认是
+-- utf8mb4_0900_ai_ci。若新表用默认 collation，后面
+-- `projects.workspace_id → workspaces.id` 的外键会报
+-- ERROR 3780 (Referencing column and referenced column are incompatible)。
+-- 因此这里显式指定 utf8mb4_unicode_ci，并在下方对已用错 collation 建好的表做 CONVERT，
+-- 让「全新库」与「已跑过一次的半成品库」都能收敛到同一状态。
 CREATE TABLE IF NOT EXISTS `workspaces` (
   `id` VARCHAR(64) NOT NULL COMMENT '工作区 ID',
   `name` VARCHAR(128) NOT NULL COMMENT '工作区名称',
@@ -34,7 +41,7 @@ CREATE TABLE IF NOT EXISTS `workspaces` (
   UNIQUE KEY `uq_workspaces_slug` (`slug`),
   KEY `ix_workspaces_owner_id` (`owner_id`),
   CONSTRAINT `fk_workspaces_owner` FOREIGN KEY (`owner_id`) REFERENCES `users` (`id`) ON DELETE RESTRICT
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='工作区（租户）';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='工作区（租户）';
 
 -- ========== 2. workspace_members ==========
 CREATE TABLE IF NOT EXISTS `workspace_members` (
@@ -50,7 +57,30 @@ CREATE TABLE IF NOT EXISTS `workspace_members` (
   KEY `ix_workspace_members_user_id` (`user_id`),
   CONSTRAINT `fk_workspace_members_workspace` FOREIGN KEY (`workspace_id`) REFERENCES `workspaces` (`id`) ON DELETE CASCADE,
   CONSTRAINT `fk_workspace_members_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='工作区成员与角色';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='工作区成员与角色';
+
+-- ========== 2.1 修正已建表的 collation ==========
+SET @ws_coll = (
+  SELECT TABLE_COLLATION FROM information_schema.TABLES
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'workspaces'
+);
+SET @sql = IF(
+  @ws_coll IS NOT NULL AND @ws_coll <> 'utf8mb4_unicode_ci',
+  'ALTER TABLE `workspaces` CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci',
+  'SELECT 1'
+);
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @wm_coll = (
+  SELECT TABLE_COLLATION FROM information_schema.TABLES
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'workspace_members'
+);
+SET @sql = IF(
+  @wm_coll IS NOT NULL AND @wm_coll <> 'utf8mb4_unicode_ci',
+  'ALTER TABLE `workspace_members` CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci',
+  'SELECT 1'
+);
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
 -- ========== 3. projects 增加归属列 ==========
 -- 先加可空列：存量行此时还没有合法 workspace_id，直接 NOT NULL 会失败。
