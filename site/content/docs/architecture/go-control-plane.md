@@ -130,6 +130,7 @@ JWT 校验固定 HS256（`WithValidMethods`）、强制 `exp`、30 秒 leeway �
 | `GET /api/v1/studio/projects/{id}` | ✅ 影子逐字段一致 | ✅ 已切 |
 | `GET /api/v1/studio/chapters` | ✅ 影子逐字段一致 | ✅ 已切 |
 | `GET /api/v1/studio/chapters/{id}` | ✅ 影子逐字段一致 | ✅ 已切 |
+| `GET /api/v1/studio/files` | ✅ 影子逐字段一致 | ✅ 已切 |
 
 其余 `/api/v1/*` 全部仍由 Python 处理。
 
@@ -236,6 +237,21 @@ query.page: Input should be a valid integer, unable to parse string as an intege
 ```
 
 目的是让切流前后逐字节一致，影子对比不用逐条解释差异。
+
+## 只读接口的切流现状
+
+真正有流量的只读接口已基本迁完：
+
+```
+鉴权     auth/me
+素材     files 列表 + files 下载（含 302 到对象存储）
+项目     projects 列表 + style-options + 单条
+章节     chapters 列表 + 单条
+任务     tasks 列表 + status + result
+```
+
+剩下的 `studio/*` 厚业务（镜头提取、资产合并、生成准备）都在
+`services/studio/` 的 11k 行里，迁移等于重写，长期由 Go 反代。
 
 ## 尚未接管
 
