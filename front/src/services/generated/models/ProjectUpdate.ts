@@ -18,6 +18,7 @@ export type ProjectUpdate = {
     default_video_ratio?: (string | null);
     default_image_ratio?: (string | null);
     default_image_resolution_profile?: (string | null);
+    use_dialog_audio_as_reference?: (boolean | null);
     stats?: (Record<string, any> | null);
 };
 

@@ -239,7 +239,7 @@ const ProjectWorkbench: React.FC = () => {
         {activeTab === 'costumes' && <CostumesTab />}
         {activeTab === 'files' && <FilesTab />}
         {activeTab === 'edit' && <EditTab />}
-        {activeTab === 'settings' && <SettingsTab />}
+        {activeTab === 'settings' && <SettingsTab projectId={projectId ?? ''} />}
       </div>
     </div>
   )

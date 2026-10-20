@@ -25,6 +25,13 @@ class ProjectBase(BaseModel):
     default_image_resolution_profile: str | None = Field(
         None, description="项目级默认图片分辨率档位（standard/high）；为空时回落到提供方默认档位"
     )
+    use_dialog_audio_as_reference: bool = Field(
+        True,
+        description=(
+            "视频生成时是否自动带上镜头台词已生成的配音作为参考音频"
+            "（true=使用，false=纯画面参考）"
+        ),
+    )
     stats: dict[str, Any] = Field(default_factory=dict, description="聚合统计（JSON）")
 
 
@@ -43,6 +50,7 @@ class ProjectUpdate(BaseModel):
     default_video_ratio: str | None = None
     default_image_ratio: str | None = None
     default_image_resolution_profile: str | None = None
+    use_dialog_audio_as_reference: bool | None = None
     stats: dict[str, Any] | None = None
 
 

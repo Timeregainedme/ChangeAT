@@ -48,6 +48,12 @@ class Project(Base, TimestampMixin):
         default=None,
         comment="项目级默认图片比例（可为空；为空时回落到 default_video_ratio）",
     )
+    use_dialog_audio_as_reference: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=True,
+        comment="视频生成时是否自动带上镜头台词已生成的配音作为参考音频",
+    )
     default_image_resolution_profile: Mapped[str | None] = mapped_column(
         String(16),
         nullable=True,

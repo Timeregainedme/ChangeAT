@@ -264,6 +264,23 @@ async def resolve_shot_dialog_audio_file_ids(
     return [str(x).strip() for x in rows if x and str(x).strip()]
 
 
+async def _project_use_dialog_audio_as_reference(db: AsyncSession, *, shot_id: str) -> bool:
+    """读取项目级开关：视频生成是否自动带上台词配音。
+
+    找不到镜头/章节/项目时保守返回 True（保持既有行为），不因缺数据而静默关闭功能。
+    """
+    shot = await db.get(Shot, shot_id)
+    if shot is None:
+        return True
+    chapter = await db.get(Chapter, shot.chapter_id)
+    if chapter is None:
+        return True
+    project = await db.get(Project, chapter.project_id)
+    if project is None:
+        return True
+    return bool(getattr(project, "use_dialog_audio_as_reference", True))
+
+
 async def build_run_args(
     db: AsyncSession,
     *,
@@ -319,9 +336,11 @@ async def build_run_args(
         # payload 只存 file_id，字节在派发期物化（materialize_input_references）。
         audio_ids = [str(x).strip() for x in (reference_audio_file_ids or []) if str(x).strip()]
         if not audio_ids:
-            # 未显式指定时，自动带上该镜头台词已生成的配音（≤3 个）。
-            # 这让「先配音再生成视频」的流程无需额外选择动作。
-            audio_ids = await resolve_shot_dialog_audio_file_ids(db, shot_id=shot_id, limit=3)
+            # 未显式指定时，按项目开关决定是否自动带上该镜头台词已生成的配音（≤3 个）。
+            # 项目级开关见 projects.use_dialog_audio_as_reference（默认开启）。
+            project_use_audio = await _project_use_dialog_audio_as_reference(db, shot_id=shot_id)
+            if project_use_audio:
+                audio_ids = await resolve_shot_dialog_audio_file_ids(db, shot_id=shot_id, limit=3)
         if audio_ids and not submission.images:
             raise HTTPException(
                 status_code=400,

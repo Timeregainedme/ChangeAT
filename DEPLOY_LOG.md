@@ -796,3 +796,42 @@ prompt 虽已写明「shots.index 必须覆盖并对应输入分镜中的 index�
 （`护理病房`/`病床`/`护工工作服`/`病号服` vs `深夜卧室`/`手表`/`护工护理工作服`/`老人睡衣`），
 这是 LLM 命名漂移，属于另一类问题（同一实体被提取成不同名称），
 本次未处理，需要时可通过「合并实体」或人工改名校正。
+
+### 9.16 2026-10-21：项目级开关「视频生成是否使用台词配音作为参考音频」
+
+**需求**：配音不应硬编码为始终参与视频生成，需要在设置里提供「全部使用 / 不使用」的开关。
+
+**实现**：
+
+1. 迁移 `backend/sql/020-add-project-dialog-audio-reference.sql`：
+
+```sql
+ALTER TABLE `projects`
+  ADD COLUMN `use_dialog_audio_as_reference` TINYINT(1) NOT NULL DEFAULT 1
+  COMMENT '视频生成时是否自动带上镜头台词已生成的配音作为参考音频（1=使用 0=不使用）';
+```
+
+默认 `1`，即保持本次上线的既有行为（自动带上配音）。
+
+2. 模型 / Schema：`Project.use_dialog_audio_as_reference`，
+   `ProjectRead` / `ProjectUpdate` 同步加字段。
+
+3. `services/film/generated_video.py`：`build_run_args` 在未显式指定
+   `reference_audio_file_ids` 时，先读项目开关
+   （`_project_use_dialog_audio_as_reference`），为真才自动带上该镜头台词配音（≤3）。
+   找不到镜头/章节/项目时保守返回 True，避免因缺数据静默关闭功能。
+
+4. 前端 `SettingsTab` 由占位页改为真实设置页：
+   - 项目信息（只读）：名称、题材、画面表现形式、默认视频比例、项目 ID
+   - 视频生成：开关「使用台词配音作为参考音频」，切换即 PATCH 保存并提示，
+     失败自动回滚本地状态
+   - 附前置条件说明（音频不能单独使用、2–15 秒、角色需配音色）
+
+**验证**：
+
+| 开关 | `build_run_args` 产出的 input keys |
+| --- | --- |
+| 关闭 | `[prompt, reference_file_ids, model, ratio, seconds]`（无音频） |
+| 开启 | `[..., reference_audio_file_ids: ['45e42bf2-…']]` |
+
+**注意**：该开关是项目级，不同项目可独立设置；已有项目升级后默认开启。

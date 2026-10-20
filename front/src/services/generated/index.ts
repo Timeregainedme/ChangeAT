@@ -83,6 +83,8 @@ export type { ApiResponse_TaskLinkAdoptRead_ } from './models/ApiResponse_TaskLi
 export type { ApiResponse_TaskResultRead_ } from './models/ApiResponse_TaskResultRead_';
 export type { ApiResponse_TaskStatusRead_ } from './models/ApiResponse_TaskStatusRead_';
 export type { ApiResponse_TimelineExportRead_ } from './models/ApiResponse_TimelineExportRead_';
+export type { ApiResponse_TokenResponse_ } from './models/ApiResponse_TokenResponse_';
+export type { ApiResponse_UserRead_ } from './models/ApiResponse_UserRead_';
 export type { ApiResponse_VariantAnalysisResult_ } from './models/ApiResponse_VariantAnalysisResult_';
 export type { ApiResponse_VideoGenerationOptionsRead_ } from './models/ApiResponse_VideoGenerationOptionsRead_';
 export type { ApiResponse_VideoPromptPreviewResponse_ } from './models/ApiResponse_VideoPromptPreviewResponse_';
@@ -127,6 +129,7 @@ export type { GenerationTaskLinkRead } from './models/GenerationTaskLinkRead';
 export type { GenerationTaskLinkUpdate } from './models/GenerationTaskLinkUpdate';
 export type { HTTPValidationError } from './models/HTTPValidationError';
 export type { ImageGenerationOptionsRead } from './models/ImageGenerationOptionsRead';
+export type { LoginRequest } from './models/LoginRequest';
 export type { LogLevel } from './models/LogLevel';
 export type { ModelCategoryKey } from './models/ModelCategoryKey';
 export type { ModelCreate } from './models/ModelCreate';
@@ -262,6 +265,8 @@ export type { TimelineDialogRead } from './models/TimelineDialogRead';
 export type { TimelineExportRead } from './models/TimelineExportRead';
 export type { TimelineFrameRead } from './models/TimelineFrameRead';
 export type { TimelineStatsRead } from './models/TimelineStatsRead';
+export type { TokenResponse } from './models/TokenResponse';
+export type { UserRead } from './models/UserRead';
 export type { ValidationError } from './models/ValidationError';
 export type { VariantAnalysisRequest } from './models/VariantAnalysisRequest';
 export type { VariantAnalysisResult } from './models/VariantAnalysisResult';
@@ -272,6 +277,7 @@ export type { VideoGenerationTaskRequest } from './models/VideoGenerationTaskReq
 export type { VideoPromptPreviewResponse } from './models/VideoPromptPreviewResponse';
 export type { VoiceItem } from './models/VoiceItem';
 
+export { AuthService } from './services/AuthService';
 export { DefaultService } from './services/DefaultService';
 export { FilmService } from './services/FilmService';
 export { HealthService } from './services/HealthService';

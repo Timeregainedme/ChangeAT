@@ -46,6 +46,10 @@ export type ProjectRead = {
      */
     default_image_resolution_profile?: (string | null);
     /**
+     * 视频生成时是否自动带上镜头台词已生成的配音作为参考音频（true=使用，false=纯画面参考）
+     */
+    use_dialog_audio_as_reference?: boolean;
+    /**
      * 聚合统计（JSON）
      */
     stats?: Record<string, any>;
