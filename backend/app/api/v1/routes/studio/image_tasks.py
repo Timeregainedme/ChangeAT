@@ -14,6 +14,12 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.contracts.image_generation import ImageResolutionProfile, ImageTargetRatio
+from app.api.scoping import (
+    get_entity_in_workspace,
+    get_project_in_workspace,
+    get_shot_in_workspace,
+    require_scoped_resource,
+)
 from app.dependencies import get_db
 from app.models.studio import (
     ShotDetail,
@@ -52,7 +58,17 @@ from app.services.studio.batch_asset_images import (
 )
 
 
-router = APIRouter()
+router = APIRouter(
+    # 该模块的生成任务都挂在某个业务资源上（演员/角色/资产/项目/镜头）。
+    # 逐个声明守卫：命中哪个路径参数就校验哪个，未出现的参数自动跳过。
+    dependencies=[
+        Depends(require_scoped_resource("actor_id", get_entity_in_workspace)),
+        Depends(require_scoped_resource("character_id", get_entity_in_workspace)),
+        Depends(require_scoped_resource("asset_id", get_entity_in_workspace)),
+        Depends(require_scoped_resource("project_id", get_project_in_workspace)),
+        Depends(require_scoped_resource("shot_id", get_shot_in_workspace)),
+    ],
+)
 
 
 class StudioImageTaskRequest(BaseModel):

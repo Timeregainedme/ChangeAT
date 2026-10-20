@@ -13,6 +13,7 @@ from app.models.studio import (
     Actor,
     Character,
     Costume,
+    Project,
     ProjectActorLink,
     ProjectCostumeLink,
     ProjectPropLink,
@@ -292,13 +293,22 @@ async def list_project_asset_links_paginated(
     page: int,
     page_size: int,
     allow_fields: set[str],
+    workspace_id: str | None = None,
 ) -> ApiResponse[PaginatedData[Any]]:
-    """查询项目-章节-镜头-实体关联列表（分页）。"""
+    """查询项目-章节-镜头-实体关联列表（分页）。
+
+    所有过滤参数都是可选的，不传即全库；`workspace_id` 非空时按关联行自身的
+    project_id 直接过滤（这四张关联表都直接持有 project_id，无需多跳）。
+    """
     spec = _link_spec(entity_type)
     model = spec["model"]
     field_name = spec["field"]
 
     stmt = select(model)
+    if workspace_id is not None:
+        stmt = stmt.join(Project, Project.id == model.project_id).where(
+            Project.workspace_id == workspace_id
+        )
     if project_id is not None:
         stmt = stmt.where(model.project_id == project_id)
     if chapter_id is not None:

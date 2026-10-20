@@ -9,12 +9,16 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.scoping import get_project_in_workspace, require_scoped_resource
 from app.dependencies import get_db
 from app.schemas.common import ApiResponse, success_response
 from app.schemas.studio.timeline import ProjectTimelineRead, TimelineExportRead
 from app.services.studio.timeline import export_project_timeline, get_project_timeline
 
-router = APIRouter()
+router = APIRouter(
+    # 时间线按项目聚合，路径里的 project_id 必须先校验工作区归属。
+    dependencies=[Depends(require_scoped_resource("project_id", get_project_in_workspace))],
+)
 
 
 @router.get(

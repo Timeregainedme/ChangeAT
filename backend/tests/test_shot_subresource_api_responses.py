@@ -56,6 +56,44 @@ class _FakeShotSubresourceDB:
         self._line_id = 1
         self._frame_id = 1
 
+    async def scalar(self, stmt):  # noqa: ANN001
+        """模拟 router 级工作区守卫的归属查询。
+
+        守卫（`app/api/scoping.py`）会对带 shot_id / line_id / image_id 的请求
+        先做一次「实体是否存在且属于当前工作区」的查询。替身必须按主键回查，
+        否则守卫会把所有子资源用例打成 404。
+
+        只覆盖「按主键 + workspace_id 过滤」这一个形态，不做通用 SQL 解释；
+        真正的越权语义由 `test_workspace_multitenancy.py` 用真实 DB 覆盖。
+        """
+        entity = stmt.column_descriptions[0]["entity"]
+        stores = {
+            Project: self.projects,
+            Chapter: self.chapters,
+            Shot: self.shots,
+            ShotDetail: self.shot_details,
+            ShotDialogLine: self.dialog_lines,
+            ShotFrameImage: self.frame_images,
+        }
+        store = stores.get(entity)
+        if store is None:
+            return None
+        params = stmt.compile().params
+        pk = next((v for k, v in params.items() if k.split("_")[0] == "id"), None)
+        if pk is None:
+            return None
+        obj = store.get(pk)
+        if obj is None:
+            return None
+        expected_ws = next((v for k, v in params.items() if k.startswith("workspace_id")), None)
+        if expected_ws is not None:
+            owner = getattr(obj, "workspace_id", None)
+            # 子资源本身没有 workspace_id，归属由其父级链路决定；
+            # 替身里只要工作区过滤参数存在就视为通过。
+            if owner is not None and owner != expected_ws:
+                return None
+        return obj
+
     async def get(self, model: type, entity_id):  # noqa: ANN001
         if model is Project:
             return self.projects.get(entity_id)

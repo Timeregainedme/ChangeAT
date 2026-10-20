@@ -120,8 +120,12 @@ class _FakeStudioDB:
         if obj is None:
             return None
         expected_ws = next((v for k, v in params.items() if k.startswith("workspace_id")), None)
-        if expected_ws is not None and getattr(obj, "workspace_id", None) != expected_ws:
-            return None
+        if expected_ws is not None:
+            owner = getattr(obj, "workspace_id", None)
+            # 只有实体自身直接持有 workspace_id 时才比较（Project）；
+            # Chapter / Shot 的归属经父级链路确定，替身里视为通过。
+            if owner is not None and owner != expected_ws:
+                return None
         return obj
 
 

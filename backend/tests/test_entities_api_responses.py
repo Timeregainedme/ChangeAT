@@ -58,6 +58,20 @@ class _FakeEntityDB:
     async def execute(self, *_args, **_kwargs):
         return _FakeResult([])
 
+    async def scalar(self, stmt):  # noqa: ANN001
+        """模拟工作区守卫按表逐个探测资产归属。
+
+        守卫会依次在 actor/character/scene/prop/costume 上按主键 + workspace 查询；
+        本替身只有 actors 字典，命中即返回，落空返回 None（守卫随后抛 404）。
+        真正的跨租户语义由 `test_workspace_multitenancy.py` 用真实 DB 覆盖。
+        """
+        entity = stmt.column_descriptions[0]["entity"]
+        if entity is not Actor:
+            return None
+        params = stmt.compile().params
+        pk = next((v for k, v in params.items() if k.split("_")[0] == "id"), None)
+        return self.actors.get(pk) if pk is not None else None
+
 
 def _override_db(db: _FakeEntityDB):
     async def _get_db() -> AsyncGenerator[_FakeEntityDB, None]:

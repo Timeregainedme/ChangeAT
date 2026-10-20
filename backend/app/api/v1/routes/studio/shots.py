@@ -7,7 +7,15 @@ from typing import Any
 from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.dependencies import get_db
+from app.api.scoping import (
+    get_dialog_line_in_workspace,
+    get_frame_image_in_workspace,
+    get_shot_detail_in_workspace,
+    get_shot_in_workspace,
+    get_shot_link_in_workspace,
+    require_scoped_resource,
+)
+from app.dependencies import WorkspaceContext, get_db, get_workspace_context
 from app.services.studio.shot_assets import (
     create_project_asset_link as create_project_asset_link_service,
     delete_project_asset_link as delete_project_asset_link_service,
@@ -104,11 +112,24 @@ from app.schemas.studio.shots import (
     ShotVideoPromptPreviewRead,
 )
 
-router = APIRouter()
-details_router = APIRouter()
-dialog_router = APIRouter()
-links_router = APIRouter()
-frames_router = APIRouter()
+router = APIRouter(
+    # router 级守卫：任何带 `shot_id` 路径参数的端点自动校验工作区归属，
+    # 写方法额外要求 editor。新增端点无需重复声明即默认受保护。
+    dependencies=[Depends(require_scoped_resource("shot_id", get_shot_in_workspace))],
+)
+details_router = APIRouter(
+    # shot_details 与 shots 共享主键，但「不存在」的文案要保持 ShotDetail not found。
+    dependencies=[Depends(require_scoped_resource("shot_id", get_shot_detail_in_workspace))],
+)
+dialog_router = APIRouter(
+    dependencies=[Depends(require_scoped_resource("line_id", get_dialog_line_in_workspace))],
+)
+links_router = APIRouter(
+    dependencies=[Depends(require_scoped_resource("link_id", get_shot_link_in_workspace))],
+)
+frames_router = APIRouter(
+    dependencies=[Depends(require_scoped_resource("image_id", get_frame_image_in_workspace))],
+)
 
 SHOT_ORDER_FIELDS = {"index", "title", "status", "created_at", "updated_at"}
 DETAIL_ORDER_FIELDS = {"id"}
@@ -127,6 +148,7 @@ FRAME_IMAGE_ORDER_FIELDS = {"id", "frame_type", "created_at", "updated_at"}
 )
 async def list_shots(
     db: AsyncSession = Depends(get_db),
+    ctx: WorkspaceContext = Depends(get_workspace_context),
     chapter_id: str | None = Query(None, description="按章节过滤"),
     q: str | None = Query(None, description="关键字，过滤 title/script_excerpt"),
     order: str | None = Query(None),
@@ -143,6 +165,7 @@ async def list_shots(
         page=page,
         page_size=page_size,
         allow_fields=SHOT_ORDER_FIELDS,
+        workspace_id=ctx.workspace_id,
     )
 
 
@@ -536,6 +559,7 @@ async def list_shot_linked_assets(
 )
 async def list_shot_details(
     db: AsyncSession = Depends(get_db),
+    ctx: WorkspaceContext = Depends(get_workspace_context),
     shot_id: str | None = Query(None, description="按镜头过滤（id 同 shot_id）"),
     order: str | None = Query(None),
     is_desc: bool = Query(False),
@@ -550,6 +574,7 @@ async def list_shot_details(
         page=page,
         page_size=page_size,
         allow_fields=DETAIL_ORDER_FIELDS,
+        workspace_id=ctx.workspace_id,
     )
 
 
@@ -617,6 +642,7 @@ async def delete_shot_detail(
 )
 async def list_shot_dialog_lines(
     db: AsyncSession = Depends(get_db),
+    ctx: WorkspaceContext = Depends(get_workspace_context),
     shot_detail_id: str | None = Query(None, description="按镜头细节过滤"),
     q: str | None = Query(None, description="关键字，过滤 text"),
     order: str | None = Query(None),
@@ -633,6 +659,7 @@ async def list_shot_dialog_lines(
         page=page,
         page_size=page_size,
         allow_fields=DIALOG_ORDER_FIELDS,
+        workspace_id=ctx.workspace_id,
     )
 
 
@@ -687,6 +714,7 @@ async def delete_shot_dialog_line(
 )
 async def list_shot_frame_images(
     db: AsyncSession = Depends(get_db),
+    ctx: WorkspaceContext = Depends(get_workspace_context),
     shot_detail_id: str | None = Query(None, description="按镜头细节过滤"),
     order: str | None = Query(None),
     is_desc: bool = Query(False),
@@ -701,6 +729,7 @@ async def list_shot_frame_images(
         page=page,
         page_size=page_size,
         allow_fields=FRAME_IMAGE_ORDER_FIELDS,
+        workspace_id=ctx.workspace_id,
     )
 
 
@@ -756,6 +785,7 @@ async def delete_shot_frame_image(
 async def list_project_entity_links(
     entity_type: str,
     db: AsyncSession = Depends(get_db),
+    ctx: WorkspaceContext = Depends(get_workspace_context),
     project_id: str | None = Query(None),
     chapter_id: str | None = Query(None),
     shot_id: str | None = Query(None),
@@ -777,6 +807,7 @@ async def list_project_entity_links(
         page=page,
         page_size=page_size,
         allow_fields=LINK_ORDER_FIELDS,
+        workspace_id=ctx.workspace_id,
     )
 
 

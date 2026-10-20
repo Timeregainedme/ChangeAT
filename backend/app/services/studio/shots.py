@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.utils import apply_keyword_filter, apply_order, paginate
 from app.models.studio import (
     Chapter,
+    Project,
     Shot,
     ShotCandidateStatus,
     ShotDialogueCandidateStatus,
@@ -179,9 +180,20 @@ async def list_paginated(
     page: int,
     page_size: int,
     allow_fields: set[str],
+    workspace_id: str | None = None,
 ) -> ApiResponse[PaginatedData[ShotRead]]:
-    """分页查询镜头。"""
+    """分页查询镜头。
+
+    `chapter_id` 可选，不传即全库；`workspace_id` 非空时经
+    chapters → projects 过滤，避免镜头列表跨租户返回。
+    """
     stmt = select(Shot)
+    if workspace_id is not None:
+        stmt = (
+            stmt.join(Chapter, Chapter.id == Shot.chapter_id)
+            .join(Project, Project.id == Chapter.project_id)
+            .where(Project.workspace_id == workspace_id)
+        )
     if chapter_id is not None:
         stmt = stmt.where(Shot.chapter_id == chapter_id)
     stmt = apply_keyword_filter(stmt, q=q, fields=[Shot.title, Shot.script_excerpt])

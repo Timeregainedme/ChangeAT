@@ -18,7 +18,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.utils import apply_keyword_filter, apply_order, paginate
-from app.models.studio import Character, ShotDetail, ShotDialogLine
+from app.models.studio import Chapter, Character, Project, Shot, ShotDetail, ShotDialogLine
 from app.schemas.common import ApiResponse, PaginatedData, paginated_response
 from app.schemas.studio.shots import ShotDialogLineCreate, ShotDialogLineRead, ShotDialogLineUpdate
 from app.services.studio.shot_extracted_dialogue_candidates import mark_pending_by_linked_dialog_line
@@ -130,9 +130,22 @@ async def list_paginated(
     page: int,
     page_size: int,
     allow_fields: set[str],
+    workspace_id: str | None = None,
 ) -> ApiResponse[PaginatedData[ShotDialogLineRead]]:
-    """分页查询镜头对白（显示名走统一口径）。"""
+    """分页查询镜头对白（显示名走统一口径）。
+
+    `shot_detail_id` 可选，不传即全库；因此 `workspace_id` 非空时必须
+    经 shot_details → shots → chapters → projects 过滤。
+    """
     stmt = select(ShotDialogLine)
+    if workspace_id is not None:
+        stmt = (
+            stmt.join(ShotDetail, ShotDetail.id == ShotDialogLine.shot_detail_id)
+            .join(Shot, Shot.id == ShotDetail.id)
+            .join(Chapter, Chapter.id == Shot.chapter_id)
+            .join(Project, Project.id == Chapter.project_id)
+            .where(Project.workspace_id == workspace_id)
+        )
     if shot_detail_id is not None:
         stmt = stmt.where(ShotDialogLine.shot_detail_id == shot_detail_id)
     stmt = apply_keyword_filter(stmt, q=q, fields=[ShotDialogLine.text])

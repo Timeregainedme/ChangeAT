@@ -22,7 +22,14 @@ from app.schemas.studio.shots import (
 
 
 class _FakeDB:
-    pass
+    """空替身：本文件的用例只验证响应壳，所有 service 调用均被 monkeypatch。
+
+    工作区守卫会先查一次「镜头是否存在」，这里统一返回占位对象表示校验通过；
+    越权语义由 `test_workspace_multitenancy.py` 用真实 DB 覆盖。
+    """
+
+    async def scalar(self, _stmt):  # noqa: ANN001
+        return object()
 
 
 def _override_db(db: _FakeDB):

@@ -6,7 +6,17 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.utils import apply_order, paginate
-from app.models.studio import CameraAngle, CameraMovement, CameraShotType, Scene, Shot, ShotDetail, VFXType
+from app.models.studio import (
+    CameraAngle,
+    CameraMovement,
+    CameraShotType,
+    Chapter,
+    Project,
+    Scene,
+    Shot,
+    ShotDetail,
+    VFXType,
+)
 from app.schemas.common import ApiResponse, PaginatedData, paginated_response
 from app.schemas.studio.shots import ShotDetailCreate, ShotDetailRead, ShotDetailUpdate
 from app.services.common import (
@@ -55,9 +65,21 @@ async def list_paginated(
     page: int,
     page_size: int,
     allow_fields: set[str],
+    workspace_id: str | None = None,
 ) -> ApiResponse[PaginatedData[ShotDetailRead]]:
-    """分页查询镜头细节。"""
+    """分页查询镜头细节。
+
+    `workspace_id` 非空时必须经 shot → chapter → project 过滤：
+    该接口的 shot_id 参数是可选的，不传即全库扫描，不加这道过滤就会跨租户泄露。
+    """
     stmt = select(ShotDetail)
+    if workspace_id is not None:
+        stmt = (
+            stmt.join(Shot, Shot.id == ShotDetail.id)
+            .join(Chapter, Chapter.id == Shot.chapter_id)
+            .join(Project, Project.id == Chapter.project_id)
+            .where(Project.workspace_id == workspace_id)
+        )
     if shot_id is not None:
         stmt = stmt.where(ShotDetail.id == shot_id)
     stmt = apply_order(

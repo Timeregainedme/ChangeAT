@@ -4,10 +4,11 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.dependencies import get_db
+from app.api.scoping import get_entity_in_workspace
+from app.dependencies import WorkspaceContext, get_db, get_workspace_context
 from app.schemas.common import ApiResponse, PaginatedData, created_response, empty_response, paginated_response, success_response
 from app.schemas.studio.entity_existence import (
     EntityNameExistenceCheckRequest,
@@ -18,6 +19,36 @@ from app.services.studio import StudioEntitiesService
 from app.services.studio.entity_merge import merge_entities
 
 router = APIRouter()
+
+
+async def _require_entity_in_workspace(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    ctx: WorkspaceContext = Depends(get_workspace_context),
+) -> None:
+    """统一实体路由的守卫：按 `/{entity_type}/{entity_id}` 校验归属。
+
+    之所以不复用通用工厂 `require_scoped_resource`：这里需要把 `entity_type`
+    一并传给 resolver，才能生成与改造前一致的「Actor not found / Scene not found」
+    文案，而不是笼统的「Entity not found」。
+    """
+    entity_id = request.path_params.get("entity_id")
+    if not entity_id:
+        return
+    if request.method in {"POST", "PUT", "PATCH", "DELETE"} and not ctx.can_write:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"当前角色（{ctx.role.value}）无写权限，至少需要 editor",
+        )
+    await get_entity_in_workspace(
+        db,
+        entity_id,
+        ctx,
+        entity_type=request.path_params.get("entity_type"),
+    )
+
+
+router.dependencies.append(Depends(_require_entity_in_workspace))
 
 
 @router.post(
@@ -78,6 +109,7 @@ async def merge_entity_pair(
 async def list_entities(
     entity_type: str,
     db: AsyncSession = Depends(get_db),
+    ctx: WorkspaceContext = Depends(get_workspace_context),
     q: str | None = Query(None, description="关键字，过滤 name/description"),
     style: str | None = Query(None, description="题材/风格（单值）"),
     visual_style: str | None = Query(None, description="画面表现形式（单值：真人/动漫）"),
@@ -96,6 +128,7 @@ async def list_entities(
         is_desc=is_desc,
         page=page,
         page_size=page_size,
+        workspace_id=ctx.workspace_id,
     )
     return paginated_response(payload, page=page, page_size=page_size, total=total)
 

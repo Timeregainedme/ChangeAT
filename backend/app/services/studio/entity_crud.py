@@ -9,7 +9,21 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.utils import apply_keyword_filter, apply_order, paginate
-from app.models.studio import Actor, Chapter, Costume, Project, Shot, ShotCharacterLink
+from app.models.studio import (
+    Actor,
+    Chapter,
+    Character,
+    Costume,
+    Project,
+    ProjectActorLink,
+    ProjectCostumeLink,
+    ProjectPropLink,
+    ProjectSceneLink,
+    Prop,
+    Scene,
+    Shot,
+    ShotCharacterLink,
+)
 from app.schemas.studio.cast import ShotCharacterLinkCreate
 from app.services.common import entity_already_exists, entity_not_found
 from app.services.studio.entity_specs import DEFAULT_VIEW_ANGLES, LINK_MODEL_BY_ENTITY, entity_spec, normalize_entity_type
@@ -18,6 +32,27 @@ from app.services.studio.shot_character_links import upsert as upsert_shot_chara
 from app.utils.project_links import upsert_project_link
 
 ENTITY_ORDER_FIELDS = {"name", "style", "visual_style", "created_at", "updated_at"}
+
+# 「全局资产模型 → 项目关联表 → 关联外键字段」。
+# Character 不在其中：它是项目内资产，自身直接持有 project_id。
+_GLOBAL_ASSET_LINK_JOIN: dict[type, tuple[type, str]] = {
+    Actor: (ProjectActorLink, "actor_id"),
+    Scene: (ProjectSceneLink, "scene_id"),
+    Prop: (ProjectPropLink, "prop_id"),
+    Costume: (ProjectCostumeLink, "costume_id"),
+}
+
+
+def _link_join_for_entity(model: type) -> tuple[type, str]:
+    """返回全局资产对应的项目关联表与外键字段。
+
+    未知模型直接抛错而不是静默跳过过滤 —— 漏过滤会变成跨租户数据泄露，
+    宁可让测试/上线前就炸出来。
+    """
+    try:
+        return _GLOBAL_ASSET_LINK_JOIN[model]
+    except KeyError as exc:  # pragma: no cover - 新增资产类型时的显式失败
+        raise RuntimeError(f"缺少工作区归属映射：{model.__name__}") from exc
 
 
 def _asset_read_payload(obj: Any, thumbnail: str) -> dict[str, Any]:
@@ -45,10 +80,32 @@ async def list_entities_paginated(
     is_desc: bool,
     page: int,
     page_size: int,
+    workspace_id: str | None = None,
 ) -> tuple[list[dict[str, Any]], int]:
+    """分页查询资产实体。
+
+    `workspace_id` 非空时按实体自身的 project_id 过滤。
+    资产表直接持有 project_id（见 `studio_assets.py`），无需多跳，
+    因此这里用 join projects 而不是子查询，便于 MySQL 用上 workspace 索引。
+    """
     entity_type_norm = normalize_entity_type(entity_type)
     spec = entity_spec(entity_type_norm)
     stmt = select(spec.model)
+    if workspace_id is not None:
+        # 归属链分两类（详见 `app/api/scoping.py::get_entity_in_workspace`）：
+        # Character 是项目内资产，自身持有 project_id；
+        # Scene/Prop/Costume/Actor 是全局资产，需经各自的 project_*_links 关联表。
+        if spec.model is Character:
+            stmt = stmt.join(Project, Project.id == Character.project_id).where(
+                Project.workspace_id == workspace_id
+            )
+        else:
+            link_model, link_field = _link_join_for_entity(spec.model)
+            stmt = (
+                stmt.join(link_model, getattr(link_model, link_field) == spec.model.id)
+                .join(Project, Project.id == link_model.project_id)
+                .where(Project.workspace_id == workspace_id)
+            )
     stmt = apply_keyword_filter(stmt, q=q, fields=[spec.model.name, spec.model.description])
     if style:
         stmt = stmt.where(getattr(spec.model, "style") == style)

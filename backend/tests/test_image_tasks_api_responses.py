@@ -15,6 +15,14 @@ class _DummyDB:
     async def get(self, *_args, **_kwargs):
         return None
 
+    async def scalar(self, _stmt):  # noqa: ANN001
+        """工作区守卫的归属查询一律放行。
+
+        本文件的用例验证的是提示词渲染与参数校验，不验证越权；
+        真正的隔离语义由 `test_workspace_multitenancy.py` 用真实 DB 覆盖。
+        """
+        return object()
+
     async def execute(self, *_args, **_kwargs):
         class _Result:
             def scalars(self):

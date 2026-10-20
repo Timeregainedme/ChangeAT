@@ -6,7 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.utils import apply_order, paginate
-from app.models.studio import ShotDetail, ShotFrameImage
+from app.models.studio import Chapter, Project, Shot, ShotDetail, ShotFrameImage
 from app.schemas.common import ApiResponse, PaginatedData, paginated_response
 from app.schemas.studio.shots import ShotFrameImageCreate, ShotFrameImageRead, ShotFrameImageUpdate
 from app.services.common import (
@@ -29,9 +29,22 @@ async def list_paginated(
     page: int,
     page_size: int,
     allow_fields: set[str],
+    workspace_id: str | None = None,
 ) -> ApiResponse[PaginatedData[ShotFrameImageRead]]:
-    """分页查询镜头分镜帧图片。"""
+    """分页查询镜头分镜帧图片。
+
+    `shot_detail_id` 可选，不传即全库；`workspace_id` 非空时经
+    shot_details → shots → chapters → projects 过滤。
+    """
     stmt = select(ShotFrameImage)
+    if workspace_id is not None:
+        stmt = (
+            stmt.join(ShotDetail, ShotDetail.id == ShotFrameImage.shot_detail_id)
+            .join(Shot, Shot.id == ShotDetail.id)
+            .join(Chapter, Chapter.id == Shot.chapter_id)
+            .join(Project, Project.id == Chapter.project_id)
+            .where(Project.workspace_id == workspace_id)
+        )
     if shot_detail_id is not None:
         stmt = stmt.where(ShotFrameImage.shot_detail_id == shot_detail_id)
     stmt = apply_order(
