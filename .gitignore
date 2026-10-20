@@ -22,6 +22,11 @@ dist/
 .cursor/logs/
 .opencode/
 
+# 前端测试产物（Playwright 报告与失败快照），不入库
+front/test-results/
+front/playwright-report/
+front/blob-report/
+
 # Python / Backend
 __pycache__/
 *.py[cod]

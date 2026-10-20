@@ -1,6 +1,6 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
-import { ConfigProvider } from 'antd'
+import { ConfigProvider, theme as antdTheme } from 'antd'
 import zhCN from 'antd/locale/zh_CN'
 import enUS from 'antd/locale/en_US'
 import App from './App.tsx'
@@ -9,6 +9,7 @@ import './index.css'
 import './i18n'
 import './services/openapi'
 import { useAppStore } from './store/useAppStore'
+import { AppProviders } from './app/providers'
 
 const RootApp: React.FC = () => {
   const language = useAppStore((state) => state.language)
@@ -17,14 +18,25 @@ const RootApp: React.FC = () => {
   return (
     <ConfigProvider
       locale={antdLocale}
+      /**
+       * antd 主题保持浅色算法，不跟随深色主题。
+       *
+       * 原因：存量 antd 页面里仍有大量硬编码的浅色背景（bg-white / 浅灰渐变），
+       * 只切 antd 算法会得到「深色表格 + 白色卡片」的半深半浅状态，比全浅更难读。
+       * 迁移策略改为：外壳与新页面支持深浅主题，存量页面固定浅色画布，
+       * 每迁完一页，可跟随主题的面积就增加一块，直到 antd 整体移除。
+       */
       theme={{
+        algorithm: antdTheme.defaultAlgorithm,
         token: {
-          colorPrimary: '#1677ff',
-          borderRadius: 6,
+          colorPrimary: '#5f3bed',
+          borderRadius: 8,
         },
       }}
     >
-      <App />
+      <AppProviders>
+        <App />
+      </AppProviders>
     </ConfigProvider>
   )
 }

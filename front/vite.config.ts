@@ -7,7 +7,8 @@ export default defineConfig({
   appType: 'spa',
   server: {
     port: 7788,
-    open: true,
+    // CI/自动化场景不自动开浏览器：e2e 启动 dev server 时弹窗会干扰开发机
+    open: !process.env.CI,
   },
   build: {
     outDir: 'dist',

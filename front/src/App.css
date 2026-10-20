@@ -27,20 +27,11 @@
   transform: translateY(-2px);
 }
 
-/* Tailwind and Ant Design compatibility */
-.ant-card {
-  border: 1px solid #f0f0f0;
-}
+/* Tailwind 与 antd 的兼容层。
 
-.ant-btn-primary {
-  background: #1890ff;
-  border-color: #1890ff;
-}
-
-.ant-btn-primary:hover {
-  background: #40a9ff;
-  border-color: #40a9ff;
-}
+   历史上这里硬编码过 .ant-btn-primary（蓝色）与 .ant-card（浅灰边框），
+   这会让深色主题和设计系统主色被覆盖，现已移除：
+   主色统一由 ConfigProvider 的 colorPrimary 控制，边框交给 antd token。 */
 
 /* Project workbench: tab 选中态主色下划线 */
 .project-workbench-tabs.ant-tabs .ant-tabs-ink-bar {

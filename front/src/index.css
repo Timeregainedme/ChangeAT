@@ -2,6 +2,144 @@
 @tailwind components;
 @tailwind utilities;
 
+/**
+ * 设计系统 tokens。
+ *
+ * 只用语义变量，不在组件里写死色值：切换主题时只改 <html class="dark">，
+ * 所有组件自动跟随。色板分三组状态，对应三种独立的状态语义：
+ *   state-*  镜头信息提取确认状态
+ *   run-*    运行时任务状态
+ *   ready-*  视频生成准备度
+ * 这三组不允许互相借用，避免「同一个颜色在不同页面含义不同」。
+ */
+@layer base {
+  :root {
+    color-scheme: light;
+
+    --background: 0 0% 100%;
+    --foreground: 240 10% 10%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 240 10% 10%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 240 10% 10%;
+
+    --primary: 252 83% 58%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 240 5% 96%;
+    --secondary-foreground: 240 6% 10%;
+
+    --muted: 240 5% 96%;
+    --muted-foreground: 240 4% 46%;
+
+    --accent: 240 5% 96%;
+    --accent-foreground: 240 6% 10%;
+
+    --destructive: 350 84% 55%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 240 6% 90%;
+    --input: 240 6% 88%;
+    --ring: 252 83% 58%;
+
+    --radius: 0.75rem;
+
+    /* 信息提取确认状态：pending 待确认 / ready 已确认 */
+    --state-pending: 32 95% 44%;
+    --state-pending-foreground: 0 0% 100%;
+    --state-ready: 199 89% 38%;
+    --state-ready-foreground: 0 0% 100%;
+
+    /* 运行时任务状态 */
+    --run-running: 262 83% 58%;
+    --run-running-foreground: 0 0% 100%;
+    --run-success: 160 84% 32%;
+    --run-success-foreground: 0 0% 100%;
+    --run-failed: 350 84% 50%;
+    --run-failed-foreground: 0 0% 100%;
+    --run-idle: 240 5% 72%;
+    --run-idle-foreground: 240 6% 18%;
+
+    /* 视频生成准备度：blocked 缺条件 / partial 部分满足 / complete 可生成 */
+    --ready-blocked: 350 84% 55%;
+    --ready-partial: 32 95% 50%;
+    --ready-complete: 160 84% 36%;
+  }
+
+  .dark {
+    color-scheme: dark;
+
+    --background: 240 10% 7%;
+    --foreground: 0 0% 96%;
+
+    --card: 240 8% 10%;
+    --card-foreground: 0 0% 96%;
+    --popover: 240 8% 11%;
+    --popover-foreground: 0 0% 96%;
+
+    --primary: 252 90% 68%;
+    --primary-foreground: 240 10% 8%;
+
+    --secondary: 240 5% 16%;
+    --secondary-foreground: 0 0% 96%;
+
+    --muted: 240 5% 16%;
+    --muted-foreground: 240 5% 62%;
+
+    --accent: 240 5% 18%;
+    --accent-foreground: 0 0% 96%;
+
+    --destructive: 350 80% 58%;
+    --destructive-foreground: 240 10% 8%;
+
+    --border: 240 5% 20%;
+    --input: 240 5% 24%;
+    --ring: 252 90% 68%;
+
+    --state-pending: 36 96% 56%;
+    --state-pending-foreground: 240 10% 8%;
+    --state-ready: 199 90% 58%;
+    --state-ready-foreground: 240 10% 8%;
+
+    --run-running: 262 90% 70%;
+    --run-running-foreground: 240 10% 8%;
+    --run-success: 160 70% 48%;
+    --run-success-foreground: 240 10% 8%;
+    --run-failed: 350 84% 62%;
+    --run-failed-foreground: 240 10% 8%;
+    --run-idle: 240 5% 34%;
+    --run-idle-foreground: 0 0% 92%;
+
+    --ready-blocked: 350 84% 62%;
+    --ready-partial: 36 96% 56%;
+    --ready-complete: 160 70% 48%;
+  }
+}
+
+/**
+ * 边框归一化。
+ *
+ * 项目关掉了 Tailwind preflight（antd 自带 reset.css，叠两层 reset 会互相打架），
+ * 但 shadcn/ui 组件依赖 preflight 的两条隐含约定：
+ *   1. border-style 默认 solid —— 否则 `border` 工具类只设宽度、不渲染；
+ *   2. border-width 默认 0 —— 否则设了 solid 会让 border-width:medium 的元素全部描边。
+ * 这里只补这两条，不做 preflight 的其余重置（字号、列表、图片 display 等），
+ * 把对存量 antd 页面的影响压到最小。放在 base 层，utilities 仍可覆盖。
+ */
+@layer base {
+  *,
+  ::before,
+  ::after {
+    border-width: 0;
+    border-style: solid;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+  }
+}
+
 html {
   scroll-behavior: smooth;
   height: 100%;
@@ -27,4 +165,3 @@ code {
   border-radius: 3px;
   font-family: 'Courier New', monospace;
 }
-

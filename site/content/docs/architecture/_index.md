@@ -11,6 +11,7 @@ description: "记录当前真实生效的系统结构、状态流转、页面边
 
 推荐阅读：
 
+- [前端设计系统](/docs/architecture/frontend-design-system/)
 - [项目结构](/docs/architecture/project-structure/)
 - [多租户与工作区隔离](/docs/architecture/workspace-multitenancy/)
 - [密钥加密与操作审计](/docs/architecture/secrets-and-audit/)

@@ -1,10 +1,10 @@
-import React, { Suspense, lazy } from 'react'
+import { Suspense, lazy, type FC } from 'react'
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { Spin } from 'antd'
-import MainLayout from './layouts/MainLayout'
+import AppShell from './app/shell/AppShell'
 import RequireAuth from './components/RequireAuth'
 import Login from './pages/Login'
-import ProjectLobby from './pages/aiStudio/project/ProjectLobby'
+import ProjectListPage from './features/projects/ProjectListPage'
 import './App.css'
 
 /**
@@ -12,8 +12,8 @@ import './App.css'
  *
  * 为什么只把「首屏路径」保留为静态导入：
  *   - Login：未登录时直接进入，必须最快可用。
- *   - MainLayout：所有内页共用，拆出去反而多一次串行请求。
- *   - ProjectLobby：登录后的第一个页面，静态引入避免「登录完再等一次」。
+ *   - AppShell：所有内页共用，拆出去反而多一次串行请求。
+ *   - ProjectListPage：登录后的第一个页面，静态引入避免「登录完再等一次」。
  *
  * 其余重页面（章节工作室 / 分镜编辑 / 视频剪辑 / 模型管理等）改为 lazy，
  * 让首屏只下载当前路径真正需要的代码。
@@ -46,8 +46,17 @@ const ChapterShotEditPage = lazy(() =>
 const Settings = lazy(() => import('./pages/Settings'))
 const NotFound = lazy(() => import('./pages/NotFound'))
 
+/**
+ * 设计系统预览页：只在开发环境注册。
+ *
+ * 用三元而不是在 JSX 里写 `{import.meta.env.DEV && ...}`：
+ * 生产构建时 `import.meta.env.DEV` 被静态替换为 false，
+ * 整条分支连同动态 import 一起被裁掉，不会额外产出 chunk。
+ */
+const DesignPreview = import.meta.env.DEV ? lazy(() => import('./app/design-preview')) : null
+
 /** chunk 加载中的占位：保持整页高度，避免布局跳动。 */
-const RouteFallback: React.FC = () => (
+const RouteFallback: FC = () => (
   <div className="min-h-[60vh] flex items-center justify-center">
     <Spin size="large" tip="加载中…" />
   </div>
@@ -61,17 +70,20 @@ const App: React.FC = () => {
           {/* 登录页不需要守卫，否则死循环 */}
           <Route path="/login" element={<Login />} />
 
+          {/* 设计系统预览页：仅开发环境存在 */}
+          {DesignPreview ? <Route path="/design" element={<DesignPreview />} /> : null}
+
           {/* 其余页面统一要求登录 */}
           <Route
             path="/"
             element={
               <RequireAuth>
-                <MainLayout />
+                <AppShell />
               </RequireAuth>
             }
           >
             <Route index element={<Navigate to="/projects" replace />} />
-            <Route path="projects" element={<ProjectLobby />} />
+            <Route path="projects" element={<ProjectListPage />} />
             <Route path="projects/:projectId" element={<ProjectWorkbench />} />
             <Route path="projects/:projectId/roles/:characterId/edit" element={<RoleDetailPage />} />
             <Route path="projects/:projectId/chapters/:chapterId/prep/*" element={<Navigate to="../shots" replace />} />

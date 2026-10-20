@@ -5,6 +5,45 @@
   "menu": {
     "settings": "Settings"
   },
+  "nav": {
+    "projects": "Projects",
+    "assets": "Assets",
+    "prompts": "Prompt Templates",
+    "models": "Models",
+    "voices": "Voices",
+    "settings": "Settings",
+    "settingsGroup": "Configuration"
+  },
+  "breadcrumb": {
+    "projects": "Projects",
+    "project": "Project",
+    "assets": "Assets",
+    "actors": "Actors",
+    "scenes": "Scenes",
+    "props": "Props",
+    "costumes": "Costumes",
+    "prompts": "Prompt Templates",
+    "models": "Models",
+    "voices": "Voices",
+    "settings": "Settings",
+    "chapters": "Chapters",
+    "chapter": "Chapter",
+    "studio": "Storyboard Studio",
+    "shots": "Shots",
+    "shot": "Shot",
+    "review": "Chapter Review",
+    "edit": "Edit",
+    "editor": "Video Editor",
+    "prep": "Chapter Editor",
+    "roles": "Roles"
+  },
+  "shell": {
+    "toggleSidebar": "Collapse / expand sidebar",
+    "switchToDark": "Switch to dark theme",
+    "switchToLight": "Switch to light theme",
+    "language": "Language",
+    "openTaskCenter": "Task center"
+  },
   "user": {
     "profile": "Profile",
     "logout": "Logout"
@@ -14,4 +53,3 @@
     "en": "English"
   }
 }
-
