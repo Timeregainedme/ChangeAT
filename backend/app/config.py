@@ -72,6 +72,13 @@ class Settings(BaseSettings):
     jwt_secret: str = ""
     jwt_expire_minutes: int = 60 * 12
 
+    # --- 敏感字段加密（供应商 api_key / api_secret）---
+    # URL-safe base64 编码的 32 字节 Fernet key，生成方式：
+    #   python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+    # 留空时回退为从 jwt_secret 派生（仅建议用于本地开发）：
+    # 该回退的代价是「轮换 JWT_SECRET 会导致既有 API Key 无法解密」。
+    secrets_key: str = ""
+
     # --- Google 登录 ---
     # client_id 会下发给前端（通过 nginx 生成的 env.js），不属于机密。
     # 当前采用 GIS ID Token 校验流程，因此**不需要也不保存 client_secret**；

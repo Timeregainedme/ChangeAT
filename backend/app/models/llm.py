@@ -14,6 +14,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.db import Base
 from app.models.base import TimestampMixin
+from app.models.types_encrypted import EncryptedString
 
 
 class AgentTypeKey(str, Enum):
@@ -82,8 +83,9 @@ class Provider(Base, TimestampMixin):
         default=None,
         comment="音频能力 API Base URL（可选覆盖）",
     )
-    api_key: Mapped[str] = mapped_column(String(4096), nullable=False, default="", comment="API Key（敏感）")
-    api_secret: Mapped[str] = mapped_column(String(4096), nullable=False, default="", comment="API Secret（敏感）")
+    # 落库即密文（类型见 `app/models/types_encrypted.py`）；业务代码按普通字符串读写。
+    api_key: Mapped[str] = mapped_column(EncryptedString(), nullable=False, default="", comment="API Key（加密存储）")
+    api_secret: Mapped[str] = mapped_column(EncryptedString(), nullable=False, default="", comment="API Secret（加密存储）")
     description: Mapped[str] = mapped_column(Text, nullable=False, default="", comment="说明")
     status: Mapped[ProviderStatus] = mapped_column(
         String(32),

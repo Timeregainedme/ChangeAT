@@ -4,7 +4,13 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import os
 from types import SimpleNamespace
+
+# 必须在导入 app 之前设置：`app.config.settings` 是模块级单例，import 时即固化。
+# 敏感字段加密（app/core/crypto.py）在既无 SECRETS_KEY 又无 JWT_SECRET 时会拒绝工作，
+# 而本仓库不提交 backend/.env，因此测试环境在这里注入一个固定密钥。
+os.environ.setdefault("JWT_SECRET", "test-only-jwt-secret")
 
 import pytest
 from fastapi.testclient import TestClient
