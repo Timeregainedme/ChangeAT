@@ -116,14 +116,36 @@ JWT 校验固定 HS256（`WithValidMethods`）、强制 `exp`、30 秒 leeway �
 
 ## 已接管接口
 
-| 路径 | 状态 |
-|---|---|
-| `GET /health` | ✅ 实现并验证 |
-| `GET /api/v1/health` | ✅ 实现并验证 |
-| `GET /api/v1/ready` | ✅ 实现并验证（Go 独有） |
-| `GET /api/v1/auth/me` | ✅ 实现，影子对比逐字节一致，**尚未切流** |
+| 路径 | 状态 | 切流 |
+|---|---|---|
+| `GET /health` | ✅ | ✅（Nginx `/health` 仍指 Python，探针在 Go 侧独立可用） |
+| `GET /api/v1/health` | ✅ | ❌ |
+| `GET /api/v1/ready` | ✅ Go 独有 | — |
+| `GET /api/v1/auth/me` | ✅ 影子逐字节一致 | ✅ 已切 |
+| `GET/HEAD /api/v1/studio/files/{id}/download` | ✅ 影子头级一致 | ✅ 已切 |
 
 其余 `/api/v1/*` 全部仍由 Python 处理。
+
+## 切流方式
+
+Nginx 里逐条加 location，删掉即回滚：
+
+```nginx
+# 精确匹配（优先级最高）
+location = /api/v1/auth/me {
+    proxy_pass http://127.0.0.1:8001;
+}
+
+# 正则匹配（优先于 /api/v1/ 前缀，但低于 = 与 ^~）
+location ~ ^/api/v1/studio/files/([^/]+)/download$ {
+    proxy_pass http://127.0.0.1:8001;
+}
+```
+
+注意：`/api/v1/` 前缀 location **不能加 `^~`**，否则正则 location 不参与匹配。
+回滚流程：注释该块 → `nginx -t` → `systemctl reload nginx`，无需停 Go 进程。
+
+回滚已验证：注释后请求确实回到 Python（用 Go 日志行数不增长确认），恢复后重新走 Go。
 
 ## 影子对比方法
 
@@ -155,9 +177,22 @@ ssh aws-ubuntu-2 'sudo systemctl stop dyeingtime-go && \
 
 二进制放在 `/srv/dyeingtime-go/`（仓库外），避免污染 git 工作区。
 
+## 素材下载的两个细节
+
+**为什么 Go 只做 302。** 生产 21 个文件的 `thumbnail` 全部是 R2 公开 URL，302 覆盖
+100% 实际流量。流式代理需要正确处理 `Range` / `206` / `416` / `Content-Range`，
+写错会让 `<video>` 无法拖动进度条，因此私有桶（未配公开域名）场景透传给 Python。
+
+**为什么不用 `http.Redirect`。** 它会为 GET 补一段 HTML 提示体（`Content-Length: 144`），
+而 Python 的 `RedirectResponse` 是空体。浏览器会忽略 302 的 body，功能无差异，
+但影子对比会一直报不一致。改为直接写 `Location` + `302`，两边逐字节相同。
+
+**为什么只认 http/https。** `data:` / `javascript:` 若被当作跳转目标，
+一个匿名可访问的下载端点就变成开放重定向与 XSS 入口。
+
 ## 尚未接管
 
-`studio/*`、`film/*` 的全部其余接口。按计划只有薄接口值得迁：
+`studio/*`、`film/*` 的其余接口。按计划只有薄接口值得迁：
 
 | 类别 | 迁移建议 |
 |---|---|
