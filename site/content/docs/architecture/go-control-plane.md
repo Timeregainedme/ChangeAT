@@ -123,6 +123,8 @@ JWT 校验固定 HS256（`WithValidMethods`）、强制 `exp`、30 秒 leeway �
 | `GET /api/v1/ready` | ✅ Go 独有 | — |
 | `GET /api/v1/auth/me` | ✅ 影子逐字节一致 | ✅ 已切 |
 | `GET/HEAD /api/v1/studio/files/{id}/download` | ✅ 影子头级一致 | ✅ 已切 |
+| `GET /api/v1/film/tasks/{id}/status` | ✅ 影子逐字段一致 | ✅ 已切 |
+| `GET /api/v1/film/tasks/{id}/result` | ✅ 影子逐字段一致 | ✅ 已切 |
 
 其余 `/api/v1/*` 全部仍由 Python 处理。
 
@@ -189,6 +191,20 @@ ssh aws-ubuntu-2 'sudo systemctl stop dyeingtime-go && \
 
 **为什么只认 http/https。** `data:` / `javascript:` 若被当作跳转目标，
 一个匿名可访问的下载端点就变成开放重定向与 XSS 入口。
+
+## 任务状态查询的一个隐式依赖
+
+Python 的 `_datetime_ts` 用 `datetime.timestamp()` 转换 MySQL 的 naive datetime，
+这会**按进程本地时区**解释。当前服务器 `TZ=UTC` 且 `.env` 未设 `TZ`，
+所以等价于「按 UTC 取 Unix 秒」，Go 侧因此可以直接 `t.Unix()`。
+
+**如果将来服务器改成非 UTC 时区，两套实现必须一起调整**，否则同一任务的
+`started_at_ts` 在切流前后会差整个时区偏移。写在这里是因为这种依赖不会报错，
+只会在某天换机器后静默偏 8 小时。
+
+另外 `elapsed_ms` 的语义是「未开始 → null」，不是 0；进行中的任务用
+`now - started` 实时计算，已结束用 `finished - started`。前端据此区分
+「还没开始」与「刚开始 0 毫秒」。
 
 ## 尚未接管
 
