@@ -6,6 +6,11 @@ dist/
 .env.*
 # 但示例文件必须保留，供其他人参照
 !.env.example
+# 本地 SQLite 与临时脚本不入库（生产用 MySQL，本地跑脚本时会自动生成空库文件）
+*.db
+*.sqlite
+*.sqlite3
+.tmp-*
 .DS_Store
 *.log
 .pnpm-store/
