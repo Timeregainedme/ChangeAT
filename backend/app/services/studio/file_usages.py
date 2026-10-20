@@ -10,6 +10,7 @@ from app.models.studio import (
     Chapter,
     FileItem,
     FileUsage,
+    Project,
     ProjectActorLink,
     ProjectCostumeLink,
     ProjectPropLink,
@@ -178,14 +179,26 @@ async def list_files_by_scope_paginated(
     page_size: int = 10,
     allow_order_fields: set[str] | None = None,
     default_order: str = "created_at",
+    workspace_id: str | None = None,
 ) -> tuple[list[FileItem], int]:
-    """按项目及可选章节标题、镜头标题过滤文件（标题多命中时并集），去重后分页。"""
+    """按项目及可选章节标题、镜头标题过滤文件（标题多命中时并集），去重后分页。
+
+    `workspace_id` 非空时额外校验 project_id 的归属：
+    否则传一个别家工作区的 project_id 就能列出对方全部文件 ——
+    路由层的 project_id 来自 query 参数，没有 router 级守卫能拦住它。
+    """
     allow_fields = allow_order_fields or {"name", "created_at", "updated_at"}
     order_col = order if order and order in allow_fields else default_order
     ord_attr = getattr(FileItem, order_col)
 
     def _apply_scope_filters(stmt: Select) -> Select:
         stmt = stmt.where(FileUsage.project_id == project_id)
+        if workspace_id is not None:
+            stmt = stmt.where(
+                select(Project.id)
+                .where(Project.id == project_id, Project.workspace_id == workspace_id)
+                .exists()
+            )
         for c in _scope_filters(
             project_id=project_id,
             chapter_title=chapter_title,

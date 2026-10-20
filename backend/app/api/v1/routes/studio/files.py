@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Reques
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.scoping import get_file_in_workspace, require_scoped_resource
-from app.dependencies import get_db
+from app.dependencies import WorkspaceContext, get_db, get_workspace_context
 from app.schemas.common import ApiResponse, PaginatedData, created_response, empty_response, paginated_response, success_response
 from app.schemas.studio import FileDetailRead, FileRead, FileUpdate
 from app.services.studio.file_usages import list_files_by_scope_paginated
@@ -42,6 +42,7 @@ public_router = APIRouter()
 )
 async def list_files_api(
     db: AsyncSession = Depends(get_db),
+    ctx: WorkspaceContext = Depends(get_workspace_context),
     q: str | None = Query(None, description="关键字，过滤 name"),
     order: str | None = Query(None),
     is_desc: bool = Query(False),
@@ -69,6 +70,7 @@ async def list_files_api(
             is_desc=is_desc,
             page=page,
             page_size=page_size,
+            workspace_id=ctx.workspace_id,
         )
         return paginated_response(
             [FileRead.model_validate(x) for x in items],
@@ -83,6 +85,7 @@ async def list_files_api(
         is_desc=is_desc,
         page=page,
         page_size=page_size,
+        workspace_id=ctx.workspace_id,
     )
 
 

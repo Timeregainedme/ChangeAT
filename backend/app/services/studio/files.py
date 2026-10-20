@@ -16,7 +16,7 @@ from sqlalchemy.orm import selectinload
 
 from app.api.utils import apply_keyword_filter, apply_order, paginate
 from app.core import storage
-from app.models.studio import FileItem, FileType
+from app.models.studio import FileItem, FileType, FileUsage, Project
 from app.schemas.common import ApiResponse, PaginatedData, paginated_response
 from app.schemas.studio import FileDetailRead, FileRead, FileUpdate, FileUsageRead, FileUsageWrite
 from app.services.common import create_and_refresh, entity_not_found, flush_and_refresh, get_or_404, patch_model
@@ -67,9 +67,28 @@ async def list_files_paginated(
     is_desc: bool,
     page: int,
     page_size: int,
+    workspace_id: str | None = None,
 ) -> ApiResponse[PaginatedData[FileRead]]:
-    """分页查询文件。"""
+    """分页查询文件。
+
+    `files` 表自身没有归属列（一个文件可被多项目复用），
+    因此 `workspace_id` 非空时用 EXISTS 语义：
+    **任一条 file_usages 记录指向当前工作区的项目即放行**。
+
+    不加这道过滤的后果是：不带 project_id 的列表会返回全公司所有文件，
+    包括其他工作区的生成产物（实测生产上确实存在这种调用）。
+    """
     stmt = select(FileItem)
+    if workspace_id is not None:
+        stmt = stmt.where(
+            select(FileUsage.id)
+            .join(Project, Project.id == FileUsage.project_id)
+            .where(
+                FileUsage.file_id == FileItem.id,
+                Project.workspace_id == workspace_id,
+            )
+            .exists()
+        )
     stmt = apply_keyword_filter(stmt, q=q, fields=[FileItem.name])
     stmt = apply_order(
         stmt,
