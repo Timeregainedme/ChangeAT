@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httputil"
@@ -8,6 +9,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/timeregainedme/dyeingtime/backend/go/internal/middleware"
 	"github.com/timeregainedme/dyeingtime/backend/go/internal/response"
 	"github.com/timeregainedme/dyeingtime/backend/go/internal/store"
 )
@@ -18,15 +20,113 @@ import (
 // Authorization 头，要求登录会让所有素材在前端裂图。安全性由
 // 「file_id 是不可枚举的 UUID + 对象存储已配公开读」保证，与 Python 侧一致。
 type File struct {
-	files *store.FileStore
+	files      *store.FileStore
+	workspaces *store.WorkspaceStore
 	// fallback 在无法直接 302 时把请求透传给 Python。
 	// 为 nil 表示上游未配置，此时返回 502 并在日志中说明原因。
 	fallback *httputil.ReverseProxy
 }
 
 // NewFile 构造文件下载 handler。
-func NewFile(files *store.FileStore, fallback *httputil.ReverseProxy) *File {
-	return &File{files: files, fallback: fallback}
+func NewFile(files *store.FileStore, workspaces *store.WorkspaceStore, fallback *httputil.ReverseProxy) *File {
+	return &File{files: files, workspaces: workspaces, fallback: fallback}
+}
+
+// fileRead 对应 Python 的 `FileRead`。
+type fileRead struct {
+	ID        string          `json:"id"`
+	Type      string          `json:"type"`
+	Name      string          `json:"name"`
+	Thumbnail string          `json:"thumbnail"`
+	Tags      json.RawMessage `json:"tags"`
+}
+
+// List 处理 GET /api/v1/studio/files。
+//
+// 参数与 Python 一致：
+//   - `project_id` 非空时按 file_usages 限定范围，并可用 chapter_title / shot_title 收窄；
+//   - `chapter_title` / `shot_title` 必须配合 project_id，否则 400
+//     （单独给标题无法确定是哪个项目下的章节）。
+func (h *File) List(w http.ResponseWriter, r *http.Request) {
+	workspaceID, ok := h.resolveWorkspace(w, r)
+	if !ok {
+		return
+	}
+
+	query := r.URL.Query()
+	page, pageSize, msg := parsePagination(query.Get("page"), query.Get("page_size"))
+	if msg != "" {
+		response.WriteError(w, http.StatusUnprocessableEntity, msg)
+		return
+	}
+
+	projectID := query.Get("project_id")
+	chapterTitle := query.Get("chapter_title")
+	shotTitle := query.Get("shot_title")
+
+	// 与 Python 的显式校验一致：只给标题、不给项目时无法定位章节，直接 400。
+	if (chapterTitle != "" || shotTitle != "") && projectID == "" {
+		response.WriteError(w, http.StatusBadRequest,
+			"project_id is required when chapter_title or shot_title is set")
+		return
+	}
+
+	params := store.FileListParams{
+		WorkspaceID: workspaceID,
+		OrderField:  query.Get("order"),
+		Desc:        query.Get("is_desc") == "true",
+		Page:        page,
+		PageSize:    pageSize,
+	}
+	if projectID != "" {
+		params.ProjectID = &projectID
+	}
+	if chapterTitle != "" {
+		params.ChapterTitle = &chapterTitle
+	}
+	if shotTitle != "" {
+		params.ShotTitle = &shotTitle
+	}
+	if q := query.Get("q"); q != "" {
+		params.Keyword = &q
+	}
+
+	items, total, err := h.files.List(r.Context(), params)
+	if err != nil {
+		response.WriteError(w, http.StatusInternalServerError, "读取文件列表失败")
+		return
+	}
+
+	out := make([]fileRead, 0, len(items))
+	for _, item := range items {
+		out = append(out, fileRead{
+			ID:        item.ID,
+			Type:      item.Type,
+			Name:      item.Name,
+			Thumbnail: item.Thumbnail,
+			Tags:      item.Tags,
+		})
+	}
+	response.WriteSuccess(w, newPaginated(out, page, pageSize, total))
+}
+
+// resolveWorkspace 解析当前请求所属工作区。
+func (h *File) resolveWorkspace(w http.ResponseWriter, r *http.Request) (string, bool) {
+	userID, ok := middleware.UserIDFromContext(r.Context())
+	if !ok {
+		response.WriteError(w, http.StatusUnauthorized, "未登录，请先登录")
+		return "", false
+	}
+	workspaceID, _, err := h.workspaces.Resolve(r.Context(), userID, r.Header.Get("X-Workspace-ID"))
+	if errors.Is(err, store.ErrNotFound) {
+		response.WriteError(w, http.StatusNotFound, "工作区不存在")
+		return "", false
+	}
+	if err != nil {
+		response.WriteError(w, http.StatusInternalServerError, "读取工作区失败")
+		return "", false
+	}
+	return workspaceID, true
 }
 
 // Download 处理 GET / HEAD /api/v1/studio/files/{file_id}/download。

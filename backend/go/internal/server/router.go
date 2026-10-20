@@ -66,6 +66,11 @@ func NewRouter(deps Deps) http.Handler {
 				store.NewChapterStore(deps.DB),
 				store.NewWorkspaceStore(deps.DB),
 			)
+			fileHandler := handler.NewFile(
+				store.NewFileStore(deps.DB),
+				store.NewWorkspaceStore(deps.DB),
+				proxy.ToPython(deps.PythonUpstream),
+			)
 
 			// 受保护路由：与 Python 的 `/auth/me` 同契约。
 			r.Group(func(r chi.Router) {
@@ -74,6 +79,8 @@ func NewRouter(deps Deps) http.Handler {
 
 				// 项目 / 章节只读。写操作（POST/PATCH/DELETE）仍留 Python：
 				// 读错了最多是"看到错数据"，写错了是"写坏数据"，风险等级不同。
+				r.Get("/studio/files", fileHandler.List)
+
 				r.Get("/studio/projects", projectHandler.List)
 				// 必须显式声明：chi 的路由优先级里静态段高于参数段，
 				// 但这里的顺序仍写在参数路由之前，避免读代码时误判。
@@ -90,10 +97,6 @@ func NewRouter(deps Deps) http.Handler {
 
 			// 公开路由：素材下载必须匿名可访问（浏览器 <img>/<video> 无法带 Authorization）。
 			// 与 Python 的 public_router 一致，不挂 RequireAuth。
-			fileHandler := handler.NewFile(
-				store.NewFileStore(deps.DB),
-				proxy.ToPython(deps.PythonUpstream),
-			)
 			r.Get("/studio/files/{file_id}/download", fileHandler.Download)
 			r.Head("/studio/files/{file_id}/download", fileHandler.Download)
 		}
