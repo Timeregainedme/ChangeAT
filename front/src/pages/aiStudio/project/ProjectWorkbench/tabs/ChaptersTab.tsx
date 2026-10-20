@@ -9,11 +9,18 @@ import {
   PlusOutlined,
   ScissorOutlined,
   StopOutlined,
+  SoundOutlined,
   SyncOutlined,
   ThunderboltOutlined,
 } from '@ant-design/icons'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
-import { ScriptProcessingService, StudioChaptersService } from '../../../../../services/generated'
+import {
+  FilmService,
+  ScriptProcessingService,
+  StudioAudioTasksService,
+  StudioChaptersService,
+  StudioShotsService,
+} from '../../../../../services/generated'
 import { chapterStatusMap } from '../constants'
 import { getChapterShotsPath, getChapterStudioPath } from '../routes'
 import { useChapters, newId, type Chapter } from '../hooks/useProjectData'
@@ -62,6 +69,8 @@ export function ChaptersTab() {
   )
     /** 一键准备向导：保存待处理的章节，null 表示关闭 */
   const [prepareChapter, setPrepareChapter] = useState<Chapter | null>(null)
+  /** 章节级一键配音：正在执行的章节 id */
+  const [chapterAudioRunningId, setChapterAudioRunningId] = useState<string | null>(null)
 
 const { taskMap: chapterDivisionTaskMap, setTrackedTaskMap: setChapterDivisionTaskMap } = useChapterDivisionTaskMapPolling({
     chapterIds,
@@ -354,6 +363,96 @@ const { taskMap: chapterDivisionTaskMap, setTrackedTaskMap: setChapterDivisionTa
     }
   }, [taskUiRemove])
 
+  /**
+   * 章节级「一键配音」：为本章所有镜头下「尚未配音」的台词依次生成配音。
+   *
+   * 说明：
+   * - 逐镜头拉 preparation-state 拿台词列表，再逐条创建 TTS 任务并轮询；
+   * - 串行执行（TTS 在 Celery 侧并发受限，且串行便于定位是哪个角色缺音色）；
+   * - 配音产物之后会自动作为参考音频进入该镜头的视频生成（≤3 条）。
+   */
+  const generateChapterAudio = async (record: Chapter) => {
+    if (!projectId || chapterAudioRunningId) return
+    setChapterAudioRunningId(record.id)
+    const hide = message.loading('正在读取本章台词…', 0)
+    let ok = 0
+    const failures: string[] = []
+    try {
+      // 1. 拉本章所有镜头
+      const shotsResp = await StudioShotsService.listShotsApiV1StudioShotsGet({
+        chapterId: record.id,
+        page: 1,
+        pageSize: 200,
+      })
+      const shots = ((shotsResp.data as { items?: Array<{ id: string }> } | undefined)?.items ?? []) as Array<{
+        id: string
+      }>
+      hide()
+      if (shots.length === 0) {
+        message.info('本章还没有分镜，请先提取分镜')
+        return
+      }
+
+      const progress = message.loading(`共 ${shots.length} 个镜头，开始生成配音…`, 0)
+      for (const shot of shots) {
+        // 2. 取该镜头的台词
+        let lines: Array<{ id: number; index: number; generated_audio_file_id?: string | null }> = []
+        try {
+          const stateResp =
+            await StudioShotsService.getShotPreparationStateApiApiV1StudioShotsShotIdPreparationStateGet({
+              shotId: shot.id,
+            })
+          lines = ((stateResp.data as { saved_dialogue_lines?: unknown[] } | undefined)?.saved_dialogue_lines ??
+            []) as typeof lines
+        } catch {
+          continue
+        }
+        const pending = lines.filter((l) => !l.generated_audio_file_id)
+        for (const line of pending) {
+          try {
+            const resp =
+              await StudioAudioTasksService.createSpeechTaskApiV1StudioAudioTasksSpeechPost({
+                requestBody: { dialog_line_id: line.id },
+              })
+            const taskId = (resp.data as { task_id?: string } | undefined)?.task_id ?? ''
+            if (!taskId) throw new Error('未返回任务 ID')
+            const started = Date.now()
+            let status = ''
+            while (Date.now() - started < 3 * 60 * 1000) {
+              const st = await FilmService.getTaskStatusApiV1FilmTasksTaskIdStatusGet({ taskId })
+              const data = st.data as { status?: string; error?: string } | undefined
+              status = String(data?.status ?? '')
+              if (status === 'succeeded') break
+              if (status === 'failed' || status === 'cancelled') {
+                throw new Error(data?.error || `配音任务${status}`)
+              }
+              await new Promise((r) => setTimeout(r, 2000))
+            }
+            if (status !== 'succeeded') throw new Error('配音超时')
+            ok += 1
+          } catch (error) {
+            failures.push(`镜头${shot.id.slice(0, 6)} 第${line.index + 1}句: ${
+              error instanceof Error ? error.message : String(error)
+            }`)
+          }
+        }
+      }
+      progress()
+
+      if (failures.length === 0) {
+        message.success(ok > 0 ? `已生成 ${ok} 条配音` : '本章所有台词都已有配音')
+      } else {
+        message.warning(`成功 ${ok} 条，失败 ${failures.length} 条（前 3 条：${failures.slice(0, 3).join('；')}）`)
+      }
+      void refresh()
+    } catch (error) {
+      hide()
+      message.error(error instanceof Error ? error.message : '一键配音失败')
+    } finally {
+      setChapterAudioRunningId(null)
+    }
+  }
+
   const buildActionMenuItems = (record: Chapter): MenuProps['items'] => {
     if (!projectId) return []
     const state = getChapterPreparationState(record)
@@ -379,6 +478,16 @@ const { taskMap: chapterDivisionTaskMap, setTrackedTaskMap: setChapterDivisionTa
         icon: <EditOutlined />,
         onClick: () => openEditModal(record),
       },
+      (record.storyboardCount ?? 0) > 0
+        ? {
+            key: 'audio',
+            label:
+              chapterAudioRunningId === record.id ? '配音生成中…' : '一键配音（本章全部台词）',
+            icon: <SoundOutlined />,
+            disabled: chapterAudioRunningId !== null,
+            onClick: () => void generateChapterAudio(record),
+          }
+        : null,
       activeTask
         ? {
             key: 'cancel_divide',

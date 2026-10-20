@@ -59,12 +59,24 @@ def validate_h3_reference_material(input_: VideoGenerationInput) -> None:
         )
         if _has_payload(item)
     ]
+    audios = [item for item in (input_.reference_audios or []) if _has_payload(item)]
     if references and frames:
         raise ValueError("MiniMax H3 的首尾帧素材不能与参考图片、参考视频或参考音频混用")
     if len(references) > H3_MAX_REFERENCE_IMAGES:
         raise ValueError(
             f"MiniMax H3 参考图片最多 {H3_MAX_REFERENCE_IMAGES} 张，当前 {len(references)} 张"
         )
+    if len(audios) > H3_MAX_REFERENCE_AUDIOS:
+        raise ValueError(
+            f"MiniMax H3 参考音频最多 {H3_MAX_REFERENCE_AUDIOS} 个，当前 {len(audios)} 个"
+        )
+    # 官方约束：参考音频不能单独使用，必须同时提供至少一张参考图或一个参考视频。
+    if audios and not references:
+        raise ValueError(
+            "MiniMax H3 的参考音频不能单独使用：必须同时提供至少一张参考图或一个参考视频"
+        )
+    if audios and frames:
+        raise ValueError("MiniMax H3 的首尾帧素材不能与参考音频混用")
     prompt_chars = len((input_.prompt or "").strip())
     if prompt_chars > H3_MAX_PROMPT_CHARS:
         raise ValueError(

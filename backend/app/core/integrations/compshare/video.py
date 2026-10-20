@@ -126,7 +126,8 @@ def build_compshare_video_body(input_: VideoGenerationInput) -> dict[str, Any]:
     - 首尾帧模式：用 role=first_frame/last_frame 提交（平台对图片支持 Data URL，上限 30 MiB）；
     - 参考图模式：每张图一个 role=reference_image，**顺序即提示词里 <Picture N> 的编号顺序**。
 
-    参考视频/参考音频只接受公网 HTTP(S)，Jellyfish 暂不产生这两类素材。
+    参考视频只接受公网 HTTP(S)，Jellyfish 暂不产生该素材；
+    参考音频同样只接受公网 HTTP(S)，已支持（配音产物直接使用对象存储公开 URL）。
     """
     validate_h3_reference_material(input_)
 
@@ -146,6 +147,20 @@ def build_compshare_video_body(input_: VideoGenerationInput) -> dict[str, Any]:
                     "type": "image_url",
                     "image_url": {"url": to_image_data_url(item)},
                     "role": "reference_image",
+                }
+            )
+
+        # 参考音频（仅参考图模式下附加）。
+        # 协议：{"type": "audio_url", "audio_url": {"url": "<公网 URL>"}, "role": "reference_audio"}
+        # 注意：供应商只接受公网 HTTP(S) URL，不接受 base64/data URL；
+        # 因此调用方必须传对象存储的公开地址（见 materialize_input_references）。
+        audios = [item.strip() for item in (input_.reference_audios or []) if item and item.strip()]
+        for item in audios:
+            content.append(
+                {
+                    "type": "audio_url",
+                    "audio_url": {"url": item},
+                    "role": "reference_audio",
                 }
             )
     else:

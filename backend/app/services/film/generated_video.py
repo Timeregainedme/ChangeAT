@@ -14,7 +14,15 @@ from app.core.contracts.video_generation import VideoGenerationInput, VideoGener
 from app.core.tasks import VideoGenerationTask
 from app.models.llm import Model, ModelCategoryKey, ModelSettings
 from app.models.task_links import GenerationTaskLink
-from app.models.studio import Chapter, FileItem, Project, Shot, ShotDetail, ShotFrameType
+from app.models.studio import (
+    Chapter,
+    FileItem,
+    Project,
+    Shot,
+    ShotDetail,
+    ShotDialogLine,
+    ShotFrameType,
+)
 from app.models.types import FileUsageKind
 from app.services.common import entity_not_found
 from app.services.llm.provider_resolver import resolve_provider_config_by_model
@@ -55,6 +63,29 @@ async def file_id_to_data_url(db: AsyncSession, *, file_id: str) -> str:
     return await image_data_url_from_file_id(db, file_id=file_id)
 
 
+async def file_id_to_public_url(db: AsyncSession, *, file_id: str) -> str:
+    """取 file_id 对应的对象存储公开 URL。
+
+    为什么音频不能用 data URL：
+        供应商（MiniMax H3）的参考音频只接受公网 HTTP(S) 地址，
+        不接受 base64 / data URL。图片可以内联，音频必须给 URL。
+        本项目 `files.thumbnail` 列存的就是对象存储公开地址（R2/r2.dev）。
+    """
+    file_item = await db.get(FileItem, file_id)
+    if file_item is None:
+        raise HTTPException(status_code=400, detail=f"参考音频文件不存在：{file_id}")
+    url = (file_item.thumbnail or "").strip()
+    if not url.startswith(("http://", "https://")):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"参考音频缺少可公网访问的 URL（file_id={file_id}）。"
+                "音频不能以 base64 提交，请确认对象存储已配置公开读。"
+            ),
+        )
+    return url
+
+
 async def materialize_input_references(db: AsyncSession, *, input_dict: dict) -> dict:
     """把 `run_args["input"]` 里的 file_id 引用物化成 data URL 后再交给供应商。
 
@@ -66,6 +97,12 @@ async def materialize_input_references(db: AsyncSession, *, input_dict: dict) ->
     if reference_ids:
         out["reference_images"] = [
             await file_id_to_data_url(db, file_id=str(file_id)) for file_id in reference_ids
+        ]
+    audio_ids = out.pop("reference_audio_file_ids", None)
+    if audio_ids:
+        # 音频只能以公网 URL 提交，因此这里不做 base64 物化。
+        out["reference_audios"] = [
+            await file_id_to_public_url(db, file_id=str(file_id)) for file_id in audio_ids
         ]
     frame_ids = out.pop("frame_file_ids", None)
     if isinstance(frame_ids, dict):
@@ -201,6 +238,32 @@ async def resolve_effective_video_options(
     )
 
 
+async def resolve_shot_dialog_audio_file_ids(
+    db: AsyncSession,
+    *,
+    shot_id: str,
+    limit: int = 3,
+) -> list[str]:
+    """取该镜头下「已生成配音」的台词文件 id（最多 limit 个）。
+
+    用途：视频生成时把对话配音作为参考音频自动传给供应商，避免用户逐条手动选择。
+    供应商硬约束：参考音频 ≤3 个，且不能单独使用（必须同时有参考图）。
+
+    排序：按台词行 index 升序，取前 limit 条已配音的。
+    """
+    stmt = (
+        select(ShotDialogLine.generated_audio_file_id)
+        .where(
+            ShotDialogLine.shot_detail_id == shot_id,
+            ShotDialogLine.generated_audio_file_id.is_not(None),
+        )
+        .order_by(ShotDialogLine.index)
+        .limit(limit)
+    )
+    rows = (await db.execute(stmt)).scalars().all()
+    return [str(x).strip() for x in rows if x and str(x).strip()]
+
+
 async def build_run_args(
     db: AsyncSession,
     *,
@@ -211,6 +274,7 @@ async def build_run_args(
     ratio: str | None,
     use_context_ir: bool = False,
     skill_id: str | None = None,
+    reference_audio_file_ids: list[str] | None = None,
 ) -> dict:
     model = await resolve_default_video_model(db)
     provider_cfg = await load_provider_config_by_model(db, model)
@@ -253,6 +317,18 @@ async def build_run_args(
     if reference_mode == REFERENCE_MODE:
         # 参考图模式：上传顺序即 IR 参考列表顺序，与提示词里的 <Picture N> 一一对应。
         # payload 只存 file_id，字节在派发期物化（materialize_input_references）。
+        audio_ids = [str(x).strip() for x in (reference_audio_file_ids or []) if str(x).strip()]
+        if not audio_ids:
+            # 未显式指定时，自动带上该镜头台词已生成的配音（≤3 个）。
+            # 这让「先配音再生成视频」的流程无需额外选择动作。
+            audio_ids = await resolve_shot_dialog_audio_file_ids(db, shot_id=shot_id, limit=3)
+        if audio_ids and not submission.images:
+            raise HTTPException(
+                status_code=400,
+                detail="参考音频不能单独使用：请同时提供至少一张参考图",
+            )
+        if len(audio_ids) > 3:
+            raise HTTPException(status_code=400, detail="参考音频最多 3 个")
         input_payload: dict = {
             "prompt": final_prompt,
             "reference_file_ids": list(submission.images),
@@ -260,6 +336,9 @@ async def build_run_args(
             "ratio": resolved_ratio,
             "seconds": shot_detail.duration,
         }
+        if audio_ids:
+            # 只存 file_id，URL 在派发期由 materialize_input_references 解析
+            input_payload["reference_audio_file_ids"] = audio_ids
     else:
         required_frames = tuple(
             ShotFrameType(item) for item in REQUIRED_FRAMES_BY_MODE[reference_mode]

@@ -23,6 +23,7 @@ import {
   StudioShotsService,
 } from '../../../services/generated'
 import { executeAsyncTaskCreate, executeTaskCancel, notifyExistingTask } from '../components/taskActionHelpers'
+import { FilmService, StudioAudioTasksService } from '../../../services/generated'
 import { Link, Navigate, useNavigate, useParams } from 'react-router-dom'
 import { getChapterShotEditPath, getChapterShotsPath, getChapterStudioPath } from '../project/ProjectWorkbench/routes'
 import { DisplayImageCard } from '../assets/components/DisplayImageCard'
@@ -233,6 +234,10 @@ export function ChapterShotEditPage() {
 
   const [dialogLoading, setDialogLoading] = useState(false)
   const [savedDialogLines, setSavedDialogLines] = useState<ShotDialogLineRead[]>([])
+  /** 正在生成配音的台词行 id（用于按钮 loading） */
+  const [audioGeneratingIds, setAudioGeneratingIds] = useState<Record<number, boolean>>({})
+  /** 镜头级批量配音进行中 */
+  const [batchAudioGenerating, setBatchAudioGenerating] = useState(false)
   const [extractedDialogLines, setExtractedDialogLines] = useState<ShotExtractedDialogueCandidateRead[]>([])
   const [dialogDeletingIds, setDialogDeletingIds] = useState<Record<number, boolean>>({})
   const [dialogAddingKeys, setDialogAddingKeys] = useState<Record<string, boolean>>({})
@@ -643,6 +648,118 @@ export function ChapterShotEditPage() {
     },
     [applyPreparationState, dialogAddingKeys, loadPreparationState],
   )
+
+  /**
+   * 为单句台词生成配音（TTS）。
+   *
+   * 关键点：
+   * - 只传 dialog_line_id，服务端会自动带出：台词文本、说话角色、该角色的默认音色，
+   *   并把产物直接挂到这句台词上（shot_dialog_lines.generated_audio_file_id）。
+   * - 说话角色若没有配置音色会返回 422（角色 voice_id 为空且演员也没配），
+   *   这里把后端错误原样提示，避免用户以为是系统故障。
+   * - 配音产物之后可作为「参考音频」进入视频生成（需同时有参考图）。
+   */
+  const generateAudioForLine = useCallback(
+    async (lineId: number) => {
+      if (audioGeneratingIds[lineId]) return
+      setAudioGeneratingIds((m) => ({ ...m, [lineId]: true }))
+      try {
+        const resp = await StudioAudioTasksService.createSpeechTaskApiV1StudioAudioTasksSpeechPost({
+          requestBody: { dialog_line_id: lineId },
+        })
+        const taskId = (resp.data as { task_id?: string } | undefined)?.task_id ?? ''
+        if (!taskId) throw new Error('未返回任务 ID')
+
+        // 轮询到终态（TTS 通常 10-20 秒）
+        const started = Date.now()
+        let status = ''
+        while (Date.now() - started < 3 * 60 * 1000) {
+          const st = await FilmService.getTaskStatusApiV1FilmTasksTaskIdStatusGet({ taskId })
+          const data = st.data as { status?: string; error?: string } | undefined
+          status = String(data?.status ?? '')
+          if (status === 'succeeded') break
+          if (status === 'failed' || status === 'cancelled') {
+            throw new Error(data?.error || `配音任务${status}`)
+          }
+          await new Promise((r) => setTimeout(r, 2000))
+        }
+        if (status !== 'succeeded') throw new Error('配音超时（3 分钟）')
+
+        await loadPreparationState({ silent: true })
+        message.success('配音已生成')
+      } catch (error) {
+        const detail =
+          error instanceof Error ? error.message : String(error)
+        // 422 常见原因：说话角色未配音色
+        message.error(
+          /音色|voice/i.test(detail)
+            ? `配音失败：${detail}（请先在角色或演员上配置音色）`
+            : `配音失败：${detail}`,
+        )
+      } finally {
+        setAudioGeneratingIds((m) => ({ ...m, [lineId]: false }))
+      }
+    },
+    [audioGeneratingIds, loadPreparationState],
+  )
+
+  /**
+   * 为本镜头所有「尚未配音」的台词依次生成配音。
+   *
+   * 串行执行而非并发：TTS 任务本身在 Celery 里并发受限（默认 2），
+   * 而且逐条串行更容易在失败时定位是哪个角色缺音色。
+   */
+  const generateAudioForShot = useCallback(async () => {
+    if (batchAudioGenerating) return
+    const pending = savedDialogLines.filter((l) => !l.generated_audio_file_id)
+    if (pending.length === 0) {
+      message.info('当前镜头所有台词都已有配音')
+      return
+    }
+    setBatchAudioGenerating(true)
+    let ok = 0
+    const failures: string[] = []
+    try {
+      for (const line of pending) {
+        try {
+          setAudioGeneratingIds((m) => ({ ...m, [line.id]: true }))
+          const resp = await StudioAudioTasksService.createSpeechTaskApiV1StudioAudioTasksSpeechPost({
+            requestBody: { dialog_line_id: line.id },
+          })
+          const taskId = (resp.data as { task_id?: string } | undefined)?.task_id ?? ''
+          if (!taskId) throw new Error('未返回任务 ID')
+
+          const started = Date.now()
+          let status = ''
+          while (Date.now() - started < 3 * 60 * 1000) {
+            const st = await FilmService.getTaskStatusApiV1FilmTasksTaskIdStatusGet({ taskId })
+            const data = st.data as { status?: string; error?: string } | undefined
+            status = String(data?.status ?? '')
+            if (status === 'succeeded') break
+            if (status === 'failed' || status === 'cancelled') {
+              throw new Error(data?.error || `配音任务${status}`)
+            }
+            await new Promise((r) => setTimeout(r, 2000))
+          }
+          if (status !== 'succeeded') throw new Error('配音超时')
+          ok += 1
+        } catch (error) {
+          const detail = error instanceof Error ? error.message : String(error)
+          failures.push(`#${line.index}: ${detail}`)
+        } finally {
+          setAudioGeneratingIds((m) => ({ ...m, [line.id]: false }))
+        }
+      }
+      await loadPreparationState({ silent: true })
+      if (failures.length === 0) {
+        message.success(`已生成 ${ok} 条配音`)
+      } else {
+        message.warning(`成功 ${ok} 条，失败 ${failures.length} 条：${failures.join('；')}`)
+      }
+    } finally {
+      setBatchAudioGenerating(false)
+    }
+  }, [batchAudioGenerating, loadPreparationState, savedDialogLines])
 
   const ignoreAllExtractedDialogLines = useCallback(async () => {
     if (batchDialogAdding || extractedDialogLines.length === 0) return
@@ -1474,6 +1591,10 @@ export function ChapterShotEditPage() {
           <ChapterShotDialogueConfirmation
             extraction={extractionSummary}
             savedDialogLines={savedDialogLines}
+            audioGeneratingIds={audioGeneratingIds}
+            onGenerateAudio={(lineId) => void generateAudioForLine(lineId)}
+            onGenerateAllAudio={() => void generateAudioForShot()}
+            batchAudioGenerating={batchAudioGenerating}
             extractedDialogLines={extractedDialogLines}
             batchDialogAdding={batchDialogAdding}
             dialogLoading={dialogLoading}

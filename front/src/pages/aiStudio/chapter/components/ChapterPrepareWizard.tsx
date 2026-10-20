@@ -23,6 +23,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Alert,
   Button,
+  Checkbox,
   Collapse,
   Descriptions,
   Empty,
@@ -111,6 +112,8 @@ export const ChapterPrepareWizard: React.FC<ChapterPrepareWizardProps> = ({
   const [promptLoading, setPromptLoading] = useState<Record<string, boolean>>({})
   const [stages, setStages] = useState<StageResult[]>([])
   const [progress, setProgress] = useState(0)
+  /** 是否在准备完成后顺带按类目顺序生成资产图（默认关闭，由用户自行控制出图时机） */
+  const [alsoGenerateImages, setAlsoGenerateImages] = useState(false)
   /** 已完成的阶段数，用于计算整体进度 */
   const finishedRef = useRef(0)
 
@@ -256,9 +259,11 @@ export const ChapterPrepareWizard: React.FC<ChapterPrepareWizardProps> = ({
     if (storyboardCount === 0) plan.push({ key: 'divide', label: '拆分镜', status: 'pending' })
     plan.push({ key: 'extract', label: '提取资产与对白候选', status: 'pending' })
     plan.push({ key: 'create', label: '创建资产并建立镜头关联', status: 'pending' })
-    for (const type of ASSET_ORDER) {
-      if (assets[type].length > 0) {
-        plan.push({ key: `img:${type}`, label: `生成${ASSET_LABEL[type]}图`, status: 'pending' })
+    if (alsoGenerateImages) {
+      for (const type of ASSET_ORDER) {
+        if (assets[type].length > 0) {
+          plan.push({ key: `img:${type}`, label: `生成${ASSET_LABEL[type]}图`, status: 'pending' })
+        }
       }
     }
     if (plan.length === 0) {
@@ -361,49 +366,51 @@ export const ChapterPrepareWizard: React.FC<ChapterPrepareWizardProps> = ({
         if (failed) throw new Error('创建资产失败，流程中止')
       }
 
-      // --- 4. 按类目顺序生成资产图（每类内部并发生成）---
+      // --- 4. 按类目顺序生成资产图（可选，默认不执行）---
       //
-      // 重要：只对「尚无参考图」的资产提交生成，避免对已出图的资产重复扣费。
-      // 后端 batch-image-tasks 不检查 file_id 是否已有值（其语义是「一键全部重新生成」），
-      // 因此这里用 asset_ids 显式限定范围；若某类资产已全部有图则直接跳过该阶段。
-      for (const type of ASSET_ORDER) {
-        const pending = assets[type].filter((a) => !a.thumbnail)
-        if (assets[type].length === 0) continue
-        const key = `img:${type}`
-        if (pending.length === 0) {
-          updateStage(key, { status: 'skipped', detail: `全部 ${assets[type].length} 个资产已有图` })
-          bumpProgress(total)
-          continue
-        }
-        updateStage(key, { status: 'running', detail: `待生成 ${pending.length} / 共 ${assets[type].length}` })
-        try {
-          const resp =
-            await StudioImageTasksService.createBatchAssetImageTasksApiV1StudioImageTasksAssetsBatchImageTasksPost(
-              {
-                requestBody: {
-                  project_id: projectId,
-                  asset_type: type,
-                  asset_ids: pending.map((a) => a.id),
+      // 用户偏好：默认由人工在资产页自行控制出图时机与重抽，
+      // 因此这里把「生成资产图」做成可选步骤（勾选后才跑），不再默认触发付费生成。
+      // 即便勾选，也只对「尚无参考图」的资产提交，避免重复扣费。
+      if (alsoGenerateImages) {
+        for (const type of ASSET_ORDER) {
+          const pending = assets[type].filter((a) => !a.thumbnail)
+          if (assets[type].length === 0) continue
+          const key = `img:${type}`
+          if (pending.length === 0) {
+            updateStage(key, { status: 'skipped', detail: `全部 ${assets[type].length} 个资产已有图` })
+            bumpProgress(total)
+            continue
+          }
+          updateStage(key, { status: 'running', detail: `待生成 ${pending.length} / 共 ${assets[type].length}` })
+          try {
+            const resp =
+              await StudioImageTasksService.createBatchAssetImageTasksApiV1StudioImageTasksAssetsBatchImageTasksPost(
+                {
+                  requestBody: {
+                    project_id: projectId,
+                    asset_type: type,
+                    asset_ids: pending.map((a) => a.id),
+                  },
                 },
-              },
-            )
-          const data = resp.data as
-            | { tasks?: unknown[]; skipped?: unknown[]; enqueue_failed?: unknown[] }
-            | undefined
-          const ok = data?.tasks?.length ?? 0
-          const skip = data?.skipped?.length ?? 0
-          const fail = data?.enqueue_failed?.length ?? 0
-          updateStage(key, {
-            status: 'done',
-            detail: `已提交 ${ok} / 跳过 ${skip} / 入队失败 ${fail}`,
-          })
-        } catch (error) {
-          updateStage(key, {
-            status: 'failed',
-            detail: error instanceof Error ? error.message : String(error),
-          })
+              )
+            const data = resp.data as
+              | { tasks?: unknown[]; skipped?: unknown[]; enqueue_failed?: unknown[] }
+              | undefined
+            const ok = data?.tasks?.length ?? 0
+            const skip = data?.skipped?.length ?? 0
+            const fail = data?.enqueue_failed?.length ?? 0
+            updateStage(key, {
+              status: 'done',
+              detail: `已提交 ${ok} / 跳过 ${skip} / 入队失败 ${fail}`,
+            })
+          } catch (error) {
+            updateStage(key, {
+              status: 'failed',
+              detail: error instanceof Error ? error.message : String(error),
+            })
+          }
+          bumpProgress(total)
         }
-        bumpProgress(total)
       }
 
       setPhase('done')
@@ -423,6 +430,7 @@ export const ChapterPrepareWizard: React.FC<ChapterPrepareWizardProps> = ({
     projectId,
     rawText,
     storyboardCount,
+    alsoGenerateImages,
     updateStage,
     waitTask,
   ])
@@ -457,6 +465,16 @@ export const ChapterPrepareWizard: React.FC<ChapterPrepareWizardProps> = ({
           </div>
         }
       />
+
+      <div>
+        <Checkbox checked={alsoGenerateImages} onChange={(e) => setAlsoGenerateImages(e.target.checked)}>
+          准备完成后，顺带按「服装 → 场景 → 道具 → 角色」生成缺失的资产图
+        </Checkbox>
+        <div className="text-xs text-gray-500 mt-1">
+          默认不勾选：只做到「分镜 + 提取 + 建资产关联」，出图时机由你在资产页自行控制。
+          勾选后也只生成「还没有参考图」的资产，已有图不会重复扣费。
+        </div>
+      </div>
 
       <div>
         <Text strong>检查清单</Text>

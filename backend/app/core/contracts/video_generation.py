@@ -38,6 +38,15 @@ class VideoGenerationInput(BaseModel):
         ),
     )
 
+    reference_audios: Optional[list[str]] = Field(
+        None,
+        description=(
+            "参考音频列表（**必须是公网 HTTP(S) URL**，供应商不接受 data URL/base64）；"
+            "顺序即提示词里 <Audio N> 的编号顺序。约束：≤3 个、WAV/MP3、单条 2-15 秒，"
+            "且**不能单独使用**——必须同时提供至少一张参考图或一个参考视频。"
+        ),
+    )
+
     model: Optional[str] = Field(None, description="视频模型名称（可选，供应商透传）")
     ratio: VideoRatio = Field(..., description="视频宽高比，业务层唯一主参数")
     seconds: Optional[int] = Field(None, description="时长（秒）（可选，供应商透传）")
@@ -69,6 +78,13 @@ class VideoGenerationInput(BaseModel):
         )
         if not has_prompt and not has_ref:
             raise ValueError("Require prompt or at least one reference frame (base64)")
+
+        # 官方 H3 约束：参考音频不能单独使用，必须同时提供至少一张参考图或一个参考视频。
+        audios = [item for item in (self.reference_audios or []) if _strip_optional_b64(item)]
+        if audios and not has_ref:
+            raise ValueError(
+                "参考音频不能单独使用：必须同时提供至少一张参考图或一个参考视频"
+            )
         return self
 
 

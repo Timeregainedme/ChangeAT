@@ -1,11 +1,19 @@
 import { Button, Input, Spin, Tooltip } from 'antd'
-import { DeleteOutlined, FireOutlined, PlusOutlined, SmileOutlined } from '@ant-design/icons'
+import {
+  DeleteOutlined,
+  FireOutlined,
+  PlusOutlined,
+  ReloadOutlined,
+  SmileOutlined,
+  SoundOutlined,
+} from '@ant-design/icons'
 import type {
   DialogueLineMode,
   ShotDialogLineRead,
   ShotExtractionSummaryRead,
   ShotExtractedDialogueCandidateRead,
 } from '../../../../services/generated'
+import { buildFileDownloadUrl } from '../../assets/utils'
 
 /** 对白标题：角色名缺失时按对白模式回落，旁白显式显示「旁白」而不是含混的「未知」。 */
 function dialogTitle(
@@ -23,6 +31,14 @@ function dialogTitle(
 type ChapterShotDialogueConfirmationProps = {
   extraction: ShotExtractionSummaryRead
   savedDialogLines: ShotDialogLineRead[]
+  /** 正在生成配音的台词行 id 集合 */
+  audioGeneratingIds?: Record<number, boolean>
+  /** 触发生成配音（按台词行） */
+  onGenerateAudio?: (lineId: number) => void
+  /** 为当前镜头所有未配音台词生成（镜头级批量） */
+  onGenerateAllAudio?: () => void
+  /** 镜头级批量配音进行中 */
+  batchAudioGenerating?: boolean
   extractedDialogLines: ShotExtractedDialogueCandidateRead[]
   batchDialogAdding: boolean
   dialogLoading: boolean
@@ -42,6 +58,10 @@ type ChapterShotDialogueConfirmationProps = {
 export function ChapterShotDialogueConfirmation({
   extraction,
   savedDialogLines,
+  audioGeneratingIds = {},
+  onGenerateAudio,
+  onGenerateAllAudio,
+  batchAudioGenerating = false,
   extractedDialogLines,
   batchDialogAdding,
   dialogLoading,
@@ -118,6 +138,18 @@ export function ChapterShotDialogueConfirmation({
           <div className="text-[11px] text-slate-500 mt-1">这里处理系统提取出的对白候选，并确认最终对白内容。</div>
         </div>
         <div className="flex items-center gap-2">
+          {savedDialogLines.length > 0 && onGenerateAllAudio ? (
+            <Tooltip title="为当前镜头所有未配音的台词依次生成配音（用各自说话角色的音色）">
+              <Button
+                size="small"
+                icon={<SoundOutlined />}
+                loading={!!batchAudioGenerating}
+                onClick={onGenerateAllAudio}
+              >
+                本镜头全部配音
+              </Button>
+            </Tooltip>
+          ) : null}
           {extractedDialogLines.length > 0 ? (
             <>
               <Button size="small" loading={batchDialogAdding} onClick={onAcceptAll}>
@@ -175,6 +207,40 @@ export function ChapterShotDialogueConfirmation({
                     onChange={(e) => onUpdateSavedDialogEmotion(l.id, e.target.value)}
                     placeholder="情绪/语气"
                   />
+                  {/* 配音：有音频则直接可播放，并可重新生成；无音频则提供生成入口。
+                      音频会作为参考音频进入视频生成（需同时有参考图）。 */}
+                  <div className="shrink-0 flex items-center gap-1" style={{ minWidth: 132 }}>
+                    {l.generated_audio_file_id ? (
+                      <>
+                        <audio
+                          controls
+                          preload="none"
+                          style={{ height: 28, width: 96 }}
+                          src={buildFileDownloadUrl(l.generated_audio_file_id) ?? undefined}
+                        />
+                        <Tooltip title="重新生成配音">
+                          <Button
+                            type="text"
+                            size="small"
+                            icon={<ReloadOutlined />}
+                            loading={!!audioGeneratingIds[l.id]}
+                            onClick={() => onGenerateAudio?.(l.id)}
+                          />
+                        </Tooltip>
+                      </>
+                    ) : (
+                      <Tooltip title="为该句生成配音（使用说话角色的音色）">
+                        <Button
+                          size="small"
+                          icon={<SoundOutlined />}
+                          loading={!!audioGeneratingIds[l.id]}
+                          onClick={() => onGenerateAudio?.(l.id)}
+                        >
+                          配音
+                        </Button>
+                      </Tooltip>
+                    )}
+                  </div>
                 </div>
               ))}
           </div>
