@@ -13,6 +13,7 @@ import {
 } from '@ant-design/icons'
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useAppStore } from '../store/useAppStore'
+import { useAuthStore } from '../store/useAuthStore'
 import { useTranslation } from 'react-i18next'
 import { TaskCenter } from '../pages/aiStudio/components/TaskCenter'
 import { TaskRuntimeProvider } from '../pages/aiStudio/components/TaskRuntimeProvider'
@@ -27,7 +28,14 @@ const MainLayout: React.FC = () => {
 
   const collapsed = useAppStore((state) => state.siderCollapsed)
   const toggleCollapsed = useAppStore((state) => state.toggleSider)
-  const user = useAppStore((state) => state.user)
+  const appUser = useAppStore((state) => state.user)
+  const authUser = useAuthStore((state) => state.user)
+  const clearSession = useAuthStore((state) => state.clearSession)
+  // 优先展示登录账号的显示名；未取到时回退到本地默认值，避免头部闪现空白
+  const user = {
+    name: authUser?.display_name || authUser?.username || appUser.name,
+    role: authUser ? '已登录' : appUser.role,
+  }
   const language = useAppStore((state) => state.language)
   const setLanguage = useAppStore((state) => state.setLanguage)
 
@@ -144,7 +152,10 @@ const MainLayout: React.FC = () => {
       key: 'logout',
       label: t('user.logout'),
       onClick: () => {
-        // 这里保留占位，实际项目中可接入登录逻辑
+        // 通知后端仅作日志用途（无状态 JWT），真正的失效由前端丢弃 token 完成
+        void fetch('/api/v1/auth/logout', { method: 'POST' }).catch(() => undefined)
+        clearSession()
+        navigate('/login', { replace: true })
       },
     },
   ]

@@ -1,6 +1,8 @@
 import type React from 'react'
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import MainLayout from './layouts/MainLayout'
+import RequireAuth from './components/RequireAuth'
+import Login from './pages/Login'
 import Settings from './pages/Settings'
 import NotFound from './pages/NotFound'
 import ProjectLobby from './pages/aiStudio/project/ProjectLobby'
@@ -24,7 +26,18 @@ const App: React.FC = () => {
   return (
     <BrowserRouter>
       <Routes>
-        <Route path="/" element={<MainLayout />}>
+        {/* 登录页不需要守卫，否则死循环 */}
+        <Route path="/login" element={<Login />} />
+
+        {/* 其余页面统一要求登录 */}
+        <Route
+          path="/"
+          element={
+            <RequireAuth>
+              <MainLayout />
+            </RequireAuth>
+          }
+        >
           <Route index element={<Navigate to="/projects" replace />} />
           <Route path="projects" element={<ProjectLobby />} />
           <Route path="projects/:projectId" element={<ProjectWorkbench />} />

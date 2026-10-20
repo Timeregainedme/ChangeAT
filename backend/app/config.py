@@ -66,6 +66,12 @@ class Settings(BaseSettings):
     # 因为 Docker 内置 DNS 无法解析 `<bucket>.<service>` 这类虚拟主机名。
     s3_addressing_style: str = "virtual"
 
+    # --- 认证（JWT）---
+    # 密钥必须通过环境变量注入；空值会让 app.core.security 拒绝签发/校验 token，
+    # 这是刻意设计：避免用内置默认值签发可被伪造的令牌。
+    jwt_secret: str = ""
+    jwt_expire_minutes: int = 60 * 12
+
     def model_post_init(self, __context: object) -> None:
         if not self.celery_broker_url or not str(self.celery_broker_url).strip():
             password_part = f":{self.redis_password}@" if self.redis_password else ""

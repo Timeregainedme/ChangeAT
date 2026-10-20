@@ -1,4 +1,5 @@
 import { OpenAPI } from './generated'
+import { getStoredToken } from '../store/useAuthStore'
 
 declare global {
   interface Window {
@@ -24,3 +25,9 @@ const buildtimeBackendUrl = import.meta.env.VITE_BACKEND_URL
 const defaultBackendUrl = 'http://localhost:8000'
 
 initOpenAPI(runtimeBackendUrl ?? buildtimeBackendUrl ?? defaultBackendUrl)
+
+/**
+ * 每次请求动态读取 token（而非初始化时快照），
+ * 这样登录/登出后无需重建客户端即可立即生效。
+ */
+OpenAPI.TOKEN = async () => getStoredToken() ?? ''

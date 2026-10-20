@@ -22,6 +22,11 @@ dependencies = [
     "boto3",
     "python-multipart>=0.0.5",
     "jinja2",
+    # 认证：JWT 签发/校验 + 密码哈希
+    # 选 pyjwt 而非 python-jose：依赖更少、无 cryptography 版本耦合
+    # 选 bcrypt 而非 passlib：passlib 1.7 与 bcrypt 4.x 存在兼容告警，直接用 bcrypt 更稳
+    "pyjwt>=2.8.0",
+    "bcrypt>=4.1.0",
 ]
 
 [project.optional-dependencies]

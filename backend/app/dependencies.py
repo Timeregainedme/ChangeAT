@@ -2,12 +2,19 @@
 
 from collections.abc import AsyncGenerator
 
-from fastapi import Depends, HTTPException
+from fastapi import Depends, HTTPException, status
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from langchain_core.language_models.chat_models import BaseChatModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import async_session_maker
+from app.core.security import decode_access_token
+from app.models.auth import User
 from app.services.llm.resolver import build_default_text_llm
+
+# auto_error=False：缺 Authorization 头时返回 None 而不是直接 403，
+# 便于我们统一返回 401 + WWW-Authenticate（语义更准确）。
+bearer_scheme = HTTPBearer(auto_error=False)
 
 
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
@@ -21,6 +28,56 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
             raise
         finally:
             await session.close()
+
+
+async def get_current_user(
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
+    db: AsyncSession = Depends(get_db),
+) -> "User":
+    """从 Authorization: Bearer 解析并返回当前用户。
+
+    失败语义：
+    - 缺 token / token 非法 → 401
+    - 用户不存在 / 已停用 → 401（不区分，避免账号枚举）
+    """
+    if credentials is None or not credentials.credentials:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="未登录，请先登录",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    payload = decode_access_token(credentials.credentials)
+    sub = payload.get("sub")
+    if not sub:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="登录状态无效，请重新登录",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    try:
+        user_id = int(sub)
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="登录状态无效，请重新登录",
+            headers={"WWW-Authenticate": "Bearer"},
+        ) from exc
+
+    user = await db.get(User, user_id)
+    if user is None or not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="登录状态无效，请重新登录",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return user
+
+
+async def require_auth(user: "User" = Depends(get_current_user)) -> "User":
+    """路由级保护依赖：挂在 router 上即要求登录。"""
+    return user
 
 
 async def get_llm(db: AsyncSession = Depends(get_db)) -> BaseChatModel:
