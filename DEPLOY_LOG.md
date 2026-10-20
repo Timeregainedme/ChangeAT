@@ -351,3 +351,50 @@ sudo cp /etc/nginx/nginx.conf.bak.<stamp> /etc/nginx/nginx.conf && sudo systemct
 ---
 
 > 本次部署在 forwarding、redeployment、reading-only 这些动作中没有修改任何你 jellyfish 仓库源文件。部署与仓库完全独立：仓库的源代码 + EC2 上的 \`/srv/changeAT\` 是两份独立副本，必要时你可以 \`rm -rf /srv/changeAT\` 同步环境重拉。
+
+### 9.7 2026-10-20：模型供应商配置 + 账号登录
+
+**供应商与模型**（按 `供应商配置.md` 落库，api_key 留空待填）
+
+| 供应商 | base_url | 能力 | 状态 |
+| --- | --- | --- | --- |
+| `DeepSeek` | `https://api.deepseek.com/v1` | 文本 | active |
+| `PIX` | `https://pix.token6688.com` | 图片、视频 | active |
+| `优云智算 模型 API` | `https://cp.compshare.cn` | 视频、音频 | active |
+
+- 8 个模型记录：`deepseek-flash` / `deepseek-v4-pro`（text）、`gpt-image-2.5-flare` / `gpt-image-2.5-sunburst`（image）、
+  `minimax-h3`（PIX 备用）/ `MiniMax-H3`（优云智算，**默认**）（video）、`IndexTTS-2.5` / `IndexTTS-2.5-custom`（audio）
+- `model_settings` 单行已指向四个默认模型
+- **api_key 全部为空**，需登录后在「模型管理 → 供应商」逐个填写
+
+**认证**
+
+| 项 | 值 |
+| --- | --- |
+| 账号 | `admin`（可用 `ADMIN_USERNAME` / `ADMIN_PASSWORD` 覆盖重建） |
+| 密码存储 | bcrypt 哈希，仅存 `password_hash`，接口不回显 |
+| 令牌 | JWT HS256，默认 12 小时（`JWT_EXPIRE_MINUTES`） |
+| 密钥 | `JWT_SECRET`（48 字节 url-safe，写入 `.env`，**无默认值**；缺失时拒绝签发） |
+| 建表 | `users`（`init_db.py` 依赖 `app.models.auth` 导入，已补） |
+| 初始化 | `cd backend && .venv/bin/python init_admin.py`（幂等，已存在则重置密码） |
+
+**鉴权范围**
+
+| 路径 | 是否需要登录 |
+| --- | --- |
+| `/api/v1/health` | 否 |
+| `/api/v1/auth/login` `/auth/me` `/auth/logout` | 否 |
+| `/api/v1/film/*` `/llm/*` `/studio/*` `/script_processing/*` | **是** |
+
+Celery worker 内部为函数调用，不经 HTTP，不受影响。
+
+**⚠️ 待办**
+
+1. **立即修改默认密码**：`admin` / `admin123` 是公开在对话里的弱口令，
+   staging 可接受，但接入真实团队前必须更换。
+2. **填写三个供应商 API Key**（DeepSeek / PIX / 优云智算），否则提交生成任务会报
+   `Provider api_key is empty`。
+3. **Google 登录尚未接入**，需先在 Google Cloud Console 建 OAuth 2.0 Client：
+   - 授权重定向 URI：`https://tim.run.place/api/v1/auth/google/callback`
+   - 拿到 `client_id` / `client_secret` 后即可实现（后端加 `/auth/google/*`，
+     前端加一个按钮；账号密码登录作为兜底保留）。
