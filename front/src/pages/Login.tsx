@@ -79,9 +79,9 @@ const Login: React.FC = () => {
     >
       <Card style={{ width: 400, boxShadow: '0 8px 32px rgba(0,0,0,0.08)' }}>
         <div className="text-center mb-6">
-          <img src="/logo.svg" alt="Jellyfish" className="w-14 h-14 mx-auto mb-3" />
+          <img src="/logo.png" alt="DyeingTime" className="w-14 h-14 mx-auto mb-3" />
           <Title level={3} style={{ marginBottom: 4 }}>
-            Jellyfish
+            DyeingTime
           </Title>
           <Text type="secondary">AI 短剧工厂 · 请登录</Text>
         </div>

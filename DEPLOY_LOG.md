@@ -1,5 +1,11 @@
 # ChangeAT（= jellyfish）Staging 部署记录
 
+> **2026-10-21 品牌变更**：产品对外名称改为 **DyeingTime**，仓库同步改名为
+> `Timeregainedme/DyeingTime`（GitHub 侧改名；历史条目中的 `ChangeAT / jellyfish`
+> 字样保留原样，仅作为历史记录）。服务端目录 `/srv/changeAT`、systemd 单元
+> `changeat-api` / `changeat-celery`、内部包名 `jellyfish-backend` / `jellyfish-frontend`
+> 均属于内部标识，未做重命名（改动需要重建 venv/lock 与服务单元，收益低风险高）。
+
 - **主机**：`ip-172-31-2-3`（EC2 us-east-2a，公网 EIP `18.225.232.63`）
 - **域 / 网络**：`ChangeAT-Staging / AWS / Albany, OH`
 - **起止时间**：UTC `08:18 ~ 08:55` （2026-10-17）
@@ -917,3 +923,34 @@ HTTP 错误分支：自合并 400、不存在 404、非法类型 400。
 - 数据链路：章节 7 镜头 → prep-state 资产总览 4 项（含 R2 缩略图）、台词 1 条（已有配音）；
 - `PATCH shot-details` 200；`PATCH shot-dialog-lines` 200；
 - `pnpm typecheck` 通过，前端构建产出独立 `ChapterReviewPage` chunk（18.4 kB）。
+
+### 9.19 2026-10-21：品牌更名为 DyeingTime + 新 logo
+
+**品牌名**：
+
+- 浏览器标题：`Jellyfish` → `DyeingTime`
+- 侧边栏标题 / 登录页主标题：`DyeingTime`（i18n `layout.title`，中英同步）
+- 欢迎语：`欢迎使用 DyeingTime` / `Welcome to DyeingTime`
+- 登录页与侧边栏 logo 的 `alt` 同步为 `DyeingTime`
+
+**Logo**（源图 `logo无字.png`，1254×1254 RGBA）：
+
+| 产物 | 尺寸 | 用途 |
+| --- | --- | --- |
+| `front/public/logo.png` | 512×512 | 侧边栏（32px）、登录页（56px） |
+| `front/public/favicon.png` | 64×64 | 浏览器标签页（高分屏） |
+| `front/public/favicon-32.png` | 32×32 | 浏览器标签页（标准） |
+| `front/public/apple-touch-icon.png` | 180×180 | iOS 添加到主屏 |
+| `docs/img/logo.png` | 320×320 | README 顶部展示 |
+
+`index.html` 增加 `<meta name="theme-color" content="#ff5a52">`（取自 logo 主色）。
+旧 `logo.svg`（front/public、front、docs/img 三处）已删除，避免与新图标混淆。
+
+**仓库**：`origin` 改为 `git@github.com:Timeregainedme/DyeingTime.git`。
+
+**未改动（内部标识）**：`/srv/changeAT` 部署目录、`changeat-*` systemd 单元、
+`jellyfish-backend` / `jellyfish-frontend` 包名、`jellyfish_*` 本地存储 key
+（改 key 会让已登录用户被登出、偏好重置）。
+
+**验证**：`pnpm typecheck` 通过；`/` 的 `<title>` 为 `DyeingTime`；
+`/logo.png`、`/favicon.png`、`/favicon-32.png`、`/apple-touch-icon.png` 均 200。

@@ -1,7 +1,7 @@
-# Jellyfish AI 短剧工厂
+# DyeingTime AI 短剧工厂
 
 <p align="center">
-  <img src="./docs/img/logo.svg" alt="Jellyfish Logo" width="160" />
+  <img src="./docs/img/logo.png" alt="DyeingTime Logo" width="160" />
 </p>
 
 <p align="center">
