@@ -196,13 +196,13 @@ export class StudioFilesService {
      * @returns any Successful Response
      * @throws ApiError
      */
-    public static downloadFileApiApiV1StudioFilesFileIdDownloadHead({
+    public static downloadFileApiApiV1StudioFilesFileIdDownloadGet({
         fileId,
     }: {
         fileId: string,
     }): CancelablePromise<any> {
         return __request(OpenAPI, {
-            method: 'HEAD',
+            method: 'GET',
             url: '/api/v1/studio/files/{file_id}/download',
             path: {
                 'file_id': fileId,
@@ -228,13 +228,13 @@ export class StudioFilesService {
      * @returns any Successful Response
      * @throws ApiError
      */
-    public static downloadFileApiApiV1StudioFilesFileIdDownloadHead1({
+    public static downloadFileApiApiV1StudioFilesFileIdDownloadGet1({
         fileId,
     }: {
         fileId: string,
     }): CancelablePromise<any> {
         return __request(OpenAPI, {
-            method: 'GET',
+            method: 'HEAD',
             url: '/api/v1/studio/files/{file_id}/download',
             path: {
                 'file_id': fileId,

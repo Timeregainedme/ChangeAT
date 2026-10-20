@@ -1,9 +1,16 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Card, Input, Row, Col, Tag, Button, message, Modal, Space, Pagination } from 'antd'
-import { EditOutlined, DeleteOutlined, PlusOutlined, ReloadOutlined } from '@ant-design/icons'
+import {
+  EditOutlined,
+  DeleteOutlined,
+  PlusOutlined,
+  ReloadOutlined,
+  MergeCellsOutlined,
+} from '@ant-design/icons'
 import { useSearchParams } from 'react-router-dom'
 import { resolveAssetUrl } from '../utils'
 import { DisplayImageCard } from '../components/DisplayImageCard'
+import { EntityMergeModal, type MergeOption } from '../components/EntityMergeModal'
 import {
   StudioAssetTypeFormModal,
   normalizeStudioAsset,
@@ -71,6 +78,15 @@ export function AssetTypeTab({
   const [previewOpen, setPreviewOpen] = useState(false)
   const [previewUrl, setPreviewUrl] = useState('')
   const [previewTitle, setPreviewTitle] = useState('')
+
+  /** 合并弹窗：把两条同类型资产合成一条（解决提取阶段的命名漂移）。 */
+  const [mergeOpen, setMergeOpen] = useState(false)
+
+  /** 合并弹窗的候选列表：复用当前 Tab 的列表接口，最多取 100 条并支持关键字搜索。 */
+  const loadMergeOptions = async (keyword: string): Promise<MergeOption[]> => {
+    const res = await listAssets({ q: keyword.trim() || undefined, page: 1, pageSize: 100 })
+    return (res.items ?? []).map((item) => ({ id: item.id, name: item.name }))
+  }
 
   const load = async (opts?: { page?: number; pageSize?: number; q?: string }) => {
     setLoading(true)
@@ -217,6 +233,9 @@ export function AssetTypeTab({
           <Button icon={<ReloadOutlined />} onClick={() => void load()} loading={loading}>
             刷新
           </Button>
+          <Button icon={<MergeCellsOutlined />} onClick={() => setMergeOpen(true)}>
+            合并{label}
+          </Button>
           <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>
             新建{label}
           </Button>
@@ -320,6 +339,18 @@ export function AssetTypeTab({
             setPage(1)
             await load({ page: 1 })
           }
+        }}
+      />
+
+      <EntityMergeModal
+        open={mergeOpen}
+        entityType={tabKey}
+        entityLabel={label}
+        loadOptions={loadMergeOptions}
+        onCancel={() => setMergeOpen(false)}
+        onMerged={() => {
+          setPage(1)
+          void load({ page: 1 })
         }}
       />
 

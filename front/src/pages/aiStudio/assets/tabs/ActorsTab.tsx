@@ -1,11 +1,18 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Button, Card, Empty, Input, Modal, Pagination, Space, Tag, message } from 'antd'
-import { DeleteOutlined, EditOutlined, PlusOutlined, ReloadOutlined } from '@ant-design/icons'
+import {
+  DeleteOutlined,
+  EditOutlined,
+  MergeCellsOutlined,
+  PlusOutlined,
+  ReloadOutlined,
+} from '@ant-design/icons'
 import { StudioEntitiesApi } from '../../../../services/studioEntities'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { resolveAssetUrl } from '../utils'
 import { DisplayImageCard } from '../components/DisplayImageCard'
 import { ActorEntityFormModal, type ActorEntityLike } from '../components/ActorEntityFormModal'
+import { EntityMergeModal, type MergeOption } from '../components/EntityMergeModal'
 
 export function ActorsTab() {
   const navigate = useNavigate()
@@ -16,6 +23,22 @@ export function ActorsTab() {
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(12)
   const [total, setTotal] = useState(0)
+
+  /** 合并弹窗（演员同样会出现命名漂移，例如「老张」与「张叔」）。 */
+  const [mergeOpen, setMergeOpen] = useState(false)
+
+  /** 合并候选：复用演员列表接口，最多 100 条，支持关键字。 */
+  const loadMergeOptions = async (keyword: string): Promise<MergeOption[]> => {
+    const res = await StudioEntitiesApi.list('actor', {
+      q: keyword.trim() || null,
+      page: 1,
+      pageSize: 100,
+    })
+    return ((res.data?.items ?? []) as Array<{ id: string; name: string }>).map((item) => ({
+      id: item.id,
+      name: item.name,
+    }))
+  }
 
   const [editOpen, setEditOpen] = useState(false)
   const [editing, setEditing] = useState<ActorEntityLike | null>(null)
@@ -122,6 +145,9 @@ export function ActorsTab() {
           <Button icon={<ReloadOutlined />} onClick={() => void load()}>
             刷新
           </Button>
+          <Button icon={<MergeCellsOutlined />} onClick={() => setMergeOpen(true)}>
+            合并演员
+          </Button>
           <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>
             新建
           </Button>
@@ -215,6 +241,18 @@ export function ActorsTab() {
           }
           await load({ page: 1 })
           setPage(1)
+        }}
+      />
+
+      <EntityMergeModal
+        open={mergeOpen}
+        entityType="actor"
+        entityLabel="演员"
+        loadOptions={loadMergeOptions}
+        onCancel={() => setMergeOpen(false)}
+        onMerged={() => {
+          setPage(1)
+          void load({ page: 1 })
         }}
       />
     </Card>

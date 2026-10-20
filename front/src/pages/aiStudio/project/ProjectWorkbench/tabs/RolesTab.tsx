@@ -1,6 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Card, Alert, Button, Empty, Modal, Input, message, Space, Select, Pagination, Tag } from 'antd'
-import { EditOutlined, PlusOutlined, PictureOutlined, UserOutlined } from '@ant-design/icons'
+import {
+  EditOutlined,
+  MergeCellsOutlined,
+  PlusOutlined,
+  PictureOutlined,
+  UserOutlined,
+} from '@ant-design/icons'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import {
   StudioProjectsService,
@@ -10,6 +16,7 @@ import type { CharacterRecurrenceRead, ProjectActorLinkRead, ProjectCostumeLinkR
 import { useProjectCharacters, newId } from '../hooks/useProjectData'
 import { resolveAssetUrl } from '../../../assets/utils'
 import { DisplayImageCard } from '../../../assets/components/DisplayImageCard'
+import { EntityMergeModal, type MergeOption } from '../../../assets/components/EntityMergeModal'
 import { StudioEntitiesApi } from '../../../../../services/studioEntities'
 import {
   ProjectVisualStyleAndStyleFields,
@@ -631,6 +638,17 @@ export function RolesTab() {
     return <Tag color="orange">跨 {info.chapter_count} 集 · 建议绑演员</Tag>
   }
 
+  /** 角色合并弹窗：解决同一角色被提取成多个名字（如「老张」与「张叔」）。 */
+  const [mergeOpen, setMergeOpen] = useState(false)
+
+  /** 合并候选只取本项目角色（角色天然按项目隔离，无需跨项目搜索）。 */
+  const loadMergeOptions = async (keyword: string): Promise<MergeOption[]> => {
+    const kw = keyword.trim().toLowerCase()
+    return characters
+      .filter((c) => (kw ? c.name.toLowerCase().includes(kw) : true))
+      .map((c) => ({ id: c.id, name: c.name }))
+  }
+
   /** 编辑中角色若属于主角级却没绑演员，在表单顶部显式提醒（不阻断保存，只说明后果）。 */
   const editingRecurrence = editingId ? recurrenceById[editingId] : undefined
 
@@ -642,6 +660,9 @@ export function RolesTab() {
           <Space>
             <Button type="primary" icon={<PlusOutlined />} onClick={openNormalRoleCreate}>
               新建角色
+            </Button>
+            <Button icon={<MergeCellsOutlined />} onClick={() => setMergeOpen(true)}>
+              合并角色
             </Button>
             {/*
               角色图会引用「该角色绑定的演员图 + 服装图」。放在这里让用户能一键重跑全部角色图，
@@ -817,6 +838,15 @@ export function RolesTab() {
           showVoiceDescriptionHint
         />
       </Modal>
+
+      <EntityMergeModal
+        open={mergeOpen}
+        entityType="character"
+        entityLabel="角色"
+        loadOptions={loadMergeOptions}
+        onCancel={() => setMergeOpen(false)}
+        onMerged={() => void refresh()}
+      />
     </div>
   )
 }

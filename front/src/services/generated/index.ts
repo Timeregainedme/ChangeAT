@@ -15,6 +15,7 @@ export type { ApiResponse_CharacterPortraitAnalysisResult_ } from './models/ApiR
 export type { ApiResponse_CostumeInfoAnalysisResult_ } from './models/ApiResponse_CostumeInfoAnalysisResult_';
 export type { ApiResponse_dict_ } from './models/ApiResponse_dict_';
 export type { ApiResponse_dict_str__Any__ } from './models/ApiResponse_dict_str__Any__';
+export type { ApiResponse_EntityMergePairResult_ } from './models/ApiResponse_EntityMergePairResult_';
 export type { ApiResponse_EntityMergeResult_ } from './models/ApiResponse_EntityMergeResult_';
 export type { ApiResponse_EntityNameExistenceCheckResponse_ } from './models/ApiResponse_EntityNameExistenceCheckResponse_';
 export type { ApiResponse_FileDetailRead_ } from './models/ApiResponse_FileDetailRead_';
@@ -110,6 +111,8 @@ export type { CostumeTimelineEntry } from './models/CostumeTimelineEntry';
 export type { DialogueLineMode } from './models/DialogueLineMode';
 export type { EntityEntry } from './models/EntityEntry';
 export type { EntityLibrary } from './models/EntityLibrary';
+export type { EntityMergePairResult } from './models/EntityMergePairResult';
+export type { EntityMergeRequest } from './models/EntityMergeRequest';
 export type { EntityMergeResult } from './models/EntityMergeResult';
 export type { EntityMergerRequest } from './models/EntityMergerRequest';
 export type { EntityNameExistenceCheckRequest } from './models/EntityNameExistenceCheckRequest';

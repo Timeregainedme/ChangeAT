@@ -835,3 +835,48 @@ ALTER TABLE `projects`
 | 开启 | `[..., reference_audio_file_ids: ['45e42bf2-…']]` |
 
 **注意**：该开关是项目级，不同项目可独立设置；已有项目升级后默认开启。
+
+### 9.17 2026-10-21：实体合并入口（数据库层合并）
+
+**需求**：提取阶段 LLM 命名漂移，同一资产会落库成多条（如「护工工作服」与「护工护理工作服」），
+需要一个入口把两条记录合成一条。
+
+**与既有 `/script-processing/merge-entities` 的区别**：
+
+| 能力 | 时机 | 输入 | 输出 |
+| --- | --- | --- | --- |
+| `script-processing/merge-entities` | 落库前 | 多镜头提取结果 | 合并后的实体库（LLM 语义） |
+| 本次新增 `studio/entities/{type}/merge` | 落库后 | 两条已存在实体 | 一条保留 + 迁移统计 |
+
+**后端**：
+
+- `POST /api/v1/studio/entities/{entity_type}/merge`，body `{source_id, target_id}`，
+  返回 `EntityMergePairResult`（images_moved / images_dropped / links_moved /
+  links_dropped / cross_refs_moved / candidates_repointed）。
+- 服务 `services/studio/entity_merge.py`，合并范围：
+
+| 目标 | 迁移内容 |
+| --- | --- |
+| 所有类型 | `*_images`（含 `(quality_level, view_angle)` 去重、主图唯一化）、`project_*_links`（同作用域去重）、`shot_extracted_candidates.linked_entity_id` |
+| character | `shot_character_links`、`shot_dialog_lines.speaker/target_character_id`、`character_prop_links`（含 index 重排避让唯一约束） |
+| scene | `shot_details.scene_id` |
+| costume | `characters.costume_id` |
+| actor | `characters.actor_id` |
+| prop | `character_prop_links.prop_id`（按角色去重） |
+
+- 错误语义：自合并 / 非法类型 → 400；实体不存在 → 404；整体在 `get_db` 事务内，失败回滚。
+
+**前端**：
+
+- 新增通用 `EntityMergeModal`（保留项 + 被合并项 双下拉、远程搜索、不可逆提示、结果统计）。
+- 入口：资产页「场景 / 道具 / 服装 / 演员」工具栏「合并 X」；项目角色 Tab「合并角色」。
+
+**验证（staging，事务回滚方式，未改动真实数据）**：
+
+| 用例 | 统计结果 |
+| --- | --- |
+| scene 深夜卧室 → 木质桌面 | images_dropped 1（同档同视角）、links_moved 4、candidates_repointed 4；事后源归零、目标主图 ≤1 |
+| costume 护工护理工作服 → 老人睡衣 | images_dropped 1、links_moved 1、links_dropped 2、cross_refs_moved 1、candidates 3 |
+| character 老人 → 护工 | images_dropped 1、links_moved 1、links_dropped 3、cross_refs_moved 4（台词说话人/对象）、candidates 4；源已删除 |
+
+HTTP 错误分支：自合并 400、不存在 404、非法类型 400。

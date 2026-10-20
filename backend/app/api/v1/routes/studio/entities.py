@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.dependencies import get_db
@@ -13,7 +13,9 @@ from app.schemas.studio.entity_existence import (
     EntityNameExistenceCheckRequest,
     EntityNameExistenceCheckResponse,
 )
+from app.schemas.studio.entity_merge import EntityMergeRequest, EntityMergePairResult
 from app.services.studio import StudioEntitiesService
+from app.services.studio.entity_merge import merge_entities
 
 router = APIRouter()
 
@@ -37,6 +39,39 @@ async def check_entity_names_existence(
         costume_names=body.costume_names,
     )
     return success_response(EntityNameExistenceCheckResponse.model_validate(data))
+
+
+@router.post(
+    "/{entity_type}/merge",
+    response_model=ApiResponse[EntityMergePairResult],
+    summary="合并两个同类型实体（数据库层，把 source 并入 target）",
+)
+async def merge_entity_pair(
+    entity_type: str,
+    body: EntityMergeRequest,
+    db: AsyncSession = Depends(get_db),
+) -> ApiResponse[EntityMergePairResult]:
+    """把 `source_id` 合并进 `target_id`，返回迁移统计。
+
+    行为：
+    - 图片、关联、提取候选全部迁移到 target；
+    - target 已在同一作用域有关联时删除 source 的重复关联（避免唯一约束冲突）；
+    - 成功后删除 source 记录；任何失败整体回滚（事务由 `get_db` 统一提交/回滚）。
+
+    典型用途：资产页发现「护工工作服」与「护工护理工作服」是同一种服装时，
+    把其中一个合并到另一个，避免后续镜头重复引用两套资产。
+    """
+    try:
+        payload = await merge_entities(
+            db,
+            entity_type=entity_type,
+            source_id=body.source_id,
+            target_id=body.target_id,
+        )
+    except ValueError as exc:
+        # 类型不支持、自合并等请求级错误统一 400，便于前端直接展示原文。
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    return success_response(EntityMergePairResult.model_validate(payload))
 
 
 @router.get("/{entity_type}", response_model=ApiResponse[PaginatedData[dict[str, Any]]], summary="统一实体列表（分页）")
