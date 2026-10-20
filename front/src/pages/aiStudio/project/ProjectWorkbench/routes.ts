@@ -23,3 +23,8 @@ export function getProjectEditorPath(projectId: string) {
   return `/projects/${projectId}/editor`
 }
 
+
+/** 章节镜头看板（按「待确认 / 生成中 / 已就绪」分列）。 */
+export function getChapterBoardPath(projectId: string, chapterId: string) {
+  return `/projects/${projectId}/chapters/${chapterId}/board`
+}

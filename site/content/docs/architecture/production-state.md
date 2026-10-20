@@ -130,6 +130,42 @@ ssh aws-ubuntu-2 'sudo systemctl stop dyeingtime-go && \
   sudo systemctl start dyeingtime-go'
 ```
 
+## 部署前端
+
+前端是纯静态产物，部署 = 替换 `/srv/dyeingtime/front/dist`，不需要重启任何服务。
+
+```bash
+cd front
+pnpm exec tsc --noEmit && pnpm test && pnpm test:e2e   # 本地验证
+pnpm exec vite build
+
+# 服务器侧先留存上一版，便于回滚
+ssh aws-ubuntu-2 'mv /srv/dyeingtime/front/dist /srv/dyeingtime/front/dist.old-$(date +%Y%m%d-%H%M%S)'
+rsync -az ./dist/ aws-ubuntu-2:/srv/dyeingtime/front/dist/
+```
+
+要点：
+
+- **不要 reload nginx**：root 目录替换即时生效。
+- `/env.js` 由 nginx 的 `location = /env.js` 直接返回内容，**不读 dist 里的文件**，
+  因此换 dist 不会把 `BACKEND_URL` 变回 `localhost:8000`。
+- `/index.html` 是 `no-store`，用户刷新即拿到新 bundle；旧 hash 的 chunk 会 404，
+  这是刻意取舍（不保留历史版本）。需要平滑过渡时保留 `dist.old-*` 并回滚。
+- 静态资源在 `dist/static/`（`assetsDir` 特意改名，避免与 `/assets` 路由冲突）。
+
+验证：
+
+```bash
+curl -s -o /dev/null -w '%{http_code}\n' https://tim.run.place/          # 200
+curl -s https://tim.run.place/env.js | grep BACKEND_URL                  # ""
+```
+
+回滚：
+
+```bash
+ssh aws-ubuntu-2 'cd /srv/dyeingtime/front && rm -rf dist && mv dist.old-<时间戳> dist'
+```
+
 ## 已知风险
 
 | 风险 | 说明 |

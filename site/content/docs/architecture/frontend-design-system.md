@@ -145,6 +145,7 @@ body { @apply bg-background text-foreground antialiased; }
 | 路由 | 新实现 | 旧实现 |
 |---|---|---|
 | `/projects` | `src/features/projects/ProjectListPage.tsx` | `pages/aiStudio/project/ProjectLobby.tsx`（已删除） |
+| `/projects/:id/chapters/:cid/board` | `src/features/shots/ShotBoardPage.tsx` | 新增（原只有表格视图） |
 | 全局布局 | `src/app/shell/AppShell.tsx` | `src/layouts/MainLayout.tsx`（已删除） |
 
 项目列表页的设计要点：卡片上的「下一步」来自章节准备态，
@@ -153,6 +154,17 @@ body { @apply bg-background text-foreground antialiased; }
 
 数据层拆分为 `useProjectList`（列表与增删改）与 `useProjectSummaries`（阶段与镜头流量），
 页面只负责展示与路由跳转。摘要接口失败时降级为空摘要，不影响列表浏览。
+
+## 10.1 镜头看板
+
+`/projects/:projectId/chapters/:chapterId/board` 按「待确认 / 生成中 / 已就绪」三列展示镜头。
+
+- 分列优先级写死为「运行时 → 确认状态」：有任务在跑的镜头不会被提示去补确认信息。
+- **暂不支持拖拽改状态**：状态推进依赖后端的提取/确认/生成条件校验，
+  前端先做只读看板，避免拖出后端不认可的状态。
+- 视频生成准备度按需查询：只在打开镜头侧滑时请求 `video-readiness`，
+  不在列表层打 N 个请求；侧滑内把「信息确认状态 / 运行时任务 / 生成准备度」分三块展示。
+- 入口在项目工作台的章节操作列与「更多操作」菜单，原表格视图保留（`/shots`）。
 
 ## 11. 设计系统预览页
 

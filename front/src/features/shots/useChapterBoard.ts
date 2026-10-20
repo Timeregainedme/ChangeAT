@@ -1,0 +1,137 @@
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { StudioChaptersService, StudioShotsService } from '../../services/generated'
+import type { ShotRead, ShotRuntimeSummaryRead } from '../../services/generated'
+
+/** 运行时摘要里本页真正用到的字段，避免把整个生成态对象透传到 UI 层。 */
+export interface ShotRuntimeState {
+  hasActiveTasks: boolean
+  activeTaskCount: number
+}
+
+/** 看板卡片用的镜头模型：业务字段 + 运行时状态。 */
+export interface BoardShot {
+  id: string
+  index: number
+  title: string
+  thumbnail?: string
+  status: 'pending' | 'ready'
+  skipExtraction: boolean
+  scriptExcerpt: string
+  runtime: ShotRuntimeState
+}
+
+/**
+ * 镜头在「该做什么」维度上的归类。
+ *
+ * 这是把三类状态压成看板列的关键：运行中优先于确认状态，
+ * 因为一个镜头正在生成时，用户不该再被提示「去确认信息」。
+ */
+export type BoardColumnKey = 'pending' | 'running' | 'ready'
+
+export interface BoardChapter {
+  id: string
+  index: number
+  title: string
+}
+
+const COLUMN_BY_STATE: Record<BoardColumnKey, string> = {
+  pending: '待确认',
+  running: '生成中',
+  ready: '已就绪',
+}
+
+export { COLUMN_BY_STATE }
+
+/** 把后端镜头对象收敛成看板模型。 */
+function toBoardShot(shot: ShotRead, runtime?: ShotRuntimeSummaryRead): BoardShot {
+  return {
+    id: shot.id,
+    index: shot.index,
+    title: shot.title?.trim() || `镜头 ${shot.index}`,
+    thumbnail: shot.thumbnail,
+    status: shot.status === 'ready' ? 'ready' : 'pending',
+    skipExtraction: Boolean(shot.skip_extraction),
+    scriptExcerpt: shot.script_excerpt?.trim() ?? '',
+    runtime: {
+      hasActiveTasks: Boolean(runtime?.has_active_tasks),
+      activeTaskCount: runtime?.active_task_count ?? 0,
+    },
+  }
+}
+
+/**
+ * 判定镜头落在哪一列。
+ *
+ * 顺序写死为「运行中 → 已就绪 → 待确认」，与用户心智一致：
+ * 先看有没有机器在干活，再看人工确认是否完成。
+ */
+export function getColumnOf(shot: BoardShot): BoardColumnKey {
+  if (shot.runtime.hasActiveTasks) return 'running'
+  if (shot.status === 'ready') return 'ready'
+  return 'pending'
+}
+
+/**
+ * 章节看板数据：镜头列表 + 运行时摘要 + 章节基础信息。
+ *
+ * 三个请求并发发出，其中章节信息只用于标题展示，失败时允许降级为空，
+ * 不因为「拿不到章节名」让整个看板打不开。
+ */
+export function useChapterBoard(projectId?: string, chapterId?: string) {
+  const [shots, setShots] = useState<BoardShot[]>([])
+  const [chapter, setChapter] = useState<BoardChapter | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  const load = useCallback(async () => {
+    if (!chapterId) return
+    setLoading(true)
+    setError(null)
+    try {
+      const [shotsRes, runtimeRes, chaptersRes] = await Promise.all([
+        StudioShotsService.listShotsApiV1StudioShotsGet({
+          chapterId,
+          page: 1,
+          pageSize: 200,
+          order: 'index',
+          isDesc: false,
+        }),
+        StudioShotsService.listShotRuntimeSummaryApiV1StudioShotsRuntimeSummaryGet({ chapterId }).catch(
+          () => null,
+        ),
+        projectId
+          ? StudioChaptersService.listChaptersApiV1StudioChaptersGet({
+              projectId,
+              page: 1,
+              pageSize: 100,
+            }).catch(() => null)
+          : Promise.resolve(null),
+      ])
+
+      const runtimeMap = Object.fromEntries(
+        (runtimeRes?.data ?? []).map((row) => [row.shot_id, row]),
+      )
+      setShots((shotsRes.data?.items ?? []).map((shot) => toBoardShot(shot, runtimeMap[shot.id])))
+
+      const found = chaptersRes?.data?.items?.find((item) => item.id === chapterId)
+      setChapter(found ? { id: found.id, index: found.index, title: found.title } : null)
+    } catch {
+      setShots([])
+      setError('看板加载失败，请稍后重试')
+    } finally {
+      setLoading(false)
+    }
+  }, [chapterId, projectId])
+
+  useEffect(() => {
+    void load()
+  }, [load])
+
+  const grouped = useMemo(() => {
+    const buckets: Record<BoardColumnKey, BoardShot[]> = { pending: [], running: [], ready: [] }
+    for (const shot of shots) buckets[getColumnOf(shot)].push(shot)
+    return buckets
+  }, [shots])
+
+  return { shots, grouped, chapter, loading, error, reload: load }
+}

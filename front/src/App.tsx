@@ -37,6 +37,7 @@ const PromptTemplateManager = lazy(() => import('./pages/aiStudio/prompts/Prompt
 const VideoEditor = lazy(() => import('./pages/aiStudio/editor/VideoEditor'))
 const ModelManagement = lazy(() => import('./pages/aiStudio/models/ModelManagement'))
 const VoiceManager = lazy(() => import('./pages/aiStudio/voice/VoiceManager'))
+const ShotBoardPage = lazy(() => import('./features/shots/ShotBoardPage'))
 const ChapterShotsPage = lazy(() =>
   import('./pages/aiStudio/shots/ChapterShotsPage').then((m) => ({ default: m.ChapterShotsPage })),
 )
@@ -91,6 +92,7 @@ const App: React.FC = () => {
             <Route path="projects/:projectId/chapters/:chapterId/review" element={<ChapterReviewPage />} />
             <Route path="projects/:projectId/chapters/:chapterId/shots/:shotId/edit" element={<ChapterShotEditPage />} />
             <Route path="projects/:projectId/chapters/:chapterId/shots" element={<ChapterShotsPage />} />
+            <Route path="projects/:projectId/chapters/:chapterId/board" element={<ShotBoardPage />} />
             <Route path="projects/:projectId/chapters/:chapterId/prep-drafts" element={<Navigate to="../shots" replace />} />
             <Route path="projects/:projectId/editor" element={<VideoEditor />} />
             <Route path="assets" element={<AssetManager />} />

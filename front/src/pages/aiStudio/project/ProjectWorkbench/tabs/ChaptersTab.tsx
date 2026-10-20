@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, useRef } from 'react'
 import { Card, Button, Tag, Space, Table, Empty, Modal, Input, Dropdown, message, Tooltip } from 'antd'
 import type { MenuProps, TableColumnsType } from 'antd'
 import {
+  AppstoreOutlined,
   EditOutlined,
   FileSearchOutlined,
   LoadingOutlined,
@@ -22,7 +23,7 @@ import {
 } from '../../../../../services/generated'
 import { runSpeechTaskForLine } from '../../../shots/tts'
 import { chapterStatusMap } from '../constants'
-import { getChapterReviewPath, getChapterShotsPath, getChapterStudioPath } from '../routes'
+import { getChapterBoardPath, getChapterReviewPath, getChapterShotsPath, getChapterStudioPath } from '../routes'
 import { useChapters, newId, type Chapter } from '../hooks/useProjectData'
 import { ChapterRawTextEditorModal } from '../../../chapter/components/ChapterRawTextEditorModal'
 import { ChapterPrepareWizard } from '../../../chapter/components/ChapterPrepareWizard'
@@ -448,6 +449,14 @@ const { taskMap: chapterDivisionTaskMap, setTrackedTaskMap: setChapterDivisionTa
       },
       (record.storyboardCount ?? 0) > 0
         ? {
+            key: 'board',
+            label: '镜头看板（按状态分列）',
+            icon: <AppstoreOutlined />,
+            onClick: () => navigate(getChapterBoardPath(projectId, record.id)),
+          }
+        : null,
+      (record.storyboardCount ?? 0) > 0
+        ? {
             key: 'review',
             label: '检查流程（参考图 → 分镜 → 对话）',
             icon: <CheckSquareOutlined />,
@@ -611,6 +620,16 @@ const { taskMap: chapterDivisionTaskMap, setTrackedTaskMap: setChapterDivisionTa
                 onClick={() => setPrepareChapter(record)}
               />
             </Tooltip>
+            {(record.storyboardCount ?? 0) > 0 ? (
+              <Tooltip title="镜头看板：按「待确认 / 生成中 / 已就绪」查看">
+                <Button
+                  size="small"
+                  icon={<AppstoreOutlined />}
+                  aria-label="镜头看板"
+                  onClick={() => navigate(getChapterBoardPath(projectId!, record.id))}
+                />
+              </Tooltip>
+            ) : null}
             {(record.storyboardCount ?? 0) > 0 ? (
               <Tooltip title="检查流程：参考图 → 分镜 → 对话">
                 <Button
