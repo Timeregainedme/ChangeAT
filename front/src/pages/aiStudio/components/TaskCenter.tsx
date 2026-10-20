@@ -148,7 +148,14 @@ export function TaskCenter() {
       const parsed = JSON.parse(rawPosition) as { x?: number; y?: number }
       const x = Number.isFinite(parsed?.x) ? Number(parsed.x) : defaultPosition.x
       const y = Number.isFinite(parsed?.y) ? Number(parsed.y) : defaultPosition.y
-      setButtonPosition({ x, y })
+
+      // 布局换成侧边栏外壳后，旧布局下存下来的坐标可能落在品牌区（左上角），
+      // 浮窗会压住 logo 和第一个导航项。落在保留区就回到默认位置，用户可再拖。
+      const SHELL_SIDEBAR_WIDTH = 232
+      const SHELL_BRAND_HEIGHT = 120
+      const insideShellChrome = x < SHELL_SIDEBAR_WIDTH && y < SHELL_BRAND_HEIGHT
+
+      setButtonPosition(insideShellChrome ? defaultPosition : { x, y })
     } catch {
       setOpen(false)
       setButtonPosition(defaultPosition)
