@@ -46,6 +46,10 @@ export type ProjectRead = {
      */
     default_image_resolution_profile?: (string | null);
     /**
+     * 项目级默认视频分辨率档位（如 768p/2k）；为空时回落到提供方默认档位
+     */
+    default_video_resolution?: (string | null);
+    /**
      * 视频生成时是否自动带上镜头台词已生成的配音作为参考音频（true=使用，false=纯画面参考）
      */
     use_dialog_audio_as_reference?: boolean;

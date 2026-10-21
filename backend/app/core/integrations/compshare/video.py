@@ -191,7 +191,7 @@ def build_compshare_video_body(input_: VideoGenerationInput) -> dict[str, Any]:
     body: dict[str, Any] = {
         "model": input_.model,
         "content": content,
-        "resolution": DEFAULT_COMPSHARE_VIDEO_RESOLUTION,
+        "resolution": str(input_.resolution or DEFAULT_COMPSHARE_VIDEO_RESOLUTION).upper(),
         "duration": round(float(input_.seconds or DEFAULT_COMPSHARE_VIDEO_DURATION_S)),
     }
     if input_.ratio:

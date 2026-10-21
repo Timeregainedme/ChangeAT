@@ -26,6 +26,7 @@ type Project struct {
 	DefaultVideoRatio             *string
 	DefaultImageRatio             *string
 	DefaultImageResolutionProfile *string
+	DefaultVideoResolution        *string
 	UseDialogAudioAsReference     bool
 	Stats                         json.RawMessage
 	WorkspaceID                   string
@@ -82,7 +83,7 @@ func NewProjectStore(db *sql.DB) *ProjectStore {
 const projectColumns = `
 	id, name, description, style, visual_style, seed, unify_style, progress,
 	default_video_ratio, default_image_ratio, default_image_resolution_profile,
-	use_dialog_audio_as_reference, stats, workspace_id, created_by, updated_at`
+	default_video_resolution, use_dialog_audio_as_reference, stats, workspace_id, created_by, updated_at`
 
 // scanProject 从一行扫描出 Project。
 func scanProject(scanner interface{ Scan(...any) error }) (*Project, error) {
@@ -92,7 +93,8 @@ func scanProject(scanner interface{ Scan(...any) error }) (*Project, error) {
 		&p.ID, &p.Name, &p.Description, &p.Style, &p.VisualStyle,
 		&p.Seed, &p.UnifyStyle, &p.Progress,
 		&p.DefaultVideoRatio, &p.DefaultImageRatio, &p.DefaultImageResolutionProfile,
-		&p.UseDialogAudioAsReference, &stats, &p.WorkspaceID, &p.CreatedBy, &p.UpdatedAt,
+		&p.DefaultVideoResolution, &p.UseDialogAudioAsReference, &stats, &p.WorkspaceID,
+		&p.CreatedBy, &p.UpdatedAt,
 	)
 	if err != nil {
 		return nil, err

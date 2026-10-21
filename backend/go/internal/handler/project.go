@@ -40,6 +40,7 @@ type projectRead struct {
 	DefaultVideoRatio             *string         `json:"default_video_ratio"`
 	DefaultImageRatio             *string         `json:"default_image_ratio"`
 	DefaultImageResolutionProfile *string         `json:"default_image_resolution_profile"`
+	DefaultVideoResolution        *string         `json:"default_video_resolution"`
 	UseDialogAudioAsReference     bool            `json:"use_dialog_audio_as_reference"`
 	Stats                         json.RawMessage `json:"stats"`
 	WorkspaceID                   string          `json:"workspace_id"`
@@ -206,6 +207,7 @@ func toProjectRead(p *store.Project, computed *store.ProjectStats) projectRead {
 		DefaultVideoRatio:             p.DefaultVideoRatio,
 		DefaultImageRatio:             p.DefaultImageRatio,
 		DefaultImageResolutionProfile: p.DefaultImageResolutionProfile,
+		DefaultVideoResolution:        p.DefaultVideoResolution,
 		UseDialogAudioAsReference:     p.UseDialogAudioAsReference,
 		Stats:                         stats,
 		WorkspaceID:                   p.WorkspaceID,

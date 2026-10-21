@@ -82,6 +82,13 @@ class VideoGenerationOptionsRead(BaseModel):
     model_name: str = Field(..., description="默认视频模型名称")
     allowed_ratios: list[str] = Field(default_factory=list, description="当前模型允许的比例选项")
     default_ratio: str = Field(..., description="当前模型默认比例")
+    allowed_resolutions: list[str] = Field(
+        default_factory=list,
+        description="当前模型允许的分辨率档位（如 768p/2k）；为空表示该供应商不暴露分辨率参数",
+    )
+    default_resolution: str | None = Field(
+        None, description="当前模型默认分辨率档位；为空表示由供应商自身决定"
+    )
 
 
 class ImageGenerationOptionsRead(BaseModel):

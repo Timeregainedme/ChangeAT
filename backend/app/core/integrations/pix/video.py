@@ -129,7 +129,7 @@ def build_pix_video_body(input_: VideoGenerationInput, *, image_urls: list[str])
     params: dict[str, Any] = {
         "mode": mode,
         "duration": str(int(input_.seconds or DEFAULT_PIX_VIDEO_DURATION_S)),
-        "resolution": str(PIX_VIDEO_DEFAULT_RESOLUTION).lower(),
+        "resolution": str(input_.resolution or PIX_VIDEO_DEFAULT_RESOLUTION).lower(),
         "aspect_ratio": input_.ratio or DEFAULT_PIX_VIDEO_RATIO,
     }
     if image_urls:

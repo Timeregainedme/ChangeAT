@@ -61,6 +61,12 @@ class Project(Base, TimestampMixin):
         default=None,
         comment="项目级默认图片分辨率档位（standard/high；为空时回落到提供方默认档位）",
     )
+    default_video_resolution: Mapped[str | None] = mapped_column(
+        String(16),
+        nullable=True,
+        default=None,
+        comment="项目级默认视频分辨率档位（如 768p/2k；为空时回落到提供方默认档位）",
+    )
     stats: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict, comment="聚合统计（JSON）")
 
     # --- 多租户归属（Phase 1）---

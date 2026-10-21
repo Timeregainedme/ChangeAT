@@ -35,6 +35,7 @@ Python 代码与 `.env` 在 `/srv/dyeingtime/backend`。
 | `sql/022-add-workspaces.sql` | workspaces / workspace_members / projects.workspace_id | ✅ |
 | `sql/023-add-workspace-to-tasks.sql` | generation_tasks.workspace_id | ✅ |
 | `sql/024-add-audit-logs.sql` | audit_logs | ✅ |
+| `sql/025-add-project-video-resolution.sql` | projects.default_video_resolution | ✅ |
 
 三份脚本均幂等，可重复执行。**字符集必须是 `utf8mb4_unicode_ci`**：
 存量表用的是这个，MySQL 8/9 建库默认是 `0900_ai_ci`，混用会让外键报 3780。

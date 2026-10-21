@@ -44,6 +44,13 @@ class VideoGenerationTaskRequest(BaseModel):
             "再继承项目的 default_video_ratio"
         ),
     )
+    resolution: str | None = Field(
+        None,
+        description=(
+            "分辨率档位（如 768p / 2k）；不传则继承项目的 default_video_resolution，"
+            "再回落到供应商默认档位"
+        ),
+    )
     # A5：平台自带的提示词优化，默认关闭（由 DyeingTime 自己控制提示词内容）。
     use_context_ir: bool = Field(
         False, description="是否使用供应商平台自带的提示词优化，默认关闭"

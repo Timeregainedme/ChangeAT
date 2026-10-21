@@ -26,5 +26,13 @@ export type VideoGenerationOptionsRead = {
      * 当前模型默认比例
      */
     default_ratio: string;
+    /**
+     * 当前模型允许的分辨率档位（如 768p/2k）；为空表示该供应商不暴露分辨率参数
+     */
+    allowed_resolutions?: Array<string>;
+    /**
+     * 当前模型默认分辨率档位；为空表示由供应商自身决定
+     */
+    default_resolution?: (string | null);
 };
 

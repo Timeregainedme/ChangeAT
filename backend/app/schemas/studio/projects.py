@@ -25,6 +25,9 @@ class ProjectBase(BaseModel):
     default_image_resolution_profile: str | None = Field(
         None, description="项目级默认图片分辨率档位（standard/high）；为空时回落到提供方默认档位"
     )
+    default_video_resolution: str | None = Field(
+        None, description="项目级默认视频分辨率档位（如 768p/2k）；为空时回落到提供方默认档位"
+    )
     use_dialog_audio_as_reference: bool = Field(
         True,
         description=(
@@ -50,6 +53,7 @@ class ProjectUpdate(BaseModel):
     default_video_ratio: str | None = None
     default_image_ratio: str | None = None
     default_image_resolution_profile: str | None = None
+    default_video_resolution: str | None = None
     use_dialog_audio_as_reference: bool | None = None
     stats: dict[str, Any] | None = None
 

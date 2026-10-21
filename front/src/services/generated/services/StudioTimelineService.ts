@@ -50,4 +50,29 @@ export class StudioTimelineService {
             },
         });
     }
+    /**
+     * 打包导出全部片段视频（zip）
+     * 把每个片段的视频原样打包下载。
+     *
+     * 与「导出成片」互补：成片要求所有片段都有视频并串成一个 mp4；
+     * 这里允许部分片段缺失，缺的会写进 zip 里的 MANIFEST 说明文件。
+     * @returns any Successful Response
+     * @throws ApiError
+     */
+    public static exportProjectClipsArchiveApiApiV1StudioTimelineProjectsProjectIdClipsArchiveGet({
+        projectId,
+    }: {
+        projectId: string,
+    }): CancelablePromise<any> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/v1/studio/timeline/projects/{project_id}/clips-archive',
+            path: {
+                'project_id': projectId,
+            },
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
 }

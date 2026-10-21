@@ -90,6 +90,7 @@ async def create_video_generation_task(
         prompt=body.prompt,
         images=body.images,
         ratio=body.ratio,
+        resolution=body.resolution,
         use_context_ir=body.use_context_ir,
         reference_audio_file_ids=body.reference_audio_file_ids,
         skill_id=body.skill_id,

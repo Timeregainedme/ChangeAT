@@ -28,6 +28,8 @@ _PIX_DEFAULT = VideoModelCapability(
     supports_watermark=False,
     allowed_ratios=set(ALLOWED_RATIOS),
     default_ratio="16:9",
+    allowed_resolutions=set(PIX_VIDEO_ALLOWED_RESOLUTIONS),
+    default_resolution=PIX_VIDEO_DEFAULT_RESOLUTION,
     min_seconds=4,
     max_seconds=15,
 )

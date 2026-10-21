@@ -31,6 +31,10 @@ export type VideoGenerationTaskRequest = {
      */
     ratio?: ('16:9' | '4:3' | '1:1' | '3:4' | '9:16' | '21:9' | null);
     /**
+     * 分辨率档位（如 768p / 2k）；不传则继承项目的 default_video_resolution，再回落到供应商默认档位
+     */
+    resolution?: (string | null);
+    /**
      * 是否使用供应商平台自带的提示词优化，默认关闭
      */
     use_context_ir?: boolean;

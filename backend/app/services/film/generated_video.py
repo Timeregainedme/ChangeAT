@@ -127,6 +127,11 @@ async def preview_prompt_and_images(
 ) -> tuple[str, list[str], dict | None]:
     # 仅做校验（不满足时抛错），本函数用不到返回值。
     await validate_shot_and_duration(db, shot_id)
+    resolved_resolution = await resolve_effective_video_resolution(
+        db,
+        shot_id=shot_id,
+        requested_resolution=resolution,
+    )
     base = build_video_base_draft(shot_id=shot_id, prompt=prompt)
     context = await build_video_context(
         db,
@@ -238,6 +243,38 @@ async def resolve_effective_video_options(
     )
 
 
+
+async def resolve_effective_video_resolution(
+    db: AsyncSession,
+    *,
+    shot_id: str,
+    requested_resolution: str | None,
+) -> str | None:
+    """解析视频分辨率档位：请求参数 → 项目默认 → 供应商默认。
+
+    与 ratio 的继承链保持一致：项目设置里的「视频分辨率」必须真正生效，
+    否则设置项就只是装饰。取值合法性由 `validate_video_options` 在构造输入时兜底，
+    这里只负责选出「用哪一个」。
+    """
+    req = _normalize_optional_text(requested_resolution)
+    if req:
+        return req.lower()
+
+    shot = await db.get(Shot, shot_id)
+    if shot is not None and shot.chapter_id:
+        chapter = await db.get(Chapter, shot.chapter_id)
+        if chapter is not None and chapter.project_id:
+            project = await db.get(Project, chapter.project_id)
+            if project is not None:
+                project_resolution = _normalize_optional_text(
+                    getattr(project, "default_video_resolution", None)
+                )
+                if project_resolution:
+                    return project_resolution.lower()
+
+    # 交给适配层用供应商默认值（不强行写入，避免覆盖各供应商自己的默认）
+    return None
+
 async def resolve_shot_dialog_audio_file_ids(
     db: AsyncSession,
     *,
@@ -289,6 +326,7 @@ async def build_run_args(
     prompt: str | None,
     images: list[str],
     ratio: str | None,
+    resolution: str | None = None,
     use_context_ir: bool = False,
     skill_id: str | None = None,
     reference_audio_file_ids: list[str] | None = None,
@@ -301,6 +339,11 @@ async def build_run_args(
         shot_id=shot_id,
         shot_detail=shot_detail,
         requested_ratio=ratio,
+    )
+    resolved_resolution = await resolve_effective_video_resolution(
+        db,
+        shot_id=shot_id,
+        requested_resolution=resolution,
     )
     base = build_video_base_draft(shot_id=shot_id, prompt=prompt)
 
@@ -355,6 +398,8 @@ async def build_run_args(
             "ratio": resolved_ratio,
             "seconds": shot_detail.duration,
         }
+        if resolved_resolution:
+            input_payload["resolution"] = resolved_resolution
         if audio_ids:
             # 只存 file_id，URL 在派发期由 materialize_input_references 解析
             input_payload["reference_audio_file_ids"] = audio_ids
@@ -374,6 +419,8 @@ async def build_run_args(
             "ratio": resolved_ratio,
             "seconds": shot_detail.duration,
         }
+        if resolved_resolution:
+            input_payload["resolution"] = resolved_resolution
 
     # A5：平台自带的提示词优化，默认关闭（提示词内容由 DyeingTime 自己控制）。
     if use_context_ir:

@@ -301,6 +301,8 @@ async def get_video_generation_options(
             model_name="",
             allowed_ratios=["16:9"],
             default_ratio="16:9",
+            allowed_resolutions=[],
+            default_resolution=None,
         )
 
     model = await get_or_404(db, Model, model_id, detail=entity_not_found("Model"))
@@ -312,12 +314,19 @@ async def get_video_generation_options(
     if default_ratio not in allowed_ratios:
         allowed_ratios = sorted({*allowed_ratios, default_ratio})
 
+    allowed_resolutions = sorted(capability.allowed_resolutions or [])
+    default_resolution = capability.default_resolution
+    if default_resolution and default_resolution not in allowed_resolutions:
+        allowed_resolutions = sorted({*allowed_resolutions, default_resolution})
+
     return VideoGenerationOptionsRead(
         provider=provider_key,
         model_id=model.id,
         model_name=model.name,
         allowed_ratios=allowed_ratios,
         default_ratio=default_ratio,
+        allowed_resolutions=allowed_resolutions,
+        default_resolution=default_resolution,
     )
 
 

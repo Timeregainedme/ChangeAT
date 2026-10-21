@@ -165,6 +165,23 @@ body { @apply bg-background text-foreground antialiased; }
 - 带透明度的工具类（`bg-white/80` 等）由 `index.css` 用属性选择器兜底，
   否则会留下一块白斑。
 
+## 9.3 项目设置
+
+项目设置页（`ProjectWorkbench/tabs/SettingsTab.tsx`）承载项目级生成参数：
+
+| 项 | 字段 | 可选项来源 |
+|---|---|---|
+| 图片清晰度 | `default_image_resolution_profile` | `image-generation-options` 的 `ratio_size_profiles`（standard=1K / high=2K） |
+| 视频分辨率 | `default_video_resolution` | `video-generation-options` 的 `allowed_resolutions` |
+| 台词配音作参考音频 | `use_dialog_audio_as_reference` | 布尔开关 |
+
+约定：
+
+- 可选项一律来自后端能力接口，不在前端写死，否则换模型后会出现「界面上有、供应商不支持」；
+- 每项改动立即 PATCH，失败回滚本地状态；
+- 视频分辨率的生效链是「请求参数 → 项目默认 → 供应商默认」，由后端
+  `resolve_effective_video_resolution` 解析后写入任务输入，前端不参与推断。
+
 ## 10. 已迁移页面
 
 | 路由 | 新实现 | 旧实现 |

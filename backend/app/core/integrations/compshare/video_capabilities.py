@@ -29,6 +29,9 @@ _COMPSHARE_DEFAULT = VideoModelCapability(
     supports_watermark=True,
     allowed_ratios=set(COMPSHARE_VIDEO_RATIOS),
     default_ratio="16:9",
+    # 供应商用大写档位，这里统一转成小写暴露给业务层
+    allowed_resolutions={r.lower() for r in COMPSHARE_VIDEO_RESOLUTIONS},
+    default_resolution=DEFAULT_COMPSHARE_VIDEO_RESOLUTION.lower(),
     min_seconds=4,
     max_seconds=30,
 )

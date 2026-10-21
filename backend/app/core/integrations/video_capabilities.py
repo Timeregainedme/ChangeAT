@@ -40,6 +40,10 @@ class VideoModelCapability:
     supports_watermark: bool = True
     allowed_ratios: set[str] | None = None
     default_ratio: str | None = None
+    # 分辨率档位（如 768p / 2k）；为空表示该供应商不接受分辨率参数，
+    # 由适配层使用自身默认值。项目设置里的「视频分辨率」据此给出可选项。
+    allowed_resolutions: set[str] | None = None
+    default_resolution: str | None = None
     ratio_to_size_mapping: dict[str, str] | None = None
     min_seconds: int | None = 1
     max_seconds: int | None = None
@@ -224,6 +228,15 @@ def validate_video_options(
         raise ValueError(
             f"Unsupported ratio for provider={provider} model={model or '<default>'}: {input_.ratio}. "
             f"Allowed: {sorted(cap.allowed_ratios)}"
+        )
+    if (
+        input_.resolution
+        and cap.allowed_resolutions is not None
+        and input_.resolution.lower() not in cap.allowed_resolutions
+    ):
+        raise ValueError(
+            f"Unsupported resolution for provider={provider} model={model or '<default>'}: "
+            f"{input_.resolution}. Allowed: {sorted(cap.allowed_resolutions)}"
         )
     if input_.seconds is not None:
         if cap.min_seconds is not None and input_.seconds < cap.min_seconds:
