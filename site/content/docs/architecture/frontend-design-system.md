@@ -257,6 +257,23 @@ body { @apply bg-background text-foreground antialiased; }
 - 生产构建下整条路由与动态 import 会被静态裁掉（`import.meta.env.DEV` 三元），不产出 chunk。
 - 用途是「组件对照表」，不是给最终用户的功能页。
 
+## 11.1 不启动后端也能跑
+
+前端内置 MSW 演示数据，设计系统与已迁移页面可以完全脱离后端启动：
+
+```bash
+cd front
+pnpm dev:mock      # 演示数据模式，直接进 /projects
+pnpm dev:design    # 演示数据模式并打开 /design（设计系统对照表）
+```
+
+要点：
+
+- mock 模式下 API 走同源（`src/services/openapi.ts` 强制 base 为空），由 Service Worker 拦截；
+- 启动时预置演示会话（`src/mocks/demoSession.ts`），不需要登录；已有真实 token 时不覆盖；
+- 演示数据覆盖：项目/章节/镜头/关联/候选/看板批量操作、文件列表、项目设置的两个参数选项；
+- 生产构建会把 mocks 与演示会话整段 tree-shake 掉（`import.meta.env.DEV` 收口）。
+
 ## 12. 验证方式
 
 ```bash

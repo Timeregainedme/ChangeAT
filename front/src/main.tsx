@@ -109,6 +109,9 @@ async function enableMocking() {
   try {
     const { worker } = await import('./mocks/browser')
     await worker.start({ onUnhandledRequest: 'bypass' })
+    // 纯前端演示：预置演示会话，不用登录、不用后端
+    const { ensureDemoSession } = await import('./mocks/demoSession')
+    await ensureDemoSession()
   } catch (error) {
     console.error('MSW start failed:', error)
   }

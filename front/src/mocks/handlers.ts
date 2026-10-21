@@ -81,6 +81,14 @@ function toProjectRead(p: Project) {
     unify_style: p.unifyStyle,
     progress: p.progress,
     stats: p.stats,
+    // 后端契约里这些是可选字段；mock 也如实返回，设置页才不会显示成「未设置又改不动」
+    default_video_ratio: (p as { defaultVideoRatio?: string | null }).defaultVideoRatio ?? null,
+    default_image_resolution_profile:
+      (p as { defaultImageResolutionProfile?: string | null }).defaultImageResolutionProfile ?? null,
+    default_video_resolution:
+      (p as { defaultVideoResolution?: string | null }).defaultVideoResolution ?? null,
+    use_dialog_audio_as_reference:
+      (p as { useDialogAudioAsReference?: boolean }).useDialogAudioAsReference ?? true,
   }
 }
 
@@ -149,6 +157,52 @@ function ensureCandidates() {
 ensureCandidates()
 
 export const handlers = [
+  // ====== 鉴权 ======
+  // 纯前端演示模式：RequireAuth 会校验一次 /auth/me，这里直接返回演示账号，
+  // 否则没有后端时会被踢回登录页。
+  http.get('/api/v1/auth/me', () =>
+    ok({
+      id: 1,
+      username: 'demo',
+      display_name: '演示账号',
+      is_active: true,
+      email: null,
+      avatar_url: null,
+      auth_provider: 'local',
+      created_at: '2026-01-01T00:00:00Z',
+    }),
+  ),
+
+  // ====== LLM 生成参数选项 ======
+  // 项目设置页的「图片清晰度 / 视频分辨率」依赖这两个接口；
+  // 没有它们时下拉是空的，演示模式下会让人以为功能坏了。
+  http.get('/api/v1/llm/image-generation-options', () =>
+    ok({
+      provider: 'mock',
+      model_id: 'mock-image',
+      model_name: 'Mock Image',
+      supported_ratios: ['16:9', '9:16', '1:1'],
+      default_resolution_profile: 'standard',
+      ratio_size_profiles: {
+        '16:9': { standard: '1K', high: '2K' },
+        '9:16': { standard: '1K', high: '2K' },
+        '1:1': { standard: '1K', high: '2K' },
+      },
+    }),
+  ),
+
+  http.get('/api/v1/llm/video-generation-options', () =>
+    ok({
+      provider: 'mock',
+      model_id: 'mock-video',
+      model_name: 'Mock Video',
+      allowed_ratios: ['16:9', '9:16', '1:1'],
+      default_ratio: '16:9',
+      allowed_resolutions: ['480p', '768p', '1080p', '2k', '4k'],
+      default_resolution: '768p',
+    }),
+  ),
+
   // ====== StudioProjectsService /api/v1/studio/projects ======
   http.get('/api/v1/studio/projects', ({ request }) => {
     const url = new URL(request.url)
@@ -199,6 +253,29 @@ export const handlers = [
     return ok(toProjectRead(newProject), 200, 'Created')
   }),
 
+  // 项目风格候选项：新建项目弹窗依赖它，缺了会让「画面风格/剧集风格」下拉为空
+  http.get('/api/v1/studio/projects/style-options', () =>
+    ok({
+      visual_styles: [
+        { value: '现实', label: '现实' },
+        { value: '动漫', label: '动漫' },
+      ],
+      styles_by_visual_style: {
+        现实: [
+          { value: '真人都市', label: '真人都市' },
+          { value: '真人古装', label: '真人古装' },
+          { value: '真人科幻', label: '真人科幻' },
+        ],
+        动漫: [
+          { value: '国漫', label: '国漫' },
+          { value: '动漫3D', label: '动漫3D' },
+          { value: '水墨画', label: '水墨画' },
+        ],
+      },
+      default_style_by_visual_style: { 现实: '真人都市', 动漫: '动漫3D' },
+    }),
+  ),
+
   http.get('/api/v1/studio/projects/:project_id', ({ params }) => {
     const { project_id } = params as { project_id: string }
     const project = projectsList.find((p) => p.id === project_id)
@@ -219,12 +296,24 @@ export const handlers = [
       unify_style: boolean
       progress: number
       stats: Project['stats']
+      use_dialog_audio_as_reference: boolean
+      default_image_resolution_profile: string | null
+      default_video_resolution: string | null
     }>
 
     const now = new Date().toISOString().slice(0, 16).replace('T', ' ')
     const current = projectsList[idx]
     const updated: Project = {
       ...current,
+      ...(body.use_dialog_audio_as_reference !== undefined
+        ? { useDialogAudioAsReference: body.use_dialog_audio_as_reference }
+        : {}),
+      ...(body.default_image_resolution_profile !== undefined
+        ? { defaultImageResolutionProfile: body.default_image_resolution_profile }
+        : {}),
+      ...(body.default_video_resolution !== undefined
+        ? { defaultVideoResolution: body.default_video_resolution }
+        : {}),
       name: body.name ?? current.name,
       description: body.description ?? current.description,
       style: (body.style as Project['style']) ?? current.style,

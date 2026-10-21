@@ -17,7 +17,9 @@
     "openapi:fetch": "cd ../backend && uv run python scripts/check_openapi_contract.py --update",
     "openapi:check": "cd ../backend && uv run python scripts/check_openapi_contract.py",
     "openapi:gen": "pnpm exec -- openapi --input ./openapi.json --output ./src/services/generated --client fetch --useOptions --useUnionTypes",
-    "openapi:update": "pnpm run openapi:fetch && pnpm run openapi:gen"
+    "openapi:update": "pnpm run openapi:fetch && pnpm run openapi:gen",
+    "dev:mock": "VITE_USE_MOCK=true vite",
+    "dev:design": "VITE_USE_MOCK=true vite --open /design"
   },
   "dependencies": {
     "@ant-design/icons": "^5.2.6",
