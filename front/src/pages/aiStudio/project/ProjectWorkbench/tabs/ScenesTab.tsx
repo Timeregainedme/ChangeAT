@@ -10,6 +10,7 @@ import { StudioEntitiesApi } from '../../../../../services/studioEntities'
 import { StudioAssetTypeFormModal } from '../../../assets/components/StudioAssetTypeFormModal'
 import { BatchAssetImageButton } from '../../../components/BatchAssetImageButton'
 import { encodeWorkbenchAssetEditReturnTo } from '../utils/workbenchAssetReturnTo'
+import { groupLinksByAsset, paginateGroups } from '../utils/groupAssetLinks'
 
 type SceneLike = {
   id: string
@@ -36,14 +37,21 @@ export function ScenesTab() {
 
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(12)
-  const pagedLinks = useMemo(() => {
-    const start = (page - 1) * pageSize
-    return links.slice(start, start + pageSize)
-  }, [links, page, pageSize])
+
+  // 同一场景会被多个章节/镜头引用，关联表里是一行一条。
+  // 列表按「资产」而不是「关联行」展示，避免同名同图重复出现。
+  const sceneGroups = useMemo(
+    () => groupLinksByAsset(links, (link) => link.scene_id),
+    [links],
+  )
+  const pagedGroups = useMemo(
+    () => paginateGroups(sceneGroups, page, pageSize),
+    [sceneGroups, page, pageSize],
+  )
 
   useEffect(() => {
     setPage(1)
-  }, [links.length])
+  }, [sceneGroups.length])
 
   const loadLinks = async () => {
     if (!projectId) return
@@ -143,10 +151,22 @@ export function ScenesTab() {
     }
   }
 
-  const handleUnlinkScene = async (link: ProjectSceneLinkRead) => {
-    setUnlinkingId(link.id)
+  /**
+   * 取消关联。
+   *
+   * 列表已经按资产合并展示，所以这里要删掉该资产在本项目下的**全部**关联行，
+   * 否则用户点一次「取消关联」，卡片还留在原地（只是少了一条隐藏的关联行）。
+   */
+  const handleUnlinkScene = async (groupLinks: ProjectSceneLinkRead[]) => {
+    setUnlinkingId(groupLinks[0]?.id ?? null)
     try {
-      await StudioShotLinksService.deleteProjectSceneLinkApiV1StudioShotLinksSceneLinkIdDelete({ linkId: link.id })
+      await Promise.all(
+        groupLinks.map((link) =>
+          StudioShotLinksService.deleteProjectSceneLinkApiV1StudioShotLinksSceneLinkIdDelete({
+            linkId: link.id,
+          }),
+        ),
+      )
       message.success('已取消关联')
       await loadLinks()
     } catch {
@@ -181,7 +201,7 @@ export function ScenesTab() {
             <BatchAssetImageButton
               projectId={projectId}
               assetType="scene"
-              assetCount={links.length}
+              assetCount={sceneGroups.length}
               onFinished={() => void loadLinks()}
             />
             <Button icon={<PlusOutlined />} onClick={() => navigate('/assets?tab=scene')}>
@@ -195,11 +215,12 @@ export function ScenesTab() {
         ) : (
           <div className="space-y-3">
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-            {pagedLinks.map((l) => {
-              const s = scenesById[l.scene_id]
+            {pagedGroups.map((group) => {
+              const l = group.primary
+              const s = scenesById[group.assetId]
               return (
                 <DisplayImageCard
-                  key={l.id}
+                  key={group.key}
                   title={<div className="truncate">{s?.name ?? l.scene_id}</div>}
                   imageUrl={toThumbUrl(l.thumbnail ?? s?.thumbnail)}
                   imageAlt={s?.name ?? l.scene_id}
@@ -227,7 +248,7 @@ export function ScenesTab() {
                             okText: '取消关联',
                             cancelText: '取消',
                             okButtonProps: { danger: true },
-                            onOk: () => handleUnlinkScene(l),
+                            onOk: () => handleUnlinkScene(group.links),
                           })
                         }}
                       >
@@ -238,7 +259,14 @@ export function ScenesTab() {
                   meta={
                     <div className="space-y-1">
                       <div className="text-xs text-gray-600 line-clamp-2">{s?.description ?? '—'}</div>
-                      <div className="text-xs text-gray-500 truncate">scene_id：{l.scene_id}</div>
+                      <div className="flex items-center gap-2 text-xs text-gray-500">
+                        <span className="truncate">scene_id：{group.assetId}</span>
+                        {group.links.length > 1 ? (
+                          <span className="shrink-0 rounded bg-gray-100 px-1.5 py-0.5 text-[11px]">
+                            关联 {group.links.length} 处
+                          </span>
+                        ) : null}
+                      </div>
                     </div>
                   }
                 />
@@ -249,7 +277,7 @@ export function ScenesTab() {
               <Pagination
                 current={page}
                 pageSize={pageSize}
-                total={links.length}
+                total={sceneGroups.length}
                 showSizeChanger={false}
                 showTotal={(t) => `共 ${t} 条`}
                 onChange={(p, ps) => {

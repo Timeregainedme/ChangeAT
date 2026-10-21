@@ -11,6 +11,7 @@ import { DisplayImageCard } from '../../../assets/components/DisplayImageCard'
 import { ActorEntityFormModal } from '../../../assets/components/ActorEntityFormModal'
 import { BatchAssetImageButton } from '../../../components/BatchAssetImageButton'
 import { encodeWorkbenchAssetEditReturnTo } from '../utils/workbenchAssetReturnTo'
+import { groupLinksByAsset, paginateGroups } from '../utils/groupAssetLinks'
 
 type ActorLike = {
   id: string
@@ -41,14 +42,20 @@ export function ActorsTab() {
 
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(12)
-  const pagedLinks = useMemo(() => {
-    const start = (page - 1) * pageSize
-    return links.slice(start, start + pageSize)
-  }, [links, page, pageSize])
+
+  // 同一演员会被多个章节/镜头引用，关联表一行一条；按资产合并展示
+  const actorGroups = useMemo(
+    () => groupLinksByAsset(links, (link) => link.actor_id),
+    [links],
+  )
+  const pagedGroups = useMemo(
+    () => paginateGroups(actorGroups, page, pageSize),
+    [actorGroups, page, pageSize],
+  )
 
   useEffect(() => {
     setPage(1)
-  }, [links.length])
+  }, [actorGroups.length])
 
   const loadLinks = async () => {
     if (!projectId) return
@@ -130,10 +137,17 @@ export function ActorsTab() {
     }
   }
 
-  const handleUnlinkActor = async (link: ProjectActorLinkRead) => {
-    setUnlinkingId(link.id)
+  /** 取消关联：删掉该演员在本项目下的全部关联行（列表已按资产合并展示）。 */
+  const handleUnlinkActor = async (groupLinks: ProjectActorLinkRead[]) => {
+    setUnlinkingId(groupLinks[0]?.id ?? null)
     try {
-      await StudioShotLinksService.deleteProjectActorLinkApiV1StudioShotLinksActorLinkIdDelete({ linkId: link.id })
+      await Promise.all(
+        groupLinks.map((link) =>
+          StudioShotLinksService.deleteProjectActorLinkApiV1StudioShotLinksActorLinkIdDelete({
+            linkId: link.id,
+          }),
+        ),
+      )
       message.success('已取消关联')
       await loadLinks()
     } catch {
@@ -208,7 +222,7 @@ export function ActorsTab() {
             <BatchAssetImageButton
               projectId={projectId}
               assetType="actor"
-              assetCount={links.length}
+              assetCount={actorGroups.length}
               onFinished={() => void loadLinks()}
             />
             <Button icon={<PlusOutlined />} onClick={() => navigate('/assets')}>
@@ -239,11 +253,12 @@ export function ActorsTab() {
         ) : (
           <div className="space-y-3">
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-            {pagedLinks.map((l) => {
-              const a = linkedByActorId.get(l.actor_id)
+            {pagedGroups.map((group) => {
+              const l = group.primary
+              const a = linkedByActorId.get(group.assetId)
               return (
                 <DisplayImageCard
-                  key={l.id}
+                  key={group.key}
                   title={<div className="truncate">{a?.name ?? l.actor_id}</div>}
                   imageUrl={resolveAssetUrl(a?.thumbnail)}
                   imageAlt={a?.name ?? l.actor_id}
@@ -271,7 +286,7 @@ export function ActorsTab() {
                             okText: '取消关联',
                             cancelText: '取消',
                             okButtonProps: { danger: true },
-                            onOk: () => handleUnlinkActor(l),
+                            onOk: () => handleUnlinkActor(group.links),
                           })
                         }}
                       >
@@ -282,7 +297,14 @@ export function ActorsTab() {
                   meta={
                     <div className="space-y-1">
                       <div className="text-xs text-gray-600 line-clamp-2">{a?.description ?? '—'}</div>
-                      <div className="text-xs text-gray-500 truncate">actor_id：{l.actor_id}</div>
+                      <div className="flex items-center gap-2 text-xs text-gray-500">
+                        <span className="truncate">actor_id：{group.assetId}</span>
+                        {group.links.length > 1 ? (
+                          <span className="shrink-0 rounded bg-gray-100 px-1.5 py-0.5 text-[11px]">
+                            关联 {group.links.length} 处
+                          </span>
+                        ) : null}
+                      </div>
                     </div>
                   }
                 />
@@ -293,7 +315,7 @@ export function ActorsTab() {
               <Pagination
                 current={page}
                 pageSize={pageSize}
-                total={links.length}
+                total={actorGroups.length}
                 showSizeChanger={false}
                 showTotal={(t) => `共 ${t} 条`}
                 onChange={(p, ps) => {

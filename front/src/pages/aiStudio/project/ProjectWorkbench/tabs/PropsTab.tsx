@@ -8,6 +8,7 @@ import { resolveAssetUrl } from '../../../assets/utils'
 import { DisplayImageCard } from '../../../assets/components/DisplayImageCard'
 import { StudioEntitiesApi } from '../../../../../services/studioEntities'
 import { StudioAssetTypeFormModal } from '../../../assets/components/StudioAssetTypeFormModal'
+import { groupLinksByAsset, paginateGroups } from '../utils/groupAssetLinks'
 import { BatchAssetImageButton } from '../../../components/BatchAssetImageButton'
 import { encodeWorkbenchAssetEditReturnTo, type WorkbenchAssetTabParam } from '../utils/workbenchAssetReturnTo'
 
@@ -43,14 +44,21 @@ function LinkedAssetTab({
 
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(12)
-  const pagedLinks = useMemo(() => {
-    const start = (page - 1) * pageSize
-    return links.slice(start, start + pageSize)
-  }, [links, page, pageSize])
+
+  // 同一道具/服装会被多个章节/镜头引用，关联表一行一条；按资产合并展示
+  const assetGroups = useMemo(
+    () =>
+      groupLinksByAsset(links, (link) => ('prop_id' in link ? link.prop_id : link.costume_id)),
+    [links],
+  )
+  const pagedGroups = useMemo(
+    () => paginateGroups(assetGroups, page, pageSize),
+    [assetGroups, page, pageSize],
+  )
 
   useEffect(() => {
     setPage(1)
-  }, [links.length])
+  }, [assetGroups.length])
 
   const loadLinks = async () => {
     setLoading(true)
@@ -67,7 +75,7 @@ function LinkedAssetTab({
         pageSize: 100,
       })
 
-      const items = (res.data?.items ?? []) as any[]
+      const items = (res.data?.items ?? []) as Array<Record<string, unknown>>
       const typedItems = items as (ProjectPropLinkRead | ProjectCostumeLinkRead)[]
       setLinks(typedItems)
 
@@ -163,14 +171,17 @@ function LinkedAssetTab({
     }
   }
 
-  const handleUnlink = async (link: ProjectPropLinkRead | ProjectCostumeLinkRead) => {
-    setUnlinkingId(link.id)
+  /** 取消关联：删掉该资产在本项目下的全部关联行（列表已按资产合并展示）。 */
+  const handleUnlink = async (groupLinks: (ProjectPropLinkRead | ProjectCostumeLinkRead)[]) => {
+    setUnlinkingId(groupLinks[0]?.id ?? null)
     try {
-      if ('prop_id' in link) {
-        await StudioShotLinksService.deleteProjectPropLinkApiV1StudioShotLinksPropLinkIdDelete({ linkId: link.id })
-      } else {
-        await StudioShotLinksService.deleteProjectCostumeLinkApiV1StudioShotLinksCostumeLinkIdDelete({ linkId: link.id })
-      }
+      await Promise.all(
+        groupLinks.map((link) =>
+          'prop_id' in link
+            ? StudioShotLinksService.deleteProjectPropLinkApiV1StudioShotLinksPropLinkIdDelete({ linkId: link.id })
+            : StudioShotLinksService.deleteProjectCostumeLinkApiV1StudioShotLinksCostumeLinkIdDelete({ linkId: link.id }),
+        ),
+      )
       message.success('已取消关联')
       await loadLinks()
     } catch {
@@ -203,7 +214,7 @@ function LinkedAssetTab({
             <BatchAssetImageButton
               projectId={projectId}
               assetType={kind}
-              assetCount={links.length}
+              assetCount={assetGroups.length}
               onFinished={() => void loadLinks()}
             />
             <Button icon={<PlusOutlined />} onClick={() => navigate(`/assets?tab=${kind}`)}>
@@ -217,13 +228,14 @@ function LinkedAssetTab({
         ) : (
           <div className="space-y-3">
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-            {pagedLinks.map((l) => {
-              const assetId = 'prop_id' in l ? l.prop_id : l.costume_id
+            {pagedGroups.map((group) => {
+              const l = group.primary
+              const assetId = group.assetId
               const asset = assetsById[assetId]
-              const linkThumb = (l as any).thumbnail as string | undefined
+              const linkThumb = (l as { thumbnail?: string }).thumbnail
               return (
                 <DisplayImageCard
-                  key={l.id}
+                  key={group.key}
                   title={<div className="truncate">{asset?.name ?? assetId}</div>}
                   imageUrl={resolveAssetUrl(linkThumb ?? asset?.thumbnail)}
                   imageAlt={asset?.name ?? assetId}
@@ -253,7 +265,7 @@ function LinkedAssetTab({
                             okText: '取消关联',
                             cancelText: '取消',
                             okButtonProps: { danger: true },
-                            onOk: () => handleUnlink(l),
+                            onOk: () => handleUnlink(group.links),
                           })
                         }}
                       >
@@ -264,7 +276,14 @@ function LinkedAssetTab({
                   meta={
                     <div className="space-y-1">
                       <div className="text-xs text-gray-600 line-clamp-2">{asset?.description ?? '—'}</div>
-                      <div className="text-xs text-gray-500 truncate">{`${kind}_id：${assetId}`}</div>
+                      <div className={`flex items-center gap-2 text-xs text-gray-500`}>
+                        <span className="truncate">{`${kind}_id：${assetId}`}</span>
+                        {group.links.length > 1 ? (
+                          <span className="shrink-0 rounded bg-gray-100 px-1.5 py-0.5 text-[11px]">
+                            关联 {group.links.length} 处
+                          </span>
+                        ) : null}
+                      </div>
                     </div>
                   }
                 />
@@ -275,7 +294,7 @@ function LinkedAssetTab({
               <Pagination
                 current={page}
                 pageSize={pageSize}
-                total={links.length}
+                total={assetGroups.length}
                 showSizeChanger={false}
                 showTotal={(t) => `共 ${t} 条`}
                 onChange={(p, ps) => {
