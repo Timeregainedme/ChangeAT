@@ -2228,11 +2228,23 @@ const ChapterStudio: React.FC = () => {
                 onChange={(v) => setFilter(v as ShotFilter)}
                 options={[
                   { label: `全部 ${shotFilterCounts.all}`, value: 'all' },
-                  { label: `待确认 ${shotFilterCounts.pendingConfirm}`, value: 'pendingConfirm' },
-                  { label: `生成中 ${shotFilterCounts.generating}`, value: 'generating' },
-                  { label: `已就绪 ${shotFilterCounts.ready}`, value: 'ready' },
-                  { label: `隐藏 ${shotFilterCounts.hidden}`, value: 'hidden' },
-                  { label: `有问题 ${shotFilterCounts.problem}`, value: 'problem' },
+                  // 只在有内容时展示，避免六个筛选项把这一行挤到必须横向滚动；
+                  // 当前选中的筛选项即使为 0 也保留，否则用户没法从空筛选项切回去。
+                  ...(shotFilterCounts.pendingConfirm > 0 || filter === 'pendingConfirm'
+                    ? [{ label: `待确认 ${shotFilterCounts.pendingConfirm}`, value: 'pendingConfirm' }]
+                    : []),
+                  ...(shotFilterCounts.generating > 0 || filter === 'generating'
+                    ? [{ label: `生成中 ${shotFilterCounts.generating}`, value: 'generating' }]
+                    : []),
+                  ...(shotFilterCounts.ready > 0 || filter === 'ready'
+                    ? [{ label: `已就绪 ${shotFilterCounts.ready}`, value: 'ready' }]
+                    : []),
+                  ...(shotFilterCounts.hidden > 0 || filter === 'hidden'
+                    ? [{ label: `隐藏 ${shotFilterCounts.hidden}`, value: 'hidden' }]
+                    : []),
+                  ...(shotFilterCounts.problem > 0 || filter === 'problem'
+                    ? [{ label: `有问题 ${shotFilterCounts.problem}`, value: 'problem' }]
+                    : []),
                 ]}
               />
             </div>
@@ -2250,10 +2262,8 @@ const ChapterStudio: React.FC = () => {
           )}
 
           {!multiToolbarVisible && selectedShotIds.length === 1 && (
-            <div className="cs-group m-3 mt-0 mb-2">
-              <div className="rounded-lg border border-solid border-gray-200 bg-white/80 px-3 py-2 text-xs text-gray-600">
-                已选 1 项，继续按 <span className="font-medium text-gray-700">Command/Ctrl + 点击</span> 可加入多选
-              </div>
+            <div className="mx-3 mb-2 text-[11px] leading-5 text-muted-foreground">
+              已选 1 项 · 按 <span className="font-medium text-foreground">Command/Ctrl + 点击</span> 可多选
             </div>
           )}
 

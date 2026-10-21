@@ -492,6 +492,18 @@
   color: var(--cs-text-4);
 }
 
+/* 左侧筛选：允许换行，避免窄侧栏把最后几个筛选项截断 */
+.cs-left .ant-segmented {
+  width: 100%;
+}
+.cs-left .ant-segmented .ant-segmented-group {
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.cs-left .ant-segmented .ant-segmented-item {
+  flex: 0 0 auto;
+}
+
 /* Make controls breathe */
 .cs-studio .ant-tabs-left > .ant-tabs-nav {
   width: 120px;
