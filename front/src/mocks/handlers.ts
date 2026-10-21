@@ -126,6 +126,17 @@ const shotsList = shots.map((s) => ({
       : { state: 'extracted_pending', pending_asset_count: 1, pending_dialogue_count: 1 },
 }))
 
+/** 风格目录（可变）：与后端一样，首次用内置枚举种子化。 */
+let styleCatalog = [
+  { id: 'style-1', visual_style: '现实', name: '真人都市', description: '现代都市实拍', sort_order: 0 },
+  { id: 'style-2', visual_style: '现实', name: '真人科幻', description: '近未来实拍', sort_order: 1 },
+  { id: 'style-3', visual_style: '现实', name: '真人古装', description: '古装实拍', sort_order: 2 },
+  { id: 'style-4', visual_style: '动漫', name: '动漫科幻', description: '科幻动画', sort_order: 3 },
+  { id: 'style-5', visual_style: '动漫', name: '动漫3D', description: '三维渲染动画', sort_order: 4 },
+  { id: 'style-6', visual_style: '动漫', name: '国漫', description: '国风动画', sort_order: 5 },
+  { id: 'style-7', visual_style: '动漫', name: '水墨画', description: '水墨渲染', sort_order: 6 },
+]
+
 /** 候选 mock：每个待确认镜头各一条资产候选与一条对白候选。 */
 const assetCandidatesByShot: Record<string, Array<Record<string, unknown>>> = {}
 const dialogueCandidatesByShot: Record<string, Array<Record<string, unknown>>> = {}
@@ -253,28 +264,69 @@ export const handlers = [
     return ok(toProjectRead(newProject), 200, 'Created')
   }),
 
-  // 项目风格候选项：新建项目弹窗依赖它，缺了会让「画面风格/剧集风格」下拉为空
-  http.get('/api/v1/studio/projects/style-options', () =>
-    ok({
-      visual_styles: [
-        { value: '现实', label: '现实' },
-        { value: '动漫', label: '动漫' },
-      ],
-      styles_by_visual_style: {
-        现实: [
-          { value: '真人都市', label: '真人都市' },
-          { value: '真人古装', label: '真人古装' },
-          { value: '真人科幻', label: '真人科幻' },
-        ],
-        动漫: [
-          { value: '国漫', label: '国漫' },
-          { value: '动漫3D', label: '动漫3D' },
-          { value: '水墨画', label: '水墨画' },
-        ],
-      },
-      default_style_by_visual_style: { 现实: '真人都市', 动漫: '动漫3D' },
-    }),
-  ),
+  // 项目风格候选项：直接由可变目录派生，新增风格后下拉能立即看到
+  http.get('/api/v1/studio/projects/style-options', () => {
+    const grouped: Record<string, Array<{ value: string; label: string }>> = {}
+    for (const item of styleCatalog) {
+      grouped[item.visual_style] ??= []
+      grouped[item.visual_style].push({ value: item.name, label: item.name })
+    }
+    const visuals = ['现实', '动漫', ...Object.keys(grouped).filter((v) => v !== '现实' && v !== '动漫')]
+    return ok({
+      visual_styles: visuals.map((value) => ({ value, label: value })),
+      styles_by_visual_style: grouped,
+      default_style_by_visual_style: Object.fromEntries(
+        Object.entries(grouped).map(([visual, list]) => [visual, list[0]?.value ?? '']),
+      ),
+    })
+  }),
+
+  // ====== 风格目录 CRUD ======
+  http.get('/api/v1/studio/styles', () => ok(styleCatalog)),
+
+  http.post('/api/v1/studio/styles', async ({ request }) => {
+    const body = (await request.json()) as {
+      visual_style: string
+      name: string
+      description?: string
+      sort_order?: number
+    }
+    if (styleCatalog.some((s) => s.visual_style === body.visual_style && s.name === body.name)) {
+      // 与真实后端一致：HTTPException 的响应体是 { detail }，前端据此展示具体原因
+      return HttpResponse.json(
+        { detail: `「${body.visual_style}」下已存在风格「${body.name}」` },
+        { status: 400 },
+      )
+    }
+    const row = {
+      id: `style-${Date.now()}`,
+      visual_style: body.visual_style,
+      name: body.name,
+      description: body.description ?? '',
+      sort_order: body.sort_order ?? styleCatalog.length,
+    }
+    styleCatalog = [...styleCatalog, row]
+    return ok(row)
+  }),
+
+  http.patch('/api/v1/studio/styles/:style_id', async ({ params, request }) => {
+    const { style_id } = params as { style_id: string }
+    const body = (await request.json()) as { name?: string; description?: string }
+    const idx = styleCatalog.findIndex((s) => s.id === style_id)
+    if (idx === -1) return notFound('风格不存在')
+    styleCatalog[idx] = {
+      ...styleCatalog[idx],
+      ...(body.name !== undefined ? { name: body.name } : {}),
+      ...(body.description !== undefined ? { description: body.description } : {}),
+    }
+    return ok(styleCatalog[idx])
+  }),
+
+  http.delete('/api/v1/studio/styles/:style_id', ({ params }) => {
+    const { style_id } = params as { style_id: string }
+    styleCatalog = styleCatalog.filter((s) => s.id !== style_id)
+    return ok(null)
+  }),
 
   http.get('/api/v1/studio/projects/:project_id', ({ params }) => {
     const { project_id } = params as { project_id: string }

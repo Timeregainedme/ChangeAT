@@ -69,6 +69,18 @@ function resolveDefaultStyle(options: ProjectStyleFieldOptions, visual: string):
 }
 
 /**
+ * 清空风格配置缓存。
+ *
+ * 风格目录是可编辑的（/styles）。改完风格后，同一标签页里的新建项目弹窗
+ * 仍会读到旧的模块级缓存，表现为「新增了风格但下拉里没有」。
+ * 风格管理页在增删改成功后调用这里，让下一次读取重新请求。
+ */
+export function invalidateProjectStyleOptionsCache(): void {
+  cachedSnapshot = null
+  loadingSnapshotPromise = null
+}
+
+/**
  * 加载并缓存项目风格配置，保证多个页面/弹窗共享同一次请求结果。
  */
 async function loadProjectStyleOptionsSnapshot(): Promise<ProjectStyleOptionsSnapshot> {

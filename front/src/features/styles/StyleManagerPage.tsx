@@ -17,6 +17,7 @@ import { Skeleton } from '../../components/ui/skeleton'
 import { Textarea } from '../../components/ui/textarea'
 import { Badge } from '../../components/ui/badge'
 import { StudioStylesService } from '../../services/generated'
+import { invalidateProjectStyleOptionsCache } from '../../pages/aiStudio/project/useProjectStyleOptions'
 import type { ProjectStyleOptionRead } from '../../services/generated'
 
 /** 画面表现形式：与后端目录里的取值保持一致（现实 / 动漫）。 */
@@ -130,6 +131,8 @@ export function StyleManagerPage() {
           },
         })
       }
+      // 让新建项目弹窗下次打开时重新拉取目录，而不是用旧缓存
+      invalidateProjectStyleOptionsCache()
       setDialogOpen(false)
       await load()
     } catch (err) {
@@ -144,6 +147,7 @@ export function StyleManagerPage() {
     if (!pendingDelete) return
     try {
       await StudioStylesService.deleteStyleApiV1StudioStylesStyleIdDelete({ styleId: pendingDelete.id })
+      invalidateProjectStyleOptionsCache()
       setPendingDelete(null)
       await load()
     } catch {
