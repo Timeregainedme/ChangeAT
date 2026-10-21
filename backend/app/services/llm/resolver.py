@@ -9,7 +9,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.llm import Model, ModelCategoryKey, ModelSettings, Provider
 from app.services.common import entity_not_found
-from app.services.llm.provider_registry import thinking_extra_body_for_provider_name
+from app.services.llm.provider_registry import (
+    extra_headers_for_provider,
+    thinking_extra_body_for_provider_name,
+)
 from app.services.llm.provider_resolver import resolve_effective_base_url
 
 
@@ -179,6 +182,11 @@ def _build_chat_openai_model(
     base_url = resolve_effective_base_url(provider=provider, category=ModelCategoryKey.text)
     if base_url:
         kwargs.setdefault("base_url", base_url)
+
+    # OpenCode Zen 等网关要求的额外请求头（缺失会直接 400 MissingSessionID）。
+    extra_headers = extra_headers_for_provider(provider.name, base_url)
+    if extra_headers:
+        kwargs["default_headers"] = {**(kwargs.get("default_headers") or {}), **extra_headers}
 
     # 思考开关按供应商下发（阿里百炼 enable_thinking / DeepSeek thinking），未登记供应商不下发。
     thinking_body = thinking_extra_body_for_provider_name(provider.name, enabled=thinking)

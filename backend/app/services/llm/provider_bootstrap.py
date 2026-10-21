@@ -57,6 +57,26 @@ def bootstrap_builtin_providers() -> None:
                 supported_categories=(ModelCategoryKey.video, ModelCategoryKey.audio),
                 default_base_url="https://cp.compshare.cn",
             ),
+            # OpenCode Go（OpenCode Zen 网关）：OpenAI 兼容 /chat/completions，仅文本能力。
+            # 平台内不认供应商的思考参数，故不登记 thinking_extra_body 映射，避免下发未知字段。
+            ProviderSpec(
+                key="opencode_go",
+                display_name="OpenCode Go",
+                aliases=(
+                    "OpenCode Go",
+                    "opencodego",
+                    "opencode go",
+                    "opencode",
+                    "opencode zen",
+                    "opencode-zen",
+                    "opencode.ai",
+                    "opencode.ai/zen/v1",
+                    "opencode.ai/zen/go/v1",
+                ),
+                supported_categories=(ModelCategoryKey.text,),
+                # 订阅通道：余额通道为 /zen/v1，两者 key 相同但计费不同。
+                default_base_url="https://opencode.ai/zen/go/v1",
+            ),
             # DeepSeek 官方 API：OpenAI 兼容格式，文本（含思考模式）能力。
             # 思考开关为 extra_body={"thinking": {"type": "enabled"|"disabled"}}，
             # 见 app/services/llm/provider_registry.py 的 thinking_extra_body 映射。

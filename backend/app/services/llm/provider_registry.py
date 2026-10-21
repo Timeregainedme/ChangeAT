@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import uuid
 from dataclasses import dataclass
 from threading import RLock
 from typing import Any, Callable
@@ -135,6 +136,26 @@ def thinking_extra_body(provider_key: str | None, *, enabled: bool) -> dict[str,
     """按供应商 key 生成思考模式开关的 extra_body 片段；未登记供应商返回空字典。"""
     builder = _THINKING_BODY_BUILDERS.get(_norm(provider_key or ""))
     return builder(enabled) if builder else {}
+
+
+def extra_headers_for_provider(provider_name: str, base_url: str | None) -> dict[str, str]:
+    """按供应商生成需要额外携带的请求头。
+
+    目前只有 OpenCode Zen 需要：
+    - 它的订阅通道 `/zen/go/v1` 要求 `x-opencode-session` 才能做请求路由，
+      缺失时直接 400 `MissingSessionID`；
+    - 同时要求 `x-opencode-client` 标识调用方。
+    会话 ID 只用于网关路由，不需要与任何服务端状态对应，因此每次构建客户端时
+    生成一个新的 UUID 即可（同一客户端内的多次请求复用同一个值）。
+    """
+    name = _norm(provider_name)
+    url = (base_url or "").strip().lower()
+    if "opencode" not in name and "opencode.ai" not in url:
+        return {}
+    return {
+        "x-opencode-session": str(uuid.uuid4()),
+        "x-opencode-client": "opencode",
+    }
 
 
 def thinking_extra_body_for_provider_name(provider_name: str, *, enabled: bool) -> dict[str, Any]:
