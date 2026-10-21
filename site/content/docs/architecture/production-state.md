@@ -177,6 +177,32 @@ curl -s https://tim.run.place/env.js | grep BACKEND_URL                  # ""
 ssh aws-ubuntu-2 'cd /srv/dyeingtime/front && rm -rf dist && mv dist.old-<时间戳> dist'
 ```
 
+## 巡检
+
+`deploy/scripts/health-check.sh` 部署在 `/srv/dyeingtime-ops/health-check.sh`，
+由 `dyeingtime-healthcheck.timer` 每 5 分钟跑一次。
+
+```bash
+sudo /srv/dyeingtime-ops/health-check.sh          # 人看：完整摘要
+sudo /srv/dyeingtime-ops/health-check.sh --quiet  # 机器看：仅异常时输出
+sudo journalctl -u dyeingtime-healthcheck -n 20   # 看历史结果
+```
+
+检查项与判定：
+
+| 类别 | 内容 |
+|---|---|
+| 服务 | 4 个 systemd unit 是否 active |
+| 探针 | `/health` 状态码 + **内容形态**（防回退 HTML）、`/api/v1/ready` 是否 `database:ok`、Python 8000 |
+| 资源 | 磁盘 ≥85% 告警、内存 ≥90% 告警、Go RSS |
+| 错误率 | 最近 1000 条访问日志的 5xx 数量、Go panic、Python ERROR/Traceback |
+
+**为什么探针要校验内容形态**：`/health` 曾经落进 SPA fallback 返回 200 + HTML，
+只查状态码会永远报「健康」。脚本对这种情况单独报
+`/health 返回了 HTML（探针配置回退到 SPA fallback）`。
+
+异常演练已验证：停掉 Go 后脚本报 4 项 FAIL、退出码 1，恢复后回到 OK。
+
 ## 已知风险
 
 | 风险 | 说明 |
