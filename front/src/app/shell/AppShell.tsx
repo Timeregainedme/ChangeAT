@@ -360,11 +360,11 @@ export default function AppShell() {
 
         <TaskRuntimeProvider>
           {/*
-            存量 antd 页面固定浅色画布。
-            这些页面里仍有硬编码的浅色背景，直接跟随深色主题会变成半深半浅；
-            新页面在自己的根节点上用 bg-background 覆盖，从而跟随主题。
+            画布跟随主题。
+            存量页面里写死的浅色类由 index.css 的 `.dark` 兼容层重映射，
+            因此这里可以直接用 token，不需要再为旧页面单独留一条浅色通道。
           */}
-          <main className="flex min-h-0 flex-1 flex-col overflow-hidden bg-white">
+          <main className="flex min-h-0 flex-1 flex-col overflow-hidden bg-background">
             <Outlet />
           </main>
           <TaskCenter />

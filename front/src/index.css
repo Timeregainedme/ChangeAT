@@ -155,13 +155,25 @@ body {
   min-height: 100vh;
 }
 
-/* * {
-  @apply border-border;
-} */
-
 code {
-  background-color: #f5f5f5;
+  background-color: hsl(var(--muted));
   padding: 2px 6px;
   border-radius: 3px;
   font-family: 'Courier New', monospace;
+}
+
+/**
+ * 深色模式兼容层（单类覆盖）。
+ *
+ * 调色板类（bg-amber-50 / text-red-700 …）由 tailwind.config.js 的旧页面插件
+ * 在构建期批量生成，这里只处理插件覆盖不到的两个语义色：
+ * 纯白底与纯黑字。新页面不要再用字面色值。
+ */
+@layer utilities {
+  .dark .bg-white {
+    background-color: hsl(var(--card));
+  }
+  .dark .text-black {
+    color: hsl(var(--foreground));
+  }
 }

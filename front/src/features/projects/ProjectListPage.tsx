@@ -17,8 +17,8 @@ import { cn } from '../../lib/utils'
 import { useProjectStyleOptions } from '../../pages/aiStudio/project/useProjectStyleOptions'
 import { ensureHasShotsBeforeShooting } from '../../pages/aiStudio/project/ProjectWorkbench/ensureHasShotsBeforeShooting'
 import {
+  getChapterBoardPath,
   getChapterShotsPath,
-  getChapterStudioPath,
 } from '../../pages/aiStudio/project/ProjectWorkbench/routes'
 import { ProjectCard } from '../../features/projects/ProjectCard'
 import { ProjectFormDialog } from '../../features/projects/ProjectFormDialog'
@@ -123,7 +123,8 @@ export function ProjectListPage() {
       return
     }
     if (summary.stageKey === 'prepare_shots') {
-      navigate(getChapterStudioPath(project.id, summary.chapterId))
+      // 先到看板看清哪些镜头还没准备好，再从看板进工作室
+      navigate(getChapterBoardPath(project.id, summary.chapterId))
       return
     }
     void ensureHasShotsBeforeShooting({

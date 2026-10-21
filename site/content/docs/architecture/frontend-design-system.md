@@ -99,7 +99,9 @@ body { @apply bg-background text-foreground antialiased; }
 
 - 偏好三态：`system` / `light` / `dark`，持久化在 `localStorage` 的 `dyeingtime-theme`。
 - `system` 模式监听 `prefers-color-scheme` 变化；用户显式选择后不再跟随系统。
+- 切换入口在外壳顶栏，任何页面都可一键切换，不需要回首页。
 - 实现见 `src/store/useThemeStore.ts`，启动同步与订阅在 `src/app/providers.tsx`。
+- 覆盖范围见第 9 节——主题对**存量 antd 页面同样生效**。
 
 ## 7. 全局 Provider
 
@@ -130,15 +132,28 @@ body { @apply bg-background text-foreground antialiased; }
 
 这条规则取代了旧实现里「按路径位置特判」的拼接逻辑，新增实体路由通常不需要改面包屑。
 
-## 9. 主题覆盖边界（重要）
+## 9. 主题覆盖边界
 
-深色主题**当前只覆盖外壳与新页面**，存量 antd 页面固定浅色画布。
+深浅主题**覆盖整个应用**，包括尚未重写的 antd 页面。三件事同时生效才成立：
 
-原因：存量页面里仍有大量硬编码浅色背景（`bg-white`、浅色渐变），
-只切 antd 的 `darkAlgorithm` 会得到「深色表格 + 白色卡片」的半深半浅状态，比全浅更难读。
-因此 `main.tsx` 固定使用 `defaultAlgorithm`，外壳与迁移后的页面各自跟随主题。
+| 层 | 做法 | 位置 |
+|---|---|---|
+| 设计系统 | CSS variables + `<html class="dark">` | `src/index.css` |
+| antd 组件 | 跟随 `resolvedTheme` 切换 `darkAlgorithm` | `src/main.tsx` |
+| 存量字面色值 | 构建期批量生成 `.dark` 覆盖 | `tailwind.config.js` 插件 |
+| antd 静态弹层 | `ConfigProvider.config({ theme })` 同步全局主题 | `src/main.tsx` |
 
-迁移一页，跟随主题的面积就增加一块，直到 antd 整体移除。
+细节：
+
+- **存量页面**里有大量按调色板写死的类（`bg-amber-50`、`text-gray-700`）。
+  与其逐个文件改，Tailwind 插件在构建期按调色板生成 `.dark` 覆盖：
+  浅色底 → 同色系深色 + 透明度，深色字 → 同色系 300 档，浅色边框 → 700 档。
+  这样保留了「颜色即语义」（待办仍是琥珀色、失败仍是红色），而不是一律灰掉。
+- **antd 静态方法**（`message` / `notification` / `Modal.confirm`）走独立渲染根，
+  读的是全局 config 而不是 React context；不同步会在深色下弹出白色提示条。
+- 新页面禁止再写字面色值，否则深色下会被这层覆盖规则「意外改色」。
+
+验收方式：深色下逐页看一遍列表、表格、弹窗、提示条，确认没有白底残留与低对比文字。
 
 ## 10. 已迁移页面
 
@@ -167,6 +182,8 @@ body { @apply bg-background text-foreground antialiased; }
 - 侧滑内可直接编辑**标题、剧本摘录、无需信息提取**三个字段并保存（PATCH 只提交变化字段），
   保存后重新拉取看板，镜头会按新状态自动换列。
 - 序号、状态、关联文件不在看板里改：这些字段牵动唯一约束与生成流程，仍走完整编辑页。
+- 支持批量操作：列头「全选」→ 批量标记「无需提取」（逐个 PATCH，部分失败时保留失败项可重试）。
+  只开放这一种批量动作：它不绕过任何后端校验，而状态推进必须走各自确认流程。
 - 入口在项目工作台的章节操作列与「更多操作」菜单，原表格视图保留（`/shots`）。
 
 ## 11. 设计系统预览页

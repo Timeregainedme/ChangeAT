@@ -96,6 +96,23 @@ function toChapterRead(c: Chapter) {
   }
 }
 
+/**
+ * 看板用的可变镜头列表。
+ *
+ * 把 mock 的 Shot 映射成后端 ShotRead 的形状（下划线字段），
+ * 这样页面代码不需要为 mock 走分支——分支越多，真实路径越难被覆盖。
+ */
+const shotsList = shots.map((s) => ({
+  id: s.id,
+  chapter_id: s.chapterId,
+  index: s.index,
+  title: s.title,
+  thumbnail: s.thumbnail,
+  status: s.status,
+  skip_extraction: false,
+  script_excerpt: s.scriptExcerpt,
+}))
+
 export const handlers = [
   // ====== StudioProjectsService /api/v1/studio/projects ======
   http.get('/api/v1/studio/projects', ({ request }) => {
@@ -592,6 +609,49 @@ export const handlers = [
     if (idx === -1) return HttpResponse.json({ message: '模型不存在' }, { status: 404 })
     modelsList = modelsList.filter((m) => m.id !== id)
     return new HttpResponse(null, { status: 204 })
+  }),
+
+  // ====== StudioShotsService /api/v1/studio/shots ======
+  // 看板需要「列表 + 运行时摘要 + 准备度 + 局部更新」四类接口，
+  // 之前这些都没 mock，导致看板在 mock 模式下必然白屏，只能对着测试库验证。
+  http.get('/api/v1/studio/shots/runtime-summary', () => ok([])),
+
+  http.get('/api/v1/studio/shots', ({ request }) => {
+    const url = new URL(request.url)
+    const chapterId = url.searchParams.get('chapter_id') ?? ''
+    const page = Number(url.searchParams.get('page') ?? '1') || 1
+    const pageSize = Number(url.searchParams.get('page_size') ?? '10') || 10
+    const list = shotsList.filter((s) => s.chapter_id === chapterId)
+    return ok(makePagination(list, page, pageSize))
+  }),
+
+  http.get('/api/v1/studio/shots/:shot_id/video-readiness', ({ params }) => {
+    const { shot_id } = params as { shot_id: string }
+    return ok({
+      shot_id,
+      reference_mode: 'none',
+      ready: false,
+      checks: [
+        { key: 'extracted', ok: false, message: '尚未执行信息提取，请先提取或将镜头标记为无需提取' },
+        { key: 'duration', ok: true, message: '镜头时长已配置' },
+      ],
+    })
+  }),
+
+  http.patch('/api/v1/studio/shots/:shot_id', async ({ params, request }) => {
+    const { shot_id } = params as { shot_id: string }
+    const body = (await request.json()) as {
+      title?: string
+      script_excerpt?: string
+      skip_extraction?: boolean
+    }
+    const target = shotsList.find((s) => s.id === shot_id)
+    if (!target) return HttpResponse.json({ code: 404, message: '镜头不存在', data: null }, { status: 404 })
+
+    if (typeof body.title === 'string') target.title = body.title
+    if (typeof body.script_excerpt === 'string') target.script_excerpt = body.script_excerpt
+    if (typeof body.skip_extraction === 'boolean') target.skip_extraction = body.skip_extraction
+    return ok(target)
   }),
 
   // 模型全局设置

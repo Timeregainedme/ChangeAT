@@ -82,5 +82,10 @@
     "vite": "^5.0.8",
     "vitest": "^2"
   },
-  "license": "UNLICENSED"
+  "license": "UNLICENSED",
+  "msw": {
+    "workerDirectory": [
+      "public"
+    ]
+  }
 }

@@ -2,6 +2,15 @@ import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { ArrowLeft, ArrowUpRight, Clapperboard, Pencil, RefreshCw, Save } from 'lucide-react'
 import { Button } from '../../components/ui/button'
+import { Checkbox } from '../../components/ui/checkbox'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '../../components/ui/dialog'
 import { Input } from '../../components/ui/input'
 import { Label } from '../../components/ui/label'
 import { ScrollArea } from '../../components/ui/scroll-area'
@@ -54,14 +63,52 @@ function toForm(shot: BoardShot): ShotForm {
  * 列表接口的 thumbnail 目前常为空，因此缩略图是「有则展示」而不是固定占位：
  * 固定 16:9 空盒子会让每张卡片高出 150px 却不携带任何信息，
  * 一屏看不到几个镜头。没有缩略图时直接收起图片区，让看板保持密度。
+ *
+ * 卡片整体可点开侧滑；选择框单独拦截点击，避免「想多选却打开了详情」。
  */
-function ShotCard({ shot, onOpen }: { shot: BoardShot; onOpen: () => void }) {
+function ShotCard({
+  shot,
+  selected,
+  onOpen,
+  onToggleSelect,
+}: {
+  shot: BoardShot
+  selected: boolean
+  onOpen: () => void
+  onToggleSelect: (checked: boolean) => void
+}) {
   return (
-    <button
-      type="button"
+    <div
+      role="button"
+      tabIndex={0}
       onClick={onOpen}
-      className="group w-full overflow-hidden rounded-lg border border-border bg-card text-left transition-shadow hover:shadow-popover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      onKeyDown={(event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault()
+          onOpen()
+        }
+      }}
+      className={cn(
+        'group relative w-full cursor-pointer overflow-hidden rounded-lg border bg-card text-left transition-shadow hover:shadow-popover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+        selected ? 'border-primary ring-1 ring-primary' : 'border-border',
+      )}
     >
+      <div
+        className="absolute left-2 top-2 z-10"
+        onClick={(event) => event.stopPropagation()}
+        onKeyDown={(event) => event.stopPropagation()}
+      >
+        <Checkbox
+          checked={selected}
+          onCheckedChange={(checked) => onToggleSelect(checked === true)}
+          aria-label={`选择镜头 ${shot.index}`}
+          className={cn(
+            'border-white/60 bg-black/40 transition-opacity',
+            selected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100',
+          )}
+        />
+      </div>
+
       {shot.thumbnail ? (
         <div className="aspect-video w-full overflow-hidden bg-muted">
           <img
@@ -73,7 +120,7 @@ function ShotCard({ shot, onOpen }: { shot: BoardShot; onOpen: () => void }) {
         </div>
       ) : null}
 
-      <div className="space-y-1.5 p-3">
+      <div className={cn('space-y-1.5 p-3', !shot.thumbnail && 'pl-8')}>
         <div className="flex items-center gap-1.5">
           <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground">
             #{shot.index}
@@ -97,7 +144,7 @@ function ShotCard({ shot, onOpen }: { shot: BoardShot; onOpen: () => void }) {
           </span>
         ) : null}
       </div>
-    </button>
+    </div>
   )
 }
 
@@ -128,6 +175,13 @@ export function ShotBoardPage() {
 
   const [readiness, setReadiness] = useState<ShotVideoReadinessRead | null>(null)
   const [readinessLoading, setReadinessLoading] = useState(false)
+
+  // 批量操作：目前只开放「标记无需提取」——这是用户可以自行判断、
+  // 且不绕过任何后端校验的动作；状态推进仍必须走各自的确认流程。
+  const [selectedIds, setSelectedIds] = useState<string[]>([])
+  const [batchOpen, setBatchOpen] = useState(false)
+  const [batchSaving, setBatchSaving] = useState(false)
+  const [batchError, setBatchError] = useState<string | null>(null)
 
   // 打开时的初值只在切换镜头时取一次：reload 后 shots 引用会变，
   // 若把 form 绑到 shots 上，会把用户正在输入的内容冲掉。
@@ -213,6 +267,63 @@ export function ShotBoardPage() {
     }
   }
 
+  /** 切换单个镜头的选中状态。 */
+  const toggleSelected = (shotId: string, checked: boolean) => {
+    setSelectedIds((prev) =>
+      checked ? Array.from(new Set([...prev, shotId])) : prev.filter((id) => id !== shotId),
+    )
+  }
+
+  /** 整列全选 / 全不选：列内已全部选中时再点一次取消。 */
+  const toggleColumn = (ids: string[]) => {
+    setSelectedIds((prev) => {
+      const allSelected = ids.every((id) => prev.includes(id))
+      if (allSelected) return prev.filter((id) => !ids.includes(id))
+      return Array.from(new Set([...prev, ...ids]))
+    })
+  }
+
+  /**
+   * 批量标记「无需提取」。
+   *
+   * 逐个 PATCH 而不是并发打满：一列可能有几十个镜头，
+   * 同时发几十个写请求会把后端连接池打满，也让失败原因难以归属。
+   */
+  const applySkipExtraction = async () => {
+    if (!selectedIds.length) return
+    setBatchSaving(true)
+    setBatchError(null)
+
+    // 逐个执行并记录结果，而不是遇错即停：
+    // 批量操作里「部分成功」是常态，直接中断会让用户不知道哪些已经改了。
+    const failed: string[] = []
+    let succeeded = 0
+
+    for (const shotId of selectedIds) {
+      try {
+        await StudioShotsService.updateShotApiV1StudioShotsShotIdPatch({
+          shotId,
+          requestBody: { skip_extraction: true },
+        })
+        succeeded += 1
+      } catch {
+        failed.push(shotId)
+      }
+    }
+
+    await reload()
+
+    if (failed.length > 0) {
+      // 保留失败项继续选中，用户可以直接重试，不用重新勾选
+      setSelectedIds(failed)
+      setBatchError(`已完成 ${succeeded} 个，失败 ${failed.length} 个；失败的镜头仍保持选中，可重试`)
+    } else {
+      setBatchOpen(false)
+      setSelectedIds([])
+    }
+    setBatchSaving(false)
+  }
+
   const chapterLabel = chapter ? `第${chapter.index}章 · ${chapter.title}` : '章节'
 
   return (
@@ -262,6 +373,27 @@ export function ShotBoardPage() {
         </div>
       ) : null}
 
+      {selectedIds.length > 0 ? (
+        <div className="flex shrink-0 items-center gap-3 border-b border-border bg-primary/5 px-6 py-2 text-sm">
+          <span className="font-medium">已选 {selectedIds.length} 个镜头</span>
+          <Button
+            size="sm"
+            onClick={() => {
+              setBatchError(null)
+              setBatchOpen(true)
+            }}
+          >
+            标记无需提取
+          </Button>
+          <Button size="sm" variant="ghost" onClick={() => setSelectedIds([])}>
+            清除选择
+          </Button>
+          <span className="ml-auto text-[11px] text-muted-foreground">
+            「无需提取」只跳过信息提取确认，不影响已生成的内容
+          </span>
+        </div>
+      ) : null}
+
       <div className="min-h-0 flex-1 overflow-x-auto overflow-y-hidden">
         <div className="flex h-full min-w-[720px] gap-4 px-6 py-4">
           {COLUMNS.map((column) => {
@@ -280,6 +412,20 @@ export function ShotBoardPage() {
                   <span className="ml-auto hidden truncate text-[11px] text-muted-foreground xl:inline">
                     {column.hint}
                   </span>
+                  {items.length > 0 ? (
+                    <button
+                      type="button"
+                      onClick={() => toggleColumn(items.map((shot) => shot.id))}
+                      className={cn(
+                        'shrink-0 rounded bg-transparent px-1.5 py-0.5 text-[11px] transition-colors hover:bg-accent',
+                        items.every((shot) => selectedIds.includes(shot.id))
+                          ? 'text-primary'
+                          : 'text-muted-foreground',
+                      )}
+                    >
+                      {items.every((shot) => selectedIds.includes(shot.id)) ? '取消全选' : '全选'}
+                    </button>
+                  ) : null}
                 </div>
 
                 <ScrollArea className="min-h-0 flex-1">
@@ -293,7 +439,13 @@ export function ShotBoardPage() {
                           </div>
                         ))
                       : items.map((shot) => (
-                          <ShotCard key={shot.id} shot={shot} onOpen={() => setOpenShotId(shot.id)} />
+                          <ShotCard
+                            key={shot.id}
+                            shot={shot}
+                            selected={selectedIds.includes(shot.id)}
+                            onOpen={() => setOpenShotId(shot.id)}
+                            onToggleSelect={(checked) => toggleSelected(shot.id, checked)}
+                          />
                         ))}
                     {!loading && items.length === 0 ? (
                       <p className="px-1 py-6 text-center text-xs text-muted-foreground">
@@ -307,6 +459,36 @@ export function ShotBoardPage() {
           })}
         </div>
       </div>
+
+      <Dialog
+        open={batchOpen}
+        onOpenChange={(open) => {
+          if (!open) setBatchError(null)
+          setBatchOpen(open)
+        }}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>将 {selectedIds.length} 个镜头标记为无需提取？</DialogTitle>
+            <DialogDescription>
+              这些镜头不会再要求做资产与对白确认。已经确认或已生成的内容不受影响。
+            </DialogDescription>
+          </DialogHeader>
+          {batchError ? (
+            <p className="rounded-md bg-destructive/10 px-3 py-2 text-xs text-destructive">
+              {batchError}
+            </p>
+          ) : null}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setBatchOpen(false)} disabled={batchSaving}>
+              取消
+            </Button>
+            <Button onClick={applySkipExtraction} disabled={batchSaving}>
+              {batchSaving ? '处理中…' : '确认标记'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Sheet
         open={openShotId !== null}

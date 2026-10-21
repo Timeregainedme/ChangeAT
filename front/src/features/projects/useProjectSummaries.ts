@@ -89,10 +89,15 @@ function summarizeProject(chapters: ChapterInput[]): ProjectSummary {
     ordered[0]
 
   const state = getChapterPreparationState(chapter)
+
+  // 有分镜之后，下一步不该直接把人丢进工作室：
+  // 先看看这一章到底哪些镜头没准备好，才是用户真正要判断的事。
+  const actionLabel = state.key === 'prepare_shots' ? '查看镜头看板' : state.primaryAction
+
   return {
     stageKey: state.key,
     stageText: state.text,
-    actionLabel: state.primaryAction,
+    actionLabel,
     hint: `第${chapter.index}章 · ${state.hint}`,
     chapterId: chapter.id,
     storyboardCount: chapter.storyboardCount,

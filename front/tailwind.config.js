@@ -135,5 +135,76 @@ module.exports = {
       },
     },
   },
-  plugins: [require('tailwindcss-animate')],
+  plugins: [
+    require('tailwindcss-animate'),
+    /**
+     * 存量页面深色兼容插件。
+     *
+     * 迁移期内还有大量按 Tailwind 调色板写死的浅色类（bg-amber-50、text-red-700…）。
+     * 与其逐个文件改，不如在构建期按调色板批量生成 `.dark` 下的覆盖规则：
+     *   - 浅色底（50/100/200）→ 同色系深色底 + 透明度，保留「颜色即语义」；
+     *   - 深色字（600~900）→ 同色系 300 档，在深底上可读；
+     *   - 浅色边（100~300）→ 同色系 700 档 + 透明度。
+     * 页面重写后这些类会自然消失，插件即可删除。
+     */
+    function ({ addUtilities, theme }) {
+      const families = [
+        'gray', 'slate', 'zinc', 'neutral', 'stone',
+        'red', 'orange', 'amber', 'yellow', 'lime', 'green', 'emerald',
+        'teal', 'cyan', 'sky', 'blue', 'indigo', 'violet', 'purple',
+        'fuchsia', 'pink', 'rose',
+      ]
+      const color = (family, shade) => theme(`colors.${family}.${shade}`)
+      const utilities = {}
+
+      for (const family of families) {
+        // 浅色底：换成同色系深色 + 透明度
+        const bgMap = { 50: 900, 100: 800, 200: 700 }
+        for (const [light, dark] of Object.entries(bgMap)) {
+          const hex = color(family, dark)
+          if (!hex) continue
+          utilities[`.dark .bg-${family}-${light}`] = { backgroundColor: `${hex}59` }
+        }
+
+        // 深色文字：换成同色系 300 档，保证深底可读
+        for (const shade of [600, 700, 800, 900]) {
+          const hex = color(family, 300)
+          if (!hex) continue
+          utilities[`.dark .text-${family}-${shade}`] = { color: hex }
+        }
+
+        // 浅色边框
+        for (const shade of [100, 200, 300]) {
+          const hex = color(family, 700)
+          if (!hex) continue
+          utilities[`.dark .border-${family}-${shade}`] = { borderColor: `${hex}80` }
+        }
+
+        // 浅色分隔线
+        const divideHex = color(family, 700)
+        if (divideHex) {
+          utilities[`.dark .divide-${family}-100 > :not([hidden]) ~ :not([hidden])`] = {
+            borderColor: `${divideHex}80`,
+          }
+          utilities[`.dark .divide-${family}-200 > :not([hidden]) ~ :not([hidden])`] = {
+            borderColor: `${divideHex}80`,
+          }
+        }
+      }
+
+      // gray / slate 的 400/500 在深色下偏暗，单独提一档
+      for (const family of ['gray', 'slate', 'zinc', 'neutral', 'stone']) {
+        const hex400 = color(family, 400)
+        const hex300 = color(family, 300)
+        if (hex400) {
+          utilities[`.dark .text-${family}-500`] = { color: hex400 }
+        }
+        if (hex300) {
+          utilities[`.dark .text-${family}-400`] = { color: hex300 }
+        }
+      }
+
+      addUtilities(utilities)
+    },
+  ],
 }
