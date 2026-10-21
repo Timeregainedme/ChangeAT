@@ -130,6 +130,16 @@ ssh aws-ubuntu-2 'sudo systemctl stop dyeingtime-go && \
   sudo systemctl start dyeingtime-go'
 ```
 
+## 片段打包导出
+
+`GET /api/v1/studio/timeline/projects/{project_id}/clips-archive` 返回 zip：
+把项目下每个已生成视频的片段原样打包，未生成的片段写进包内 `MANIFEST-未打包片段.txt`。
+
+- 与「导出成片」互补：成片用 ffmpeg 串成一个 mp4，要求全部片段都有视频；
+  打包允许部分缺失，用于先把素材交出去。
+- 在内存里构建 zip（中央目录在末尾，真正流式需先算偏移，几十个片段场景不划算）。
+- 单个片段读对象存储失败只跳过并记入 MANIFEST，不整包失败。
+
 ## 部署前端
 
 前端是纯静态产物，部署 = 替换 `/srv/dyeingtime/front/dist`，不需要重启任何服务。

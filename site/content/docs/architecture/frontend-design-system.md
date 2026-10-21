@@ -171,6 +171,7 @@ body { @apply bg-background text-foreground antialiased; }
 |---|---|---|
 | `/projects` | `src/features/projects/ProjectListPage.tsx` | `pages/aiStudio/project/ProjectLobby.tsx`（已删除） |
 | `/projects/:id/chapters/:cid/board` | `src/features/shots/ShotBoardPage.tsx` | 新增（原只有表格视图） |
+| `/files` | `src/features/files/FileManagerPage.tsx` | 新增（原来工作台里的「前往文件管理」指向不存在的路由，点了 404） |
 | 全局布局 | `src/app/shell/AppShell.tsx` | `src/layouts/MainLayout.tsx`（已删除） |
 
 项目工作台仪表盘的心智是「一屏只回答三个问题」：现在该做什么、流程走到哪、还剩什么没做。

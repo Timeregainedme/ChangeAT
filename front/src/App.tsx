@@ -44,6 +44,7 @@ const ChapterShotsPage = lazy(() =>
 const ChapterShotEditPage = lazy(() =>
   import('./pages/aiStudio/shots/ChapterShotEditPage').then((m) => ({ default: m.ChapterShotEditPage })),
 )
+const FileManagerPage = lazy(() => import('./features/files/FileManagerPage'))
 const Settings = lazy(() => import('./pages/Settings'))
 const NotFound = lazy(() => import('./pages/NotFound'))
 
@@ -96,6 +97,7 @@ const App: React.FC = () => {
             <Route path="projects/:projectId/chapters/:chapterId/prep-drafts" element={<Navigate to="../shots" replace />} />
             <Route path="projects/:projectId/editor" element={<VideoEditor />} />
             <Route path="assets" element={<AssetManager />} />
+            <Route path="files" element={<FileManagerPage />} />
             <Route path="assets/actors/:actorImageId/edit" element={<ActorAssetEditPage />} />
             <Route path="assets/scenes/:sceneId/edit" element={<SceneAssetEditPage />} />
             <Route path="assets/props/:propId/edit" element={<PropAssetEditPage />} />

@@ -16,9 +16,12 @@
 from __future__ import annotations
 
 import asyncio
+import io
+import re
 import shutil
 import tempfile
 import uuid
+import zipfile
 from collections.abc import Mapping
 from pathlib import Path
 
@@ -414,3 +417,66 @@ async def export_project_timeline(db: AsyncSession, *, project_id: str) -> Timel
         clip_count=len(timeline.clips),
         duration=timeline.stats.total_duration,
     )
+
+
+async def build_clips_archive(db: AsyncSession, *, project_id: str) -> tuple[bytes, str, int]:
+    """把项目里所有已生成视频的片段打包成一个 zip。
+
+    与「导出成片」的区别：
+    - 导出成片是 ffmpeg 串成一个 mp4，需要全部片段都有视频；
+    - 这里是把每个片段原样打包，允许部分片段缺失，缺失的会写进 MANIFEST 一并告知。
+
+    返回值：(zip 字节, 下载文件名, 实际打包的片段数)。
+
+    实现上先在内存里构建：zip 的中央目录在末尾，真流式需要先算偏移，
+    对几十个片段的场景反而是过度设计；体积风险由调用方按片段数提示。
+    """
+    timeline = await get_project_timeline(db, project_id=project_id)
+    clips = timeline.clips
+    if not clips:
+        raise ValueError("项目还没有任何片段")
+
+    buffer = io.BytesIO()
+    packed = 0
+    missing: list[str] = []
+
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
+        for clip in clips:
+            label = f"{clip.chapter_index:02d}-{clip.index:02d}"
+            safe_title = _sanitize_archive_name(clip.title or "clip")
+            if not clip.video_file_id:
+                missing.append(f"{label}-{safe_title}（未生成视频）")
+                continue
+
+            item = await db.get(FileItem, clip.video_file_id)
+            if item is None:
+                missing.append(f"{label}-{safe_title}（文件记录缺失）")
+                continue
+
+            try:
+                content = await storage.download_file(key=item.storage_key)
+            except Exception:  # noqa: BLE001 - 单个片段失败不阻断整包
+                missing.append(f"{label}-{safe_title}（读取对象存储失败）")
+                continue
+
+            suffix = Path(item.storage_key).suffix or ".mp4"
+            archive.writestr(f"{label}-{safe_title}{suffix}", content)
+            packed += 1
+
+        if missing:
+            archive.writestr(
+                "MANIFEST-未打包片段.txt",
+                "以下片段没有被打包：\n\n" + "\n".join(missing) + "\n",
+            )
+
+    if packed == 0:
+        raise ValueError("没有任何片段生成了视频，无法打包导出")
+
+    filename = f"{_sanitize_archive_name(timeline.project_name or project_id)}-片段打包.zip"
+    return buffer.getvalue(), filename, packed
+
+
+def _sanitize_archive_name(value: str) -> str:
+    """清掉文件名里的路径分隔符与非法字符，避免解压时出现目录穿越。"""
+    cleaned = re.sub(r'[\\/:*?"<>|\r\n\t]+', "_", value or "").strip(" ._")
+    return cleaned[:80] or "clip"

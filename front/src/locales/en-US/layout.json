@@ -8,6 +8,7 @@
   "nav": {
     "projects": "Projects",
     "assets": "Assets",
+    "files": "Files",
     "prompts": "Prompt Templates",
     "models": "Models",
     "voices": "Voices",
@@ -18,6 +19,7 @@
     "projects": "Projects",
     "project": "Project",
     "assets": "Assets",
+    "files": "Files",
     "actors": "Actors",
     "scenes": "Scenes",
     "props": "Props",

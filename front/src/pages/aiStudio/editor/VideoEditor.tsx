@@ -29,6 +29,7 @@ import { Link, useParams } from 'react-router-dom'
 import { StudioTimelineService } from '../../../services/generated'
 import type { ProjectTimelineRead, TimelineClipRead, TimelineExportRead } from '../../../services/generated'
 import { buildFileDownloadUrl } from '../assets/utils'
+import { getStoredToken } from '../../../store/useAuthStore'
 
 /** 后端 ValueError/HTTPException 统一返回 {code, message, data, meta}，detail 可能是字符串或数组。 */
 function extractErrorMessage(error: unknown, fallback: string): string {
@@ -79,6 +80,7 @@ const VideoEditor = () => {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [exporting, setExporting] = useState(false)
+  const [archiving, setArchiving] = useState(false)
   const [exported, setExported] = useState<TimelineExportRead | null>(null)
   const [preview, setPreview] = useState<TimelineClipRead | null>(null)
 
@@ -125,8 +127,51 @@ const VideoEditor = () => {
     }
   }, [projectId])
 
+  /**
+   * 一键打包下载全部片段视频。
+   *
+   * 走后端的 zip 接口而不是前端打包：视频体积大，前端逐个下载再压缩既慢又占内存。
+   * 这里用 fetch + blob 触发下载，因为下载接口需要 Authorization 头（不能用裸链）。
+   */
+  const handleExportArchive = useCallback(async () => {
+    if (!projectId) return
+    setArchiving(true)
+    try {
+      const res = await fetch(`/api/v1/studio/timeline/projects/${projectId}/clips-archive`, {
+        headers: { Authorization: `Bearer ${getStoredToken() ?? ''}` },
+      })
+      if (!res.ok) {
+        let detail = '打包导出失败'
+        try {
+          const body = (await res.json()) as { detail?: string; message?: string }
+          detail = body.detail || body.message || detail
+        } catch {
+          // 非 JSON 响应（如网关错误页）时保留默认文案
+        }
+        throw new Error(detail)
+      }
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      const anchor = document.createElement('a')
+      anchor.href = url
+      anchor.download = `${timeline?.project_name || projectId}-片段打包.zip`
+      document.body.appendChild(anchor)
+      anchor.click()
+      anchor.remove()
+      // 立即 revoke 会让部分浏览器在下载真正开始前就失去数据源（表现为 0 字节失败），
+      // 延迟回收，代价只是一个短期内存引用。
+      window.setTimeout(() => URL.revokeObjectURL(url), 60_000)
+      message.success('片段打包已开始下载')
+    } catch (err) {
+      message.error(err instanceof Error ? err.message : '打包导出失败')
+    } finally {
+      setArchiving(false)
+    }
+  }, [projectId, timeline?.project_name])
+
   const stats = timeline?.stats
   const exportable = Boolean(stats?.exportable)
+  const archivable = (stats?.clips_with_video ?? 0) > 0
 
   return (
     <div className="h-full overflow-auto p-4">
@@ -154,6 +199,22 @@ const VideoEditor = () => {
             <Button icon={<ReloadOutlined />} onClick={() => void load()} disabled={loading}>
               刷新
             </Button>
+            <Tooltip
+              title={
+                archivable
+                  ? '把每个已生成的片段视频原样打包成一个 zip（未生成的会写进 MANIFEST）'
+                  : '还没有任何片段生成视频，无法打包'
+              }
+            >
+              <Button
+                icon={<DownloadOutlined />}
+                loading={archiving}
+                disabled={!archivable || loading}
+                onClick={() => void handleExportArchive()}
+              >
+                导出片段压缩包
+              </Button>
+            </Tooltip>
             <Tooltip
               title={
                 exportable
