@@ -185,6 +185,18 @@ body { @apply bg-background text-foreground antialiased; }
 数据层拆分为 `useProjectList`（列表与增删改）与 `useProjectSummaries`（阶段与镜头流量），
 页面只负责展示与路由跳转。摘要接口失败时降级为空摘要，不影响列表浏览。
 
+## 9.2 分镜工作室
+
+工作室是最大的一页（≈6700 行、三栏布局），主题与交互都单独收口：
+
+- 样式全部走 `chapterStudio.separation.css` 的 `--cs-*` 变量，`.dark .cs-studio` 只重定义变量；
+- 「推挤 / 覆盖」两种属性面板布局共用同一个 `inspectorNode`，避免两份 30 行 props 漂移；
+- 预览区的逐帧步进与截帧是**真实实现**（`video.currentTime ± 1/25`、canvas 截 PNG），
+  原先的「帧退 / 帧进 / 截取当前帧（Mock）」只弹提示，已移除；
+- 「采用 / 废弃」在未选帧图时禁用，并用 Tooltip 说明原因，不再让人误以为坏了。
+
+回归网：`e2e/chapter-studio.spec.ts` 覆盖三栏渲染、切镜头、待确认筛选。
+
 ## 10.1 镜头看板
 
 `/projects/:projectId/chapters/:chapterId/board` 按「待确认 / 生成中 / 已就绪」三列展示镜头。

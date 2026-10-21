@@ -668,7 +668,6 @@ const ChapterStudio: React.FC = () => {
   const dragStateRef = useRef<null | { type: 'left' | 'right'; startX: number; startLeft: number; startRight: number }>(null)
   const resizeRafRef = useRef<number | null>(null)
   const pendingResizeRef = useRef<null | { leftWidth?: number; rightWidth?: number }>(null)
-  const showPreviewMinimizeButton = false
   const showPreviewFrameSegmented = false
   const showChapterTimeline = false
   const resolveShotVideoRatio = useCallback(
@@ -1013,6 +1012,61 @@ const ChapterStudio: React.FC = () => {
   )
   const currentPreviewVideoFileId = previewVideoFileId || selectedShot?.generated_video_file_id || null
   const currentPreviewVideoUrl = currentPreviewVideoFileId ? buildFileDownloadUrl(currentPreviewVideoFileId) ?? '' : ''
+  const canCaptureFrame = Boolean(currentPreviewVideoUrl)
+
+  /**
+   * 逐帧步进。
+   *
+   * 之前这里是「帧退/帧进（Mock）」，点了只弹提示。用 video.currentTime 加减一帧时长
+   * 就能真正实现，按 25fps 估算（与后端成片帧率同一量级）。
+   */
+  const stepFrame = (direction: 1 | -1) => {
+    const video = videoRef.current
+    if (!video) return
+    video.pause()
+    const limit = Number.isFinite(video.duration) ? video.duration : video.currentTime
+    video.currentTime = Math.max(0, Math.min(limit, video.currentTime + direction / 25))
+  }
+
+  /**
+   * 截取当前画面为 PNG。
+   *
+   * 跨域视频会让 canvas 变成「污染」状态导致 toBlob 抛错，显式兜底提示，
+   * 而不是让用户点完没有任何反应。
+   */
+  const captureCurrentFrame = () => {
+    const video = videoRef.current
+    if (!video || !video.videoWidth) {
+      message.warning('当前没有可截取的画面')
+      return
+    }
+    try {
+      const canvas = document.createElement('canvas')
+      canvas.width = video.videoWidth
+      canvas.height = video.videoHeight
+      const ctx = canvas.getContext('2d')
+      if (!ctx) throw new Error('canvas unavailable')
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
+
+      canvas.toBlob((blob) => {
+        if (!blob) {
+          message.error('截帧失败')
+          return
+        }
+        const url = URL.createObjectURL(blob)
+        const anchor = document.createElement('a')
+        const title = selectedShot?.title?.trim() || 'frame'
+        anchor.href = url
+        anchor.download = `${String(selectedShot?.index ?? 0).padStart(2, '0')}-${title}.png`
+        document.body.appendChild(anchor)
+        anchor.click()
+        anchor.remove()
+        window.setTimeout(() => URL.revokeObjectURL(url), 60_000)
+      }, 'image/png')
+    } catch {
+      message.error('视频源不允许截帧（跨域限制）')
+    }
+  }
 
   useEffect(() => {
     // 切换分镜时：主预览区视频跟随分镜（清空手动选择的预览视频）
@@ -1486,6 +1540,8 @@ const ChapterStudio: React.FC = () => {
     },
     [currentFrameFileId],
   )
+
+  const frameTagDisabled = !currentFrameFileId || frameFileTagsLoading
 
   // 选中分镜后若开启自动展开属性面板：默认展开（尤其是未就绪分镜）
   useEffect(() => {
@@ -2143,6 +2199,55 @@ const ChapterStudio: React.FC = () => {
     return subtitleLines.findIndex((l) => t >= l.start && t < l.end)
   }, [selectedShot, subtitleLines, videoTime])
 
+
+  /**
+   * 属性面板节点。
+   *
+   * 「推挤」与「覆盖」两种布局渲染的是同一个面板。之前各写了一份 30 多行的 props，
+   * 改一个回调要同步改两处，漏一处就会出现「推挤模式能刷新、覆盖模式不能」这类问题。
+   */
+  const inspectorNode = (
+    <Inspector
+      projectId={projectId}
+      chapterId={chapterId}
+      projectVisualStyle={projectVisualStyle}
+      projectStyle={projectStyle}
+      projectDefaultVideoRatio={projectDefaultVideoRatio}
+      capabilityDefaultVideoRatio={capabilityDefaultVideoRatio}
+      videoRatioOptions={videoRatioOptions}
+      imageGenerationOptions={imageGenerationOptions}
+      keyframeResolutionProfile={keyframeResolutionProfile}
+      onChangeKeyframeResolutionProfile={setKeyframeResolutionProfile}
+      loadingDetail={loadingDetail}
+      shotDetail={shotDetail}
+      dialogLines={dialogLines}
+      frameImages={frameImages}
+      sceneLinks={sceneLinks}
+      propLinks={propLinks}
+      costumeLinks={costumeLinks}
+      shotCharacterLinks={shotCharacterLinks}
+      shotCandidateItems={shotCandidateItems}
+      shotDialogueCandidateItems={shotDialogueCandidateItems}
+      cameraUpdating={cameraUpdating}
+      promptAssetsUpdating={promptAssetsUpdating}
+      onDeleteDialogLine={deleteDialogLine}
+      onUpdatePromptScene={updatePromptScene}
+      onUpdatePromptActors={updatePromptActors}
+      onUpdatePromptProps={updatePromptProps}
+      onUpdatePromptCostumes={updatePromptCostumes}
+      selectedShot={selectedShot}
+      onUpdateShotTitle={updateShotTitleInOps}
+      onUpdateShotScriptExcerpt={updateShotScriptExcerptInOps}
+      onDeleteShotOps={deleteShotFromOps}
+      onPatchShotDetail={patchShotDetailLocal}
+      onPatchShotDetailImmediate={patchShotDetailImmediate}
+      onSelectPreviewVideo={setPreviewVideoFileId}
+      onRefreshShots={loadShots}
+      onRefreshShotFrameImages={refreshShotFrameImages}
+      onClose={() => setPrefs((p) => ({ ...p, inspectorOpen: false }))}
+    />
+  )
+
   return (
     <div className={['cs-studio w-full h-full min-h-0 flex flex-col', isResizing ? 'cs-resizing' : ''].join(' ')} ref={containerRef}>
       {/* 顶部工具栏（常驻） */}
@@ -2466,13 +2571,13 @@ const ChapterStudio: React.FC = () => {
             }
             extra={
               <Space size="small">
-                {showPreviewMinimizeButton && (
-                  <Tooltip title="最小化预览（占位）">
-                    <Button size="small" icon={<DoubleRightOutlined />} onClick={() => message.info('最小化预览（Mock）')} />
-                  </Tooltip>
-                )}
-                <Tooltip title="截取当前帧（Mock）">
-                  <Button size="small" icon={<ScissorOutlined />} onClick={() => message.success('已截取当前帧（Mock）')} />
+                <Tooltip title={canCaptureFrame ? '把当前画面截成 PNG 下载' : '当前没有可截取的画面'}>
+                  <Button
+                    size="small"
+                    icon={<ScissorOutlined />}
+                    disabled={!canCaptureFrame}
+                    onClick={() => captureCurrentFrame()}
+                  />
                 </Tooltip>
                 <Tooltip title={currentPreviewVideoFileId ? '下载当前预览视频' : '暂无可下载视频'}>
                   <Button
@@ -2518,6 +2623,11 @@ const ChapterStudio: React.FC = () => {
                 <Tooltip title="循环当前分镜">
                   <Switch size="small" checked={loopCurrent} onChange={setLoopCurrent} />
                 </Tooltip>
+                <Tooltip
+                  title={
+                    frameTagDisabled ? '当前分镜还没有选中的帧图，先在上面选一张再打标签' : ''
+                  }
+                >
                 <Space size={4} className="max-w-[320px]">
                   <Radio.Group
                     size="small"
@@ -2550,6 +2660,7 @@ const ChapterStudio: React.FC = () => {
                     }}
                   />
                 </Space>
+                </Tooltip>
                 <Tooltip title="当前镜头数据">
                   <Tag className="m-0">
                     帧图 {frameImages.length} · 关联 {sceneLinks.length + actorImageLinks.length + propLinks.length + costumeLinks.length}
@@ -2593,7 +2704,8 @@ const ChapterStudio: React.FC = () => {
                   <Button
                     size="small"
                     icon={<CaretLeftOutlined />}
-                    onClick={() => message.info('帧退（Mock）')}
+                    aria-label="上一帧"
+                    onClick={() => stepFrame(-1)}
                   />
                   <Button
                     size="small"
@@ -2619,7 +2731,8 @@ const ChapterStudio: React.FC = () => {
                   <Button
                     size="small"
                     icon={<CaretRightOutlined />}
-                    onClick={() => message.info('帧进（Mock）')}
+                    aria-label="下一帧"
+                    onClick={() => stepFrame(1)}
                   />
                   <Button
                     size="small"
@@ -2765,45 +2878,8 @@ const ChapterStudio: React.FC = () => {
                 overflow: 'hidden',
               }}
             >
-              <Inspector
-                projectId={projectId}
-                chapterId={chapterId}
-                projectVisualStyle={projectVisualStyle}
-                projectStyle={projectStyle}
-                projectDefaultVideoRatio={projectDefaultVideoRatio}
-                capabilityDefaultVideoRatio={capabilityDefaultVideoRatio}
-                videoRatioOptions={videoRatioOptions}
-                imageGenerationOptions={imageGenerationOptions}
-                keyframeResolutionProfile={keyframeResolutionProfile}
-                onChangeKeyframeResolutionProfile={setKeyframeResolutionProfile}
-                loadingDetail={loadingDetail}
-                shotDetail={shotDetail}
-                dialogLines={dialogLines}
-                frameImages={frameImages}
-                sceneLinks={sceneLinks}
-                propLinks={propLinks}
-                costumeLinks={costumeLinks}
-                shotCharacterLinks={shotCharacterLinks}
-                shotCandidateItems={shotCandidateItems}
-                shotDialogueCandidateItems={shotDialogueCandidateItems}
-                cameraUpdating={cameraUpdating}
-                promptAssetsUpdating={promptAssetsUpdating}
-                onDeleteDialogLine={deleteDialogLine}
-                onUpdatePromptScene={updatePromptScene}
-                onUpdatePromptActors={updatePromptActors}
-                onUpdatePromptProps={updatePromptProps}
-                onUpdatePromptCostumes={updatePromptCostumes}
-                selectedShot={selectedShot}
-                onUpdateShotTitle={updateShotTitleInOps}
-                onUpdateShotScriptExcerpt={updateShotScriptExcerptInOps}
-                onDeleteShotOps={deleteShotFromOps}
-                onPatchShotDetail={patchShotDetailLocal}
-                onPatchShotDetailImmediate={patchShotDetailImmediate}
-                onSelectPreviewVideo={setPreviewVideoFileId}
-                onRefreshShots={loadShots}
-                onRefreshShotFrameImages={refreshShotFrameImages}
-                onClose={() => setPrefs((p) => ({ ...p, inspectorOpen: false }))}
-              />
+              {inspectorNode}
+
             </Sider>
 
             {!prefs.inspectorOpen && (
@@ -2821,13 +2897,10 @@ const ChapterStudio: React.FC = () => {
             {/* 覆盖模式：右侧抽屉覆盖中央 */}
             {prefs.inspectorOpen && (
               <div
-                className="absolute top-0 right-0 h-full"
+                className="cs-right absolute top-0 right-0 h-full"
                 style={{
                   width: prefs.rightWidth,
-                  background: '#f9fafc',
-                  borderLeft: '2px solid #cbd5e1',
                   zIndex: 20,
-                  boxShadow: '-4px 0 12px rgba(0,0,0,0.06)',
                   display: 'flex',
                   flexDirection: 'row',
                 }}
@@ -2840,45 +2913,8 @@ const ChapterStudio: React.FC = () => {
                   title="拖拽调整覆盖宽度"
                 />
                 <div className="flex-1 min-w-0 overflow-hidden">
-                  <Inspector
-                    projectId={projectId}
-                    chapterId={chapterId}
-                    projectVisualStyle={projectVisualStyle}
-                    projectStyle={projectStyle}
-                    projectDefaultVideoRatio={projectDefaultVideoRatio}
-                    capabilityDefaultVideoRatio={capabilityDefaultVideoRatio}
-                    videoRatioOptions={videoRatioOptions}
-                    imageGenerationOptions={imageGenerationOptions}
-                    keyframeResolutionProfile={keyframeResolutionProfile}
-                    onChangeKeyframeResolutionProfile={setKeyframeResolutionProfile}
-                    loadingDetail={loadingDetail}
-                    shotDetail={shotDetail}
-                    dialogLines={dialogLines}
-                    frameImages={frameImages}
-                    sceneLinks={sceneLinks}
-                    propLinks={propLinks}
-                    costumeLinks={costumeLinks}
-                    shotCharacterLinks={shotCharacterLinks}
-                    shotCandidateItems={shotCandidateItems}
-                    shotDialogueCandidateItems={shotDialogueCandidateItems}
-                    cameraUpdating={cameraUpdating}
-                    promptAssetsUpdating={promptAssetsUpdating}
-                    onDeleteDialogLine={deleteDialogLine}
-                    onUpdatePromptScene={updatePromptScene}
-                    onUpdatePromptActors={updatePromptActors}
-                    onUpdatePromptProps={updatePromptProps}
-                    onUpdatePromptCostumes={updatePromptCostumes}
-                    selectedShot={selectedShot}
-                    onUpdateShotTitle={updateShotTitleInOps}
-                    onUpdateShotScriptExcerpt={updateShotScriptExcerptInOps}
-                    onDeleteShotOps={deleteShotFromOps}
-                    onPatchShotDetail={patchShotDetailLocal}
-                    onPatchShotDetailImmediate={patchShotDetailImmediate}
-                    onSelectPreviewVideo={setPreviewVideoFileId}
-                onRefreshShots={loadShots}
-                    onRefreshShotFrameImages={refreshShotFrameImages}
-                    onClose={() => setPrefs((p) => ({ ...p, inspectorOpen: false }))}
-                  />
+                  {inspectorNode}
+
                 </div>
               </div>
             )}
