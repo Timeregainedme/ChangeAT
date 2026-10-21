@@ -69,6 +69,35 @@ user:pass@tcp(host:3306)/db?parseTime=true&loc=UTC&charset=utf8mb4
 
 `/api/v1/ready` 是 Go 独有端点，Python 侧没有对应实现，因此不改动既有契约。
 
+## 写方法回落机制（重要）
+
+Nginx 的 `location = ` / `location ~ ` **只匹配路径、不区分 HTTP 方法**。
+所以把 `GET /studio/projects` 切给 Go 时，`POST /studio/projects` 也会一起被转过去。
+
+如果 Go 直接返回 405，用户点「创建项目」就会失败 —— 这样踩过一次线上。
+
+因此 Go 侧统一处理：
+
+```go
+r.MethodNotAllowed(func(w, r) {
+    pythonFallback.ServeHTTP(w, r)   // 透传给 Python
+})
+```
+
+效果：
+
+| 请求 | 走向 |
+|---|---|
+| `GET /studio/projects` | Go 实现 |
+| `POST /studio/projects` | 回落 Python |
+| `PATCH /studio/chapters/{id}` | 回落 Python |
+
+**为什么不按方法在 Nginx 里再分一次**：每条路径要复制一份配置，
+漏一条就是一次线上故障，而且新增写方法时要同步两处。
+
+**回落的副作用**：真正应该 405 的请求（如 `DELETE /health`）会变成 404。
+这个取舍是有意的 —— 宁可回落保证写操作可用，也不要让一次方法不匹配阻断业务。
+
 ## 切流原则
 
 **只注册已经真正实现的路径。**
