@@ -520,6 +520,7 @@ const { taskMap: chapterDivisionTaskMap, setTrackedTaskMap: setChapterDivisionTa
       title: '标题',
       dataIndex: 'title',
       key: 'title',
+      width: 240,
       ellipsis: true,
       render: (title: string, record) => (
         <Button
@@ -615,7 +616,6 @@ const { taskMap: chapterDivisionTaskMap, setTrackedTaskMap: setChapterDivisionTa
         <Tag color={chapterStatusMap[status].color}>{chapterStatusMap[status].text}</Tag>
       ),
     },
-    { title: '更新时间', dataIndex: 'updatedAt', key: 'updatedAt', width: 160 },
     {
       title: '操作',
       key: 'action',
