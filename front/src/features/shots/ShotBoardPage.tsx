@@ -426,17 +426,19 @@ export function ShotBoardPage() {
       {selectedIds.length > 0 ? (
         <div className="flex shrink-0 items-center gap-3 border-b border-border bg-primary/5 px-6 py-2 text-sm">
           <span className="font-medium">已选 {selectedIds.length} 个镜头</span>
-          <Button
-            size="sm"
-            disabled={pendingSelected.length === 0}
-            onClick={() => {
-              setConfirmResult(null)
-              setConfirmOpen(true)
-            }}
-          >
-            <CheckCheck className="h-3.5 w-3.5" />
-            批量确认{pendingSelected.length > 0 ? `（${pendingSelected.length}）` : ''}
-          </Button>
+          {/* 只在选中的镜头里有「待确认」项时才出现：没有可确认的东西就不该给按钮 */}
+          {pendingSelected.length > 0 ? (
+            <Button
+              size="sm"
+              onClick={() => {
+                setConfirmResult(null)
+                setConfirmOpen(true)
+              }}
+            >
+              <CheckCheck className="h-3.5 w-3.5" />
+              批量确认（{pendingSelected.length}）
+            </Button>
+          ) : null}
           <Button
             size="sm"
             variant="outline"
