@@ -19,9 +19,11 @@ import { useResolvedTaskCenterTasks } from './taskCenterMeta'
 
 const TASK_CENTER_OPEN_STORAGE_KEY = 'dyeingtime_task_center_open_v1'
 const TASK_CENTER_POSITION_STORAGE_KEY = 'dyeingtime_task_center_position_v1'
-const TASK_CENTER_EDGE_PADDING = 24
+const TASK_CENTER_EDGE_PADDING = 12
 const TASK_CENTER_BUTTON_WIDTH = 132
-const TASK_CENTER_BUTTON_HEIGHT = 40
+// 实际渲染高度是 32（按钮自带 padding 会撑到 40 以下）。这里按真实高度算边界，
+// 否则「贴底」会多留 8px 空隙，看起来像没对齐。
+const TASK_CENTER_BUTTON_HEIGHT = 32
 const TASK_CENTER_PANEL_WIDTH = 360
 const TASK_CENTER_PANEL_HEIGHT = 420
 const TASK_CENTER_PANEL_GAP = 12
@@ -81,7 +83,7 @@ function snapButtonPosition(position: { x: number; y: number }) {
 }
 
 function formatElapsedMs(elapsedMs?: number | null): string | null {
-  if (elapsedMs == null || elapsedMs < 0) return null
+  if (elapsedMs === null || elapsedMs === undefined || elapsedMs < 0) return null
   const totalSeconds = Math.floor(elapsedMs / 1000)
   if (totalSeconds < 60) return `${totalSeconds} 秒`
   const minutes = Math.floor(totalSeconds / 60)
@@ -155,7 +157,13 @@ export function TaskCenter() {
       const SHELL_BRAND_HEIGHT = 120
       const insideShellChrome = x < SHELL_SIDEBAR_WIDTH && y < SHELL_BRAND_HEIGHT
 
-      setButtonPosition(insideShellChrome ? defaultPosition : { x, y })
+      // 位置是按当时的窗口高度算出来的绝对值。窗口变高后，旧的 y 会停在中途，
+      // 看起来「浮在半空、没有贴底」。判定为底部区域的就重新贴到底边。
+      const bounds = getButtonBounds()
+      const nearBottom = bounds.maxY - y <= 160
+      const restored = nearBottom ? { x, y: bounds.maxY } : { x, y }
+
+      setButtonPosition(insideShellChrome ? defaultPosition : restored)
     } catch {
       setOpen(false)
       setButtonPosition(defaultPosition)
@@ -175,7 +183,13 @@ export function TaskCenter() {
   useEffect(() => {
     const clampPosition = () => {
       if (typeof window === 'undefined') return
-      setButtonPosition((prev) => snapButtonPosition(clampButtonPosition(prev)))
+      setButtonPosition((prev) => {
+        const snapped = snapButtonPosition(clampButtonPosition(prev))
+        const bounds = getButtonBounds()
+        // 原本就贴着底部的，窗口变化后继续贴底，而不是悬在原地
+        const nearBottom = bounds.maxY - prev.y <= 160
+        return nearBottom ? { ...snapped, y: bounds.maxY } : snapped
+      })
     }
     clampPosition()
     window.addEventListener('resize', clampPosition)
@@ -293,11 +307,24 @@ export function TaskCenter() {
     const alignedLeft = buttonPosition.x
     const alignedRight = buttonPosition.x + TASK_CENTER_BUTTON_WIDTH - panelWidth
     const rawLeft = alignedLeft + panelWidth <= viewportWidth - TASK_CENTER_EDGE_PADDING ? alignedLeft : alignedRight
+    const left = Math.max(
+      TASK_CENTER_EDGE_PADDING,
+      Math.min(rawLeft, viewportWidth - panelWidth - TASK_CENTER_EDGE_PADDING),
+    )
+
+    // 上方有空间时用 bottom 锚定：面板是按 420 的预估高度算 top 的，
+    // 实际内容更短时会浮在按钮上方一百多像素，看起来和按钮脱节。
+    // 改用 bottom = 视口高 - 按钮顶 - 间距，面板就始终贴着按钮。
+    if (hasSpaceAbove) {
+      return {
+        left,
+        bottom: viewportHeight - buttonPosition.y + TASK_CENTER_PANEL_GAP,
+        width: panelWidth,
+      }
+    }
+
     return {
-      left: Math.max(
-        TASK_CENTER_EDGE_PADDING,
-        Math.min(rawLeft, viewportWidth - panelWidth - TASK_CENTER_EDGE_PADDING),
-      ),
+      left,
       top: Math.max(
         TASK_CENTER_EDGE_PADDING,
         Math.min(rawTop, viewportHeight - TASK_CENTER_PANEL_HEIGHT - TASK_CENTER_EDGE_PADDING),
@@ -353,7 +380,12 @@ export function TaskCenter() {
       {open ? (
         <div
           className={`fixed pointer-events-auto ${dragging ? '' : 'transition-[left,top] duration-200 ease-out'}`}
-          style={{ left: panelStyle.left, top: panelStyle.top, width: panelStyle.width }}
+          style={{
+            left: panelStyle.left,
+            top: 'top' in panelStyle ? panelStyle.top : undefined,
+            bottom: 'bottom' in panelStyle ? panelStyle.bottom : undefined,
+            width: panelStyle.width,
+          }}
         >
           <Card
             title="任务中心"
