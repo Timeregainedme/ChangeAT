@@ -216,7 +216,9 @@ async def resolve_style_motif(db: AsyncSession, *, style: str) -> str | None:
     row = await db.scalar(
         select(ProjectStyleOption).where(ProjectStyleOption.name == name).limit(1)
     )
-    if row is None:
+    # scalar 在极少数情况下可能返回非行对象（自定义驱动/测试替身会返回计数），
+    # 这里只接受真正的目录行，其余一律当作「没配置」，避免属性访问炸穿生成链路。
+    if not isinstance(row, ProjectStyleOption):
         return None
     text = (row.prompt_pack or "").strip()
     return text or None

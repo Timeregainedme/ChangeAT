@@ -17,6 +17,7 @@ from app.models.studio import (
     ChapterStatus,
     Project,
     ProjectStyle,
+    ProjectStyleOption,
     ProjectVisualStyle,
     Shot,
     ShotDetail,
@@ -34,6 +35,8 @@ class _FakeStudioDB:
         self.chapters: dict[str, Chapter] = {}
         self.shots: dict[str, Shot] = {}
         self.shot_details: dict[str, ShotDetail] = {}
+        # 风格目录：style-options 与项目创建校验都会读它
+        self.style_options: dict[str, ProjectStyleOption] = {}
 
     async def get(self, model: type, entity_id: str):  # noqa: ANN001
         if model is Project:
@@ -44,6 +47,8 @@ class _FakeStudioDB:
             return self.shots.get(entity_id)
         if model is ShotDetail:
             return self.shot_details.get(entity_id)
+        if model is ProjectStyleOption:
+            return self.style_options.get(entity_id)
         return None
 
     def add(self, obj: object) -> None:
@@ -59,9 +64,29 @@ class _FakeStudioDB:
         if isinstance(obj, ShotDetail):
             self.shot_details[obj.id] = obj
             return
+        if isinstance(obj, ProjectStyleOption):
+            self.style_options[obj.id] = obj
+            return
         raise TypeError(f"Unsupported object type: {type(obj)!r}")
 
+    def add_all(self, objects: list[object]) -> None:
+        """批量添加；不支持的类型静默忽略。
+
+        响应壳测试只关心接口返回结构，不需要完整模拟 ORM；
+        风格目录在首次访问时会用内置枚举种子化（`ensure_style_catalog`），
+        这里只要把 `ProjectStyleOption` 放进来即可。
+        """
+        for obj in objects:
+            try:
+                self.add(obj)
+            except TypeError:
+                pass
+
     async def flush(self) -> None:
+        return None
+
+    async def commit(self) -> None:
+        """风格目录接口会在读取种子后提交，替身里无需真实事务。"""
         return None
 
     async def refresh(self, obj: object) -> None:
@@ -86,9 +111,28 @@ class _FakeStudioDB:
         raise TypeError(f"Unsupported object type: {type(obj)!r}")
 
     async def execute(self, _stmt):  # noqa: ANN001
+        class _Scalars:
+            def __init__(self, rows: list[object]) -> None:
+                self._rows = rows
+
+            def all(self) -> list[object]:
+                return self._rows
+
         class _EmptyResult:
+            def __init__(self, rows: list[object] | None = None) -> None:
+                self._rows = rows or []
+
             def all(self) -> list[tuple]:
                 return []
+
+            def scalars(self) -> _Scalars:
+                return _Scalars(self._rows)
+
+        # 风格目录：list_style_options 走 execute(...).scalars().all()
+        entity = _stmt.column_descriptions[0].get("entity")
+        if entity is ProjectStyleOption:
+            rows = sorted(self.style_options.values(), key=lambda item: item.sort_order)
+            return _EmptyResult(rows)
 
         return _EmptyResult()
 
@@ -109,6 +153,10 @@ class _FakeStudioDB:
             Shot: self.shots,
             ShotDetail: self.shot_details,
         }
+        if entity is ProjectStyleOption:
+            # ensure_style_catalog 用 `select(...).limit(1)` 判断是否已种子化
+            return next(iter(self.style_options.values()), None)
+
         store = stores.get(entity)
         if store is None:
             return None
@@ -233,7 +281,14 @@ def test_create_project_returns_created_envelope(client: TestClient) -> None:
 
 
 def test_project_style_options_returns_grouped_choices(client: TestClient) -> None:
-    response = client.get("/api/v1/studio/projects/style-options")
+    # 风格目录已从枚举升级为表：接口会读 `project_styles`（首次访问自动种子化），
+    # 因此这里必须用内存替身，否则会打到真实库并因缺表失败。
+    db = _FakeStudioDB()
+    app.dependency_overrides[get_db] = _override_db(db)
+    try:
+        response = client.get("/api/v1/studio/projects/style-options")
+    finally:
+        app.dependency_overrides.clear()
     assert response.status_code == 200
     body = response.json()
     assert body["code"] == 200
