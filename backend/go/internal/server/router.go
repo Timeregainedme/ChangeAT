@@ -80,6 +80,12 @@ func NewRouter(deps Deps) http.Handler {
 				store.NewChapterStore(deps.DB),
 				store.NewWorkspaceStore(deps.DB),
 			)
+			shotHandler := handler.NewShot(
+				store.NewShotStore(deps.DB),
+				store.NewShotDetailStore(deps.DB),
+				store.NewFrameImageStore(deps.DB),
+				store.NewWorkspaceStore(deps.DB),
+			)
 			fileHandler := handler.NewFile(
 				store.NewFileStore(deps.DB),
 				store.NewWorkspaceStore(deps.DB),
@@ -103,8 +109,15 @@ func NewRouter(deps Deps) http.Handler {
 				r.Get("/studio/chapters", chapterHandler.List)
 				r.Get("/studio/chapters/{chapter_id}", chapterHandler.Get)
 
+				// 镜头相关只读。注意顺序：静态段（runtime-summary）在 Go 侧未实现，
+				// 这里不注册，让它继续由 Nginx 转给 Python。
+				r.Get("/studio/shots", shotHandler.List)
+				r.Get("/studio/shot-frame-images", shotHandler.ListFrames)
+				r.Get("/studio/shot-details/{shot_id}", shotHandler.GetDetail)
+
 				// 任务状态与结果查询：前端任务中心的高频轮询入口。
 				r.Get("/film/tasks", taskHandler.List)
+				r.Get("/film/task-links", taskHandler.ListLinks)
 				r.Get("/film/tasks/{task_id}/status", taskHandler.Status)
 				r.Get("/film/tasks/{task_id}/result", taskHandler.Result)
 			})

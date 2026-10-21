@@ -263,9 +263,13 @@ body { @apply bg-background text-foreground antialiased; }
 
 ```bash
 cd front
-pnpm dev:mock      # 演示数据模式，直接进 /projects
-pnpm dev:design    # 演示数据模式并打开 /design（设计系统对照表）
+pnpm dev:mock       # 演示数据模式，直接进 /projects
+pnpm dev:design     # 演示数据模式并打开 /design（设计系统对照表）
+pnpm dev:prototype  # 演示数据模式并打开 /prototype（原型索引）
 ```
+
+`/prototype` 把设计系统、已迁移页面与存量页面集中成一页导航，
+标注了哪些入口依赖演示数据，演示和验收时不用记路由。
 
 要点：
 

@@ -56,6 +56,7 @@ const NotFound = lazy(() => import('./pages/NotFound'))
  * 整条分支连同动态 import 一起被裁掉，不会额外产出 chunk。
  */
 const DesignPreview = import.meta.env.DEV ? lazy(() => import('./app/design-preview')) : null
+const PrototypeIndex = import.meta.env.DEV ? lazy(() => import('./app/prototype')) : null
 
 /** chunk 加载中的占位：保持整页高度，避免布局跳动。 */
 const RouteFallback: FC = () => (
@@ -72,8 +73,9 @@ const App: React.FC = () => {
           {/* 登录页不需要守卫，否则死循环 */}
           <Route path="/login" element={<Login />} />
 
-          {/* 设计系统预览页：仅开发环境存在 */}
+          {/* 设计系统预览页与原型索引：仅开发环境存在 */}
           {DesignPreview ? <Route path="/design" element={<DesignPreview />} /> : null}
+          {PrototypeIndex ? <Route path="/prototype" element={<PrototypeIndex />} /> : null}
 
           {/* 其余页面统一要求登录 */}
           <Route

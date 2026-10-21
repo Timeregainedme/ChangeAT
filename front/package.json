@@ -19,7 +19,8 @@
     "openapi:gen": "pnpm exec -- openapi --input ./openapi.json --output ./src/services/generated --client fetch --useOptions --useUnionTypes",
     "openapi:update": "pnpm run openapi:fetch && pnpm run openapi:gen",
     "dev:mock": "VITE_USE_MOCK=true vite",
-    "dev:design": "VITE_USE_MOCK=true vite --open /design"
+    "dev:design": "VITE_USE_MOCK=true vite --open /design",
+    "dev:prototype": "VITE_USE_MOCK=true vite --open /prototype"
   },
   "dependencies": {
     "@ant-design/icons": "^5.2.6",

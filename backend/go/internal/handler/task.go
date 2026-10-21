@@ -162,6 +162,76 @@ func (h *Task) List(w http.ResponseWriter, r *http.Request) {
 	response.WriteSuccess(w, newPaginated(out, page, pageSize, total))
 }
 
+// taskLinkRead 对应 Python 的 `GenerationTaskLinkRead`。
+type taskLinkRead struct {
+	ID               int     `json:"id"`
+	TaskID           string  `json:"task_id"`
+	ResourceType     string  `json:"resource_type"`
+	RelationType     string  `json:"relation_type"`
+	RelationEntityID string  `json:"relation_entity_id"`
+	FileID           *string `json:"file_id"`
+	Status           string  `json:"status"`
+}
+
+// ListLinks 处理 GET /api/v1/film/task-links。
+func (h *Task) ListLinks(w http.ResponseWriter, r *http.Request) {
+	workspaceID, ok := h.resolveWorkspace(w, r)
+	if !ok {
+		return
+	}
+
+	query := r.URL.Query()
+	page, pageSize, msg := parsePaginationWithDefault(query.Get("page"), query.Get("page_size"), 10)
+	if msg != "" {
+		response.WriteError(w, http.StatusUnprocessableEntity, msg)
+		return
+	}
+
+	params := store.TaskLinkListParams{
+		WorkspaceID: workspaceID,
+		OrderField:  query.Get("order"),
+		// Python 侧 is_desc 默认 true（任务关联默认按最近更新倒序）
+		Desc:     query.Get("is_desc") != "false",
+		Page:     page,
+		PageSize: pageSize,
+	}
+	for _, f := range []struct {
+		dest   **string
+		source string
+	}{
+		{&params.ResourceType, "resource_type"},
+		{&params.RelationType, "relation_type"},
+		{&params.RelationEntityID, "relation_entity_id"},
+		{&params.Status, "status"},
+		{&params.TaskID, "task_id"},
+	} {
+		if v := query.Get(f.source); v != "" {
+			value := v
+			*f.dest = &value
+		}
+	}
+
+	items, total, err := h.tasks.ListTaskLinks(r.Context(), params)
+	if err != nil {
+		response.WriteError(w, http.StatusInternalServerError, "读取任务关联失败")
+		return
+	}
+
+	out := make([]taskLinkRead, 0, len(items))
+	for _, item := range items {
+		out = append(out, taskLinkRead{
+			ID:               item.ID,
+			TaskID:           item.TaskID,
+			ResourceType:     item.ResourceType,
+			RelationType:     item.RelationType,
+			RelationEntityID: item.RelationEntityID,
+			FileID:           item.FileID,
+			Status:           item.Status,
+		})
+	}
+	response.WriteSuccess(w, newPaginated(out, page, pageSize, total))
+}
+
 // Status 处理 GET /api/v1/film/tasks/{task_id}/status。
 //
 // 用 GetStatus（不取 result/error）：状态轮询是高频调用，
