@@ -149,3 +149,34 @@ def test_create_prompt_template_validation_error_returns_api_response(client: Te
     assert body["data"] is None
     assert "category" in body["message"]
     assert "content" in body["message"]
+
+
+def test_unmatched_route_returns_envelope() -> None:
+    """路由未匹配的 404 也必须走统一信封。
+
+    回归背景：此前只注册了 `fastapi.HTTPException` 的 handler，而路由未匹配的
+    404 / 方法不允许的 405 是 `starlette.exceptions.HTTPException` 抛出的（FastAPI
+    的是它的子类），注册子类捕获不到父类实例 —— 于是返回 `{"detail": "Not Found"}`，
+    与前端约定的 `{code,message,data,meta}` 不一致，前端会把 message 读成 undefined。
+
+    这类问题的危害不是报错，而是「前端显示未知错误」——比直接失败更难定位。
+    """
+    from fastapi.testclient import TestClient
+
+    from app.main import app
+
+    client = TestClient(app)
+
+    r404 = client.get("/api/v1/definitely-not-a-route")
+    assert r404.status_code == 404
+    body = r404.json()
+    assert set(body.keys()) == {"code", "message", "data", "meta"}, body
+    assert body["code"] == 404
+    assert body["data"] is None
+
+    # 方法不允许同样走信封
+    r405 = client.request("DELETE", "/health")
+    assert r405.status_code == 405
+    body405 = r405.json()
+    assert set(body405.keys()) == {"code", "message", "data", "meta"}, body405
+    assert body405["code"] == 405

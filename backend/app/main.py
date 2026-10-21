@@ -4,10 +4,11 @@ import asyncio
 import logging
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.api.v1 import router as api_v1_router
 from app.bootstrap import bootstrap_all_registries
@@ -41,7 +42,10 @@ async def http_exception_handler(request: Request, exc: Exception) -> JSONRespon
     需转发 ``exc.headers``：FastAPI 默认处理器会带上它们，而自定义处理器若丢弃，
     依赖响应头表达语义的状态码就失效（如 416 的 ``Content-Range: bytes */total``）。
     """
-    if isinstance(exc, HTTPException):
+    # 用 Starlette 的父类判断：注册父类后，FastAPI 的 HTTPException（子类）
+    # 与 Starlette 自身抛出的 404/405（路由未匹配、方法不允许）都会走到这里。
+    # 只判断 FastAPI 的子类会让 Starlette 的 404 落到 else 分支变成 500。
+    if isinstance(exc, StarletteHTTPException):
         code = exc.status_code
         message = _error_message(exc.detail)
         headers = exc.headers
@@ -124,7 +128,10 @@ app = FastAPI(
 
 # 统一错误响应格式：{ code, message, data: null }
 app.add_exception_handler(RequestValidationError, validation_exception_handler)
-app.add_exception_handler(HTTPException, http_exception_handler)
+# 注册 Starlette 的父类而不是 FastAPI 的子类：路由未匹配的 404 与
+# 方法不允许的 405 由 Starlette 抛出，注册子类捕获不到，会返回
+# {"detail": "Not Found"}，与前端约定的 {code,message,data,meta} 信封不一致。
+app.add_exception_handler(StarletteHTTPException, http_exception_handler)
 app.add_exception_handler(ValueError, value_error_handler)
 app.add_exception_handler(Exception, http_exception_handler)
 

@@ -127,11 +127,6 @@ async def preview_prompt_and_images(
 ) -> tuple[str, list[str], dict | None]:
     # 仅做校验（不满足时抛错），本函数用不到返回值。
     await validate_shot_and_duration(db, shot_id)
-    resolved_resolution = await resolve_effective_video_resolution(
-        db,
-        shot_id=shot_id,
-        requested_resolution=resolution,
-    )
     base = build_video_base_draft(shot_id=shot_id, prompt=prompt)
     context = await build_video_context(
         db,
