@@ -176,4 +176,27 @@ code {
   .dark .text-black {
     color: hsl(var(--foreground));
   }
+
+  /**
+   * 带透明度的白色/浅灰底（bg-white/80 这类）。
+   *
+   * Tailwind 会把它们编译成独立的类名，逐个补规则不现实，
+   * 用属性包含选择器统一兜底并保留相近透明度：
+   * 这些用法几乎都是「浮在内容上的半透明条」，深色下必须变深，否则就是一块白斑。
+   */
+  .dark [class*='bg-white/80'] {
+    background-color: hsl(var(--card) / 0.85);
+  }
+  .dark [class*='bg-white/70'] {
+    background-color: hsl(var(--card) / 0.75);
+  }
+  .dark [class*='bg-white/60'] {
+    background-color: hsl(var(--card) / 0.65);
+  }
+  .dark [class*='bg-slate-50/'] {
+    background-color: hsl(240 5% 13% / 0.85);
+  }
+  .dark [class*='bg-slate-200/'] {
+    background-color: hsl(240 5% 20% / 0.85);
+  }
 }

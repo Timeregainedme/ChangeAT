@@ -1707,13 +1707,6 @@ const ChapterStudio: React.FC = () => {
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [selectedShotId, selectedShotIds.length, shots, setPrefs])
 
-  const statusTag = (status: ShotStatus | undefined) => {
-    const s = status ?? 'pending'
-    const map = { pending: 'default', generating: 'processing', ready: 'success' } as const
-    const text = { pending: '待确认', generating: '生成中', ready: '已就绪' } as const
-    return <Tag color={map[s]}>{text[s]}</Tag>
-  }
-
   const statusDotClass = (status: ShotStatus | undefined) => {
     if (status === 'generating') return 'cs-generating'
     if (status === 'ready') return 'cs-ready'
@@ -2382,7 +2375,7 @@ const ChapterStudio: React.FC = () => {
                                   </div>
                                 )}
                               </div>
-                              <div className="text-xs text-gray-500 mt-1 truncate">
+                              <div className="mt-1 truncate text-xs text-muted-foreground">
                                 {shotDetail?.movement ? `${CAMERA_MOVEMENT_OPTIONS.find((x) => x.value === shotDetail.movement)?.label ?? shotDetail.movement} · ` : ''}
                                 {((shotDurations[s.id] ?? shotDetail?.duration ?? 0) || 0).toFixed(1)}s
                               </div>
@@ -2417,7 +2410,7 @@ const ChapterStudio: React.FC = () => {
                                   </Tag>
                                 )}
                                 {s.hasMusic && <Tag icon={<SoundOutlined />} className="m-0" color="default">音乐</Tag>}
-                                {statusTag(s.status)}
+                                {/* 状态已由上面的「已就绪/生成中/待确认」表达，不再重复渲染一次 */}
                                 {s.hidden && <Tag icon={<EyeInvisibleOutlined />} className="m-0">隐藏</Tag>}
                                 {s.hasProblem && <Tag color="error" className="m-0">有问题</Tag>}
                               </div>
@@ -2503,7 +2496,8 @@ const ChapterStudio: React.FC = () => {
               ) : (
                 <div />
               )}
-              <Space size="small">
+              {/* 工具条允许换行：预览列宽度由用户拖动决定，单行硬塞会把「采用/废弃」挤成竖排 */}
+              <div className="flex flex-wrap items-center gap-2">
                 <Select
                   size="small"
                   value={playbackRate}
@@ -2551,7 +2545,7 @@ const ChapterStudio: React.FC = () => {
                     帧图 {frameImages.length} · 关联 {sceneLinks.length + actorImageLinks.length + propLinks.length + costumeLinks.length}
                   </Tag>
                 </Tooltip>
-              </Space>
+              </div>
             </div>
 
             <div className="flex-1 min-h-0 overflow-auto flex flex-col gap-8 pr-1">

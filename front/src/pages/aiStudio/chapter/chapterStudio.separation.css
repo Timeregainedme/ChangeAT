@@ -1,24 +1,104 @@
-/* Chapter Shooting Studio – separation & hierarchy pass (scoped) */
+/* Chapter Shooting Studio – separation & hierarchy pass (scoped, theme-aware) */
 
+/**
+ * 分镜工作室的局部主题。
+ *
+ * 这里原本写死了 20 多个浅色十六进制值，导致深色模式下「外壳变黑、工作区还是白卡片」。
+ * 现在所有颜色都收敛到 --cs-* 变量：
+ *   - .cs-studio 定义浅色（与设计系统的浅色 token 对齐）；
+ *   - .dark .cs-studio 只重定义同一批变量，规则体一行都不用改。
+ * 新增颜色时只加变量、不写字面值，否则深色下必然再出现白块。
+ */
 .cs-studio {
+  /* 容器 */
+  --cs-page-bg: linear-gradient(180deg, #f3f6ff 0%, #eef2f7 100%);
   --cs-left-bg: #f8f9fc;
   --cs-main-bg: #ffffff;
   --cs-right-bg: #f9fafc;
+  --cs-surface: #ffffff;
+  --cs-surface-soft: #fdfdfd;
+  --cs-surface-muted: #f1f5f9;
+
+  /* 线 */
   --cs-divider: #e2e8f0;
   --cs-divider-strong: #cbd5e1;
+  --cs-border: #e5e7eb;
+  --cs-border-soft: #eef2f7;
+
+  /* 文字 */
   --cs-text: #1f2937;
   --cs-text-2: #4b5563;
   --cs-text-3: #6b7280;
+  --cs-text-4: #9ca3af;
+
+  /* 语义色 */
   --cs-primary: #3b82f6;
   --cs-success: #10b981;
   --cs-warn: #f59e0b;
   --cs-muted: #9ca3af;
 
+  /* 状态底色 */
+  --cs-selected-bg: #e0f2fe;
+  --cs-note-bg: rgba(239, 246, 255, 0.82);
+  --cs-note-border: rgba(191, 219, 254, 0.9);
+  --cs-note-text: #475569;
+  --cs-ready-bg: linear-gradient(180deg, rgba(236, 253, 245, 0.8) 0%, #ffffff 100%);
+  --cs-ready-border: rgba(16, 185, 129, 0.22);
+  --cs-missing-bg: linear-gradient(180deg, rgba(255, 251, 235, 0.92) 0%, #ffffff 100%);
+  --cs-missing-border: rgba(245, 158, 11, 0.24);
+  --cs-summary-bg: rgba(239, 246, 255, 0.78);
+  --cs-summary-border: #dbeafe;
+
+  /* 阴影 */
+  --cs-shadow-sm: 0 2px 4px rgba(0, 0, 0, 0.04);
+  --cs-shadow-md: 0 8px 18px rgba(15, 23, 42, 0.08);
+  --cs-shadow-lg: -6px 0 16px rgba(0, 0, 0, 0.08);
+
   width: 100%;
   height: 100%;
   min-height: 0;
   color: var(--cs-text);
-  background: linear-gradient(180deg, #f3f6ff 0%, #eef2f7 100%);
+  background: var(--cs-page-bg);
+}
+
+.dark .cs-studio {
+  --cs-page-bg: hsl(var(--background));
+  --cs-left-bg: hsl(240 9% 8%);
+  --cs-main-bg: hsl(var(--background));
+  --cs-right-bg: hsl(240 8% 10%);
+  --cs-surface: hsl(var(--card));
+  --cs-surface-soft: hsl(240 6% 11%);
+  --cs-surface-muted: hsl(240 5% 16%);
+
+  --cs-divider: hsl(var(--border));
+  --cs-divider-strong: hsl(240 5% 26%);
+  --cs-border: hsl(var(--border));
+  --cs-border-soft: hsl(var(--border) / 0.6);
+
+  --cs-text: hsl(var(--foreground));
+  --cs-text-2: hsl(0 0% 82%);
+  --cs-text-3: hsl(var(--muted-foreground));
+  --cs-text-4: hsl(240 5% 48%);
+
+  --cs-primary: hsl(var(--primary));
+  --cs-success: hsl(var(--run-success));
+  --cs-warn: hsl(var(--ready-partial));
+  --cs-muted: hsl(240 5% 45%);
+
+  --cs-selected-bg: hsl(var(--primary) / 0.16);
+  --cs-note-bg: hsl(var(--primary) / 0.08);
+  --cs-note-border: hsl(var(--primary) / 0.22);
+  --cs-note-text: hsl(0 0% 78%);
+  --cs-ready-bg: linear-gradient(180deg, hsl(var(--run-success) / 0.12) 0%, hsl(var(--card)) 100%);
+  --cs-ready-border: hsl(var(--run-success) / 0.35);
+  --cs-missing-bg: linear-gradient(180deg, hsl(var(--ready-partial) / 0.14) 0%, hsl(var(--card)) 100%);
+  --cs-missing-border: hsl(var(--ready-partial) / 0.35);
+  --cs-summary-bg: hsl(var(--primary) / 0.08);
+  --cs-summary-border: hsl(var(--primary) / 0.22);
+
+  --cs-shadow-sm: 0 2px 4px rgba(0, 0, 0, 0.35);
+  --cs-shadow-md: 0 8px 18px rgba(0, 0, 0, 0.45);
+  --cs-shadow-lg: -6px 0 16px rgba(0, 0, 0, 0.45);
 }
 
 .cs-resizing * {
@@ -31,9 +111,9 @@
 }
 
 .cs-topbar {
-  background: #fff;
+  background: var(--cs-surface);
   border-bottom: 1px solid var(--cs-divider);
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.04);
+  box-shadow: var(--cs-shadow-sm);
 }
 
 .cs-left {
@@ -59,7 +139,7 @@
 .cs-right {
   background: var(--cs-right-bg) !important;
   border-left: 2px solid var(--cs-divider-strong);
-  box-shadow: -4px 0 12px rgba(0, 0, 0, 0.06);
+  box-shadow: var(--cs-shadow-lg);
 }
 
 .cs-sep {
@@ -82,7 +162,6 @@
 .cs-sep.cs-sep-strong::before {
   width: 2px;
   background: var(--cs-divider-strong);
-  box-shadow: 0 0 0 rgba(0, 0, 0, 0);
 }
 
 /* Antd cards inside studio: lighter, clearer containers */
@@ -91,7 +170,7 @@
 }
 
 .cs-studio .ant-card .ant-card-head {
-  border-bottom: 1px solid #e5e7eb;
+  border-bottom: 1px solid var(--cs-border);
 }
 
 .cs-studio .ant-card .ant-card-head-title {
@@ -114,17 +193,17 @@
 /* Shot list item */
 .cs-shot-item {
   position: relative;
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--cs-border);
   border-radius: 10px;
-  background: #fff;
+  background: var(--cs-surface);
   transition: background 120ms ease, box-shadow 120ms ease, border-color 120ms ease;
 }
 .cs-shot-item:hover {
-  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.08);
+  box-shadow: var(--cs-shadow-md);
 }
 .cs-shot-item.cs-shot-selected {
-  background: #e0f2fe;
-  border-color: rgba(59, 130, 246, 0.35);
+  background: var(--cs-selected-bg);
+  border-color: hsl(var(--primary) / 0.45);
 }
 .cs-shot-item.cs-shot-selected::before {
   content: '';
@@ -137,7 +216,7 @@
   background: var(--cs-primary);
 }
 .cs-shot-item.cs-shot-active {
-  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.18);
+  box-shadow: 0 0 0 2px hsl(var(--primary) / 0.25);
 }
 
 .cs-shot-progress {
@@ -157,7 +236,7 @@
   width: 6px;
   height: 6px;
   border-radius: 999px;
-  background: #cbd5e1;
+  background: var(--cs-divider-strong);
   transition: background 120ms ease, transform 120ms ease;
 }
 
@@ -183,7 +262,6 @@
   height: 8px;
   border-radius: 999px;
   display: inline-block;
-  box-shadow: 0 0 0 0 rgba(0, 0, 0, 0);
   animation: cs-breathe 1.6s ease-in-out infinite;
 }
 .cs-dot.cs-ready {
@@ -202,10 +280,10 @@
   padding: 16px;
 }
 .cs-player-shell {
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--cs-border);
   border-radius: 12px;
   padding: 10px;
-  background: #fdfdfd;
+  background: var(--cs-surface-soft);
 }
 
 .cs-subtitle {
@@ -223,15 +301,15 @@
 }
 .cs-inspector-header {
   padding: 14px 18px;
-  background: #fff;
+  background: var(--cs-surface);
   border-bottom: 1px solid var(--cs-divider);
 }
 .cs-group {
-  background: #fff;
+  background: var(--cs-surface);
   border-radius: 12px;
   padding: 14px 14px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
-  border: 1px solid #eef2f7;
+  box-shadow: var(--cs-shadow-sm);
+  border: 1px solid var(--cs-border-soft);
 }
 .cs-group + .cs-group {
   margin-top: 16px;
@@ -251,17 +329,17 @@
 
 .cs-readiness-card {
   background:
-    radial-gradient(circle at top right, rgba(59, 130, 246, 0.08), transparent 32%),
-    linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
+    radial-gradient(circle at top right, hsl(var(--primary) / 0.08), transparent 32%),
+    linear-gradient(180deg, var(--cs-surface) 0%, var(--cs-surface-soft) 100%);
 }
 
 .cs-readiness-note {
   margin-top: 10px;
   padding: 10px 12px;
-  border: 1px solid rgba(191, 219, 254, 0.9);
+  border: 1px solid var(--cs-note-border);
   border-radius: 10px;
-  background: rgba(239, 246, 255, 0.82);
-  color: #475569;
+  background: var(--cs-note-bg);
+  color: var(--cs-note-text);
   font-size: 12px;
   line-height: 1.6;
 }
@@ -274,7 +352,7 @@
   gap: 8px;
   font-size: 12px;
   line-height: 1.6;
-  color: #64748b;
+  color: var(--cs-text-3);
 }
 
 .cs-readiness-status__refresh {
@@ -283,15 +361,15 @@
 }
 
 .cs-readiness-status.is-fresh {
-  color: #0f766e;
+  color: hsl(var(--run-success));
 }
 
 .cs-readiness-status.is-cache {
-  color: #1d4ed8;
+  color: hsl(var(--primary));
 }
 
 .cs-readiness-status.is-failed {
-  color: #b91c1c;
+  color: hsl(var(--run-failed));
 }
 
 .cs-readiness-summary {
@@ -300,21 +378,21 @@
   justify-content: space-between;
   gap: 16px;
   padding: 14px;
-  border: 1px solid #dbeafe;
+  border: 1px solid var(--cs-summary-border);
   border-radius: 12px;
-  background: rgba(239, 246, 255, 0.78);
+  background: var(--cs-summary-bg);
 }
 
 .cs-readiness-summary__title {
   font-size: 14px;
   font-weight: 600;
-  color: #0f172a;
+  color: var(--cs-text);
 }
 
 .cs-readiness-summary__desc {
   margin-top: 4px;
   font-size: 12px;
-  color: #64748b;
+  color: var(--cs-text-3);
 }
 
 .cs-readiness-summary__progress {
@@ -333,20 +411,20 @@
 }
 
 .cs-readiness-item {
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--cs-border);
   border-radius: 12px;
   padding: 12px;
-  background: #fff;
+  background: var(--cs-surface);
 }
 
 .cs-readiness-item.is-ready {
-  border-color: rgba(16, 185, 129, 0.22);
-  background: linear-gradient(180deg, rgba(236, 253, 245, 0.8) 0%, #fff 100%);
+  border-color: var(--cs-ready-border);
+  background: var(--cs-ready-bg);
 }
 
 .cs-readiness-item.is-missing {
-  border-color: rgba(245, 158, 11, 0.24);
-  background: linear-gradient(180deg, rgba(255, 251, 235, 0.92) 0%, #fff 100%);
+  border-color: var(--cs-missing-border);
+  background: var(--cs-missing-bg);
 }
 
 .cs-readiness-item__header {
@@ -359,20 +437,20 @@
 .cs-readiness-item__label {
   font-size: 13px;
   font-weight: 600;
-  color: #111827;
+  color: var(--cs-text);
 }
 
 .cs-readiness-item__meta {
   margin-top: 6px;
   font-size: 12px;
-  color: #6b7280;
+  color: var(--cs-text-3);
 }
 
 .cs-readiness-item__importance {
   margin-top: 8px;
   font-size: 12px;
   line-height: 1.6;
-  color: #475569;
+  color: var(--cs-note-text);
 }
 
 .cs-readiness-item__chips {
@@ -392,7 +470,7 @@
 }
 
 .cs-readiness-chip-meta {
-  color: #64748b;
+  color: var(--cs-text-3);
   font-size: 12px;
   line-height: 1;
 }
@@ -404,14 +482,14 @@
 
 .cs-readiness-tag-action:hover {
   transform: translateY(-1px);
-  box-shadow: 0 6px 14px rgba(245, 158, 11, 0.18);
+  box-shadow: 0 6px 14px hsl(var(--ready-partial) / 0.2);
   opacity: 0.92;
 }
 
 .cs-readiness-item__empty {
   margin-top: 10px;
   font-size: 12px;
-  color: #9ca3af;
+  color: var(--cs-text-4);
 }
 
 /* Make controls breathe */
@@ -424,7 +502,7 @@
   border-radius: 10px;
 }
 .cs-studio .ant-tabs .ant-tabs-tab.ant-tabs-tab-active {
-  background: rgba(59, 130, 246, 0.10);
+  background: hsl(var(--primary) / 0.1);
 }
 
 .cs-studio .ant-btn-primary {
@@ -440,12 +518,12 @@
   transform: translateY(-50%);
   width: 44px;
   height: 160px;
-  background: #fff;
+  background: var(--cs-surface);
   border: 1px solid var(--cs-divider);
   border-right: 0;
   border-top-left-radius: 12px;
   border-bottom-left-radius: 12px;
-  box-shadow: -6px 0 16px rgba(0, 0, 0, 0.08);
+  box-shadow: var(--cs-shadow-lg);
   display: flex;
   align-items: center;
   justify-content: center;
