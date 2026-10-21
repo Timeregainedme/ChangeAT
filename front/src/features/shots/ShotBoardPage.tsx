@@ -387,6 +387,21 @@ export function ShotBoardPage() {
     setBatchSaving(false)
   }
 
+  /**
+   * 「生成中」列存在运行中任务时，每 5 秒静默刷新一次。
+   *
+   * 生成任务的状态变化只发生在服务端，用户不该为了看到进度反复点「刷新」；
+   * 静默刷新不切 loading，避免整块看板每 5 秒闪一次骨架。
+   */
+  const runningCount = grouped.running.length
+  useEffect(() => {
+    if (runningCount === 0) return
+    const timer = window.setInterval(() => {
+      void reload({ silent: true })
+    }, 5000)
+    return () => window.clearInterval(timer)
+  }, [runningCount, reload])
+
   const chapterLabel = chapter ? `第${chapter.index}章 · ${chapter.title}` : '章节'
 
   return (
@@ -404,6 +419,7 @@ export function ShotBoardPage() {
           <h1 className="truncate text-base font-semibold">{chapterLabel}</h1>
           <p className="truncate text-xs text-muted-foreground">
             镜头看板 · 共 {shots.length} 个镜头
+            {runningCount > 0 ? ' · 生成中每 5 秒自动刷新' : ''}
           </p>
         </div>
 

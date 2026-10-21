@@ -687,6 +687,49 @@ export const handlers = [
   http.patch('/api/v1/studio/shots/extracted-dialogue-candidates/:candidate_id/accept', () => ok({})),
   http.patch('/api/v1/studio/shots/extracted-dialogue-candidates/:candidate_id/ignore', () => ok({})),
 
+  http.get('/api/v1/studio/shots/:shot_id/preparation-state', ({ params }) => {
+    const { shot_id } = params as { shot_id: string }
+    const shot = shotsList.find((s) => s.id === shot_id)
+    if (!shot) return HttpResponse.json({ code: 404, message: '镜头不存在', data: null }, { status: 404 })
+
+    return ok({
+      shot,
+      assets_overview: {
+        shot_id,
+        skip_extraction: shot.skip_extraction,
+        status: shot.status,
+        summary: { linked_count: 0, pending_count: 0, ignored_count: 0, total_count: 0 },
+        items: [],
+      },
+      dialogue_candidates: dialogueCandidatesByShot[shot_id] ?? [],
+      saved_dialogue_lines: [],
+      // 与真实后端一致：待确认数量 = 资产候选 + 对白候选
+      pending_confirm_count: (dialogueCandidatesByShot[shot_id] ?? []).filter(
+        (item) => item.candidate_status === 'pending',
+      ).length,
+      basic_info_ready: Boolean(shot.title && shot.script_excerpt),
+      semantic_defaults_ready: true,
+      action_beats_ready: true,
+      action_beats_count: 0,
+      action_beat_phases: [],
+      ready_for_generation: shot.status === 'ready',
+    })
+  }),
+
+  http.get('/api/v1/studio/shot-details/:shot_id', ({ params }) => {
+    const { shot_id } = params as { shot_id: string }
+    return ok({
+      id: shot_id,
+      camera_shot: '中景',
+      angle: '平视',
+      movement: '固定',
+      scene_id: null,
+      duration: 5,
+      override_video_ratio: null,
+      emotion: '',
+    })
+  }),
+
   http.patch('/api/v1/studio/shots/:shot_id', async ({ params, request }) => {
     const { shot_id } = params as { shot_id: string }
     const body = (await request.json()) as {

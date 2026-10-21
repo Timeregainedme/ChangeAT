@@ -122,10 +122,17 @@ export function useChapterBoard(projectId?: string, chapterId?: string) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  const load = useCallback(async () => {
+  /**
+   * 重新拉取看板。
+   *
+   * silent 用于轮询：不切 loading，避免每 5 秒把整个看板闪成骨架屏。
+   */
+  const load = useCallback(async (options?: { silent?: boolean }) => {
     if (!chapterId) return
-    setLoading(true)
-    setError(null)
+    if (!options?.silent) {
+      setLoading(true)
+      setError(null)
+    }
     try {
       const [boardShots, runtimeRes, chaptersRes] = await Promise.all([
         loadAllShots(chapterId),
@@ -152,7 +159,7 @@ export function useChapterBoard(projectId?: string, chapterId?: string) {
       setShots([])
       setError('看板加载失败，请稍后重试')
     } finally {
-      setLoading(false)
+      if (!options?.silent) setLoading(false)
     }
   }, [chapterId, projectId])
 
