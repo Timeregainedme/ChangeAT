@@ -1,4 +1,4 @@
-import { Card, Button, Statistic, Row, Col, Progress, Space, Spin } from 'antd'
+import { Card, Button, Spin } from 'antd'
 import {
   CheckCircleOutlined,
   ClockCircleOutlined,
@@ -8,34 +8,43 @@ import {
 import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import type { TabKey } from '../constants'
-import { getChapterShotsPath, getChapterStudioPath, getProjectChaptersPath, getProjectEditorPath } from '../routes'
+import {
+  getChapterBoardPath,
+  getChapterShotsPath,
+  getProjectChaptersPath,
+} from '../routes'
 import { useProject, useChapters } from '../hooks/useProjectData'
 import { ensureHasShotsBeforeShooting } from '../ensureHasShotsBeforeShooting'
 import { getChapterPreparationState } from '../chapterPreparation'
-import {
-  loadChapterFlowStats,
-  loadProjectFlowStatsForChapters,
-  type ChapterFlowStats,
-  type ProjectFlowStats,
-} from '../projectFlowStats'
+import { loadProjectFlowStatsForChapters, type ProjectFlowStats } from '../projectFlowStats'
 
+/**
+ * 项目工作台的仪表盘。
+ *
+ * 重写原则：**一屏只回答三个问题**——现在该做什么、流程走到哪、还剩什么没做。
+ *   - 去掉了「当前推荐动作 / 当前待办 / 统计卡片」三处互相重复的入口；
+ *   - 去掉了资产卡片里写死的 80/60/75 假进度条：那是装饰，不是数据，
+ *     用户会把它当成真实完成度；
+ *   - 阶段卡片改为直接跳到该阶段最该处理的那一章，而不是统一跳回章节列表。
+ */
 export function DashboardTab({ onSelectTab }: { onSelectTab: (tab: TabKey) => void }) {
   const navigate = useNavigate()
   const { projectId } = useParams<{ projectId: string }>()
   const { project, loading: projectLoading } = useProject(projectId)
   const { chapters, loading: chaptersLoading } = useChapters(projectId)
+
   const [flowStats, setFlowStats] = useState<ProjectFlowStats>({
     totalShots: 0,
     pendingConfirmShots: 0,
     readyShots: 0,
     generatingShots: 0,
   })
-  const [chapterFlowStats, setChapterFlowStats] = useState<ChapterFlowStats[]>([])
   const [flowStatsLoading, setFlowStatsLoading] = useState(false)
 
   const loading = projectLoading || chaptersLoading
   const chaptersByIndex = [...chapters].sort((a, b) => a.index - b.index)
-  const incompleteChapters = chaptersByIndex.filter((c) => c.status !== 'done')
+
+  /** 按推进顺序找第一个还没完成的章节，作为「下一步」。 */
   const recommendedChapter =
     chaptersByIndex.find((chapter) => getChapterPreparationState(chapter).key === 'edit_raw') ??
     chaptersByIndex.find((chapter) => getChapterPreparationState(chapter).key === 'extract_shots') ??
@@ -44,46 +53,39 @@ export function DashboardTab({ onSelectTab }: { onSelectTab: (tab: TabKey) => vo
     chaptersByIndex[0] ??
     null
 
+  const recommendedState = recommendedChapter ? getChapterPreparationState(recommendedChapter) : null
+
+  // 有分镜后，下一步先去看看哪些镜头没准备好，而不是直接进工作室。
+  // 文案必须跟着跳转目标一起改，否则会出现「写着工作室、其实打开看板」。
+  const recommendedActionLabel =
+    recommendedState?.key === 'prepare_shots'
+      ? '查看镜头看板'
+      : (recommendedState?.primaryAction ?? '创建第一章')
+
   useEffect(() => {
     let cancelled = false
     if (!projectId || !chapters.length) {
-      setFlowStats({
-        totalShots: 0,
-        pendingConfirmShots: 0,
-        readyShots: 0,
-        generatingShots: 0,
-      })
-      setChapterFlowStats([])
+      setFlowStats({ totalShots: 0, pendingConfirmShots: 0, readyShots: 0, generatingShots: 0 })
       return () => {
         cancelled = true
       }
     }
 
-    const run = async () => {
-      setFlowStatsLoading(true)
-      try {
-        const [stats, chapterStats] = await Promise.all([
-          loadProjectFlowStatsForChapters(chapters),
-          loadChapterFlowStats(chapters),
-        ])
+    setFlowStatsLoading(true)
+    void loadProjectFlowStatsForChapters(chapters)
+      .then((stats) => {
         if (!cancelled) setFlowStats(stats)
-        if (!cancelled) setChapterFlowStats(chapterStats)
-      } catch {
+      })
+      .catch(() => {
+        // 统计失败不影响主流程：保留 0，页面仍可正常使用
         if (!cancelled) {
-          setFlowStats({
-            totalShots: 0,
-            pendingConfirmShots: 0,
-            readyShots: 0,
-            generatingShots: 0,
-          })
-          setChapterFlowStats([])
+          setFlowStats({ totalShots: 0, pendingConfirmShots: 0, readyShots: 0, generatingShots: 0 })
         }
-      } finally {
+      })
+      .finally(() => {
         if (!cancelled) setFlowStatsLoading(false)
-      }
-    }
+      })
 
-    void run()
     return () => {
       cancelled = true
     }
@@ -91,270 +93,221 @@ export function DashboardTab({ onSelectTab }: { onSelectTab: (tab: TabKey) => vo
 
   if (loading && !project) {
     return (
-      <div className="flex justify-center items-center py-16">
+      <div className="flex items-center justify-center py-16">
         <Spin size="large" tip="加载中…" />
       </div>
     )
   }
-  if (!project) {
-    return null
-  }
+  if (!project) return null
 
-  const incompleteCount = incompleteChapters.length
-  const recommendedState = recommendedChapter ? getChapterPreparationState(recommendedChapter) : null
-  const chaptersNeedingRawText = chaptersByIndex.filter((chapter) => getChapterPreparationState(chapter).key === 'edit_raw').length
-  const chaptersNeedingShotExtract = chaptersByIndex.filter((chapter) => getChapterPreparationState(chapter).key === 'extract_shots').length
-  const chaptersNeedingShotPrep = chaptersByIndex.filter((chapter) => getChapterPreparationState(chapter).key === 'prepare_shots').length
-  const chaptersReadyForShoot = chaptersByIndex.filter((chapter) => getChapterPreparationState(chapter).key === 'shoot').length
-  const topPendingChapter = [...chapterFlowStats].sort((a, b) => b.pendingConfirmShots - a.pendingConfirmShots)[0]
-  const topGeneratingChapter = [...chapterFlowStats].sort((a, b) => b.generatingShots - a.generatingShots)[0]
-  const topReadyChapter = [...chapterFlowStats].sort((a, b) => b.readyShots - a.readyShots)[0]
-
-  const handleRecommendedAction = () => {
+  /**
+   * 跳到某个阶段最该处理的那一章。
+   *
+   * 四个阶段分别落在不同页面（章节编辑 / 分镜列表 / 镜头看板 / 工作室），
+   * 由这里统一分派，避免每个入口各写一份跳转逻辑。
+   */
+  const jumpToStage = (stageKey: string) => {
     if (!projectId) return
-    if (!recommendedChapter || !recommendedState) {
+    const chapter = chaptersByIndex.find((item) => getChapterPreparationState(item).key === stageKey)
+    if (!chapter) {
       onSelectTab('chapters')
       return
     }
-    if (recommendedState.key === 'edit_raw') {
-      onSelectTab('chapters')
-      navigate(`/projects/${projectId}?tab=chapters&edit=${recommendedChapter.id}`, { replace: false })
+    if (stageKey === 'edit_raw') {
+      navigate(`/projects/${projectId}?tab=chapters&edit=${chapter.id}`)
       return
     }
-    if (recommendedState.key === 'extract_shots') {
-      navigate(getChapterShotsPath(projectId, recommendedChapter.id))
+    if (stageKey === 'extract_shots') {
+      navigate(getChapterShotsPath(projectId, chapter.id))
       return
     }
-    if (recommendedState.key === 'prepare_shots') {
-      navigate(getChapterStudioPath(projectId, recommendedChapter.id))
+    if (stageKey === 'prepare_shots') {
+      navigate(getChapterBoardPath(projectId, chapter.id))
       return
     }
     void ensureHasShotsBeforeShooting({
       projectId,
-      chapterId: recommendedChapter.id,
-      storyboardCount: recommendedChapter.storyboardCount,
+      chapterId: chapter.id,
+      storyboardCount: chapter.storyboardCount,
       navigate,
     })
   }
 
-  const chapterTodoCards = [
+  const handleRecommendedAction = () => {
+    if (!recommendedChapter || !recommendedState) {
+      onSelectTab('chapters')
+      return
+    }
+    jumpToStage(recommendedState.key)
+  }
+
+  /** 四个阶段：数量 + 一句话说明 + 当前是否就是「下一步」所在阶段。 */
+  const stages = [
     {
       key: 'edit_raw',
-      title: '待补原文',
-      count: chaptersNeedingRawText,
-      hint: '这些章节还没进入分镜流程',
-      icon: <ClockCircleOutlined />,
+      label: '录入原文',
+      hint: '还没有可拆分的章节原文',
+      count: chaptersByIndex.filter((c) => getChapterPreparationState(c).key === 'edit_raw').length,
     },
     {
       key: 'extract_shots',
-      title: '待提取分镜',
-      count: chaptersNeedingShotExtract,
-      hint: '已有原文，可直接进入分镜提取',
-      icon: <ClockCircleOutlined />,
+      label: '提取分镜',
+      hint: '已有原文，等待拆成镜头',
+      count: chaptersByIndex.filter((c) => getChapterPreparationState(c).key === 'extract_shots')
+        .length,
     },
     {
       key: 'prepare_shots',
-      title: '待准备镜头',
-      count: chaptersNeedingShotPrep,
-      hint: '已有分镜，建议进入工作室继续处理',
-      icon: <ClockCircleOutlined />,
+      label: '准备镜头',
+      hint: '已有分镜，待补资产与对白',
+      count: chaptersByIndex.filter((c) => getChapterPreparationState(c).key === 'prepare_shots')
+        .length,
     },
     {
       key: 'shoot',
-      title: '可继续拍摄',
-      count: chaptersReadyForShoot,
-      hint: '这部分章节已具备继续拍摄条件',
-      icon: <CheckCircleOutlined />,
+      label: '进入生成',
+      hint: '镜头已就绪，可开始出片',
+      count: chaptersByIndex.filter((c) => getChapterPreparationState(c).key === 'shoot').length,
     },
-  ] as const
+  ]
+
+  const totalAssets = project.stats.roles + project.stats.scenes + project.stats.props
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
+      {/* 1. 下一步：整个页面只有一个主动作 */}
       <Card size="small">
-        <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div className="flex flex-wrap items-center justify-between gap-4">
           <div className="min-w-0">
-            <div className="font-medium">当前推荐动作</div>
-            <div className="text-xs text-gray-500">
+            <div className="text-xs text-muted-foreground">下一步</div>
+            <div className="mt-1 text-lg font-medium">{recommendedActionLabel}</div>
+            <div className="mt-1 text-xs text-muted-foreground">
               {recommendedChapter && recommendedState
                 ? `第${recommendedChapter.index}章 · ${recommendedState.hint}`
-                : '暂无章节，可先创建第一章'}
+                : '项目还没有章节，先建第一章再拆镜头'}
             </div>
           </div>
-          <Space wrap>
-            <Button onClick={() => onSelectTab('chapters')}>进入章节管理</Button>
-            <Button onClick={() => projectId && navigate(getProjectEditorPath(projectId))}>进入后期剪辑</Button>
-            <Button
-              type="primary"
-              icon={recommendedState?.primaryIcon ?? <VideoCameraOutlined />}
-              onClick={handleRecommendedAction}
-            >
-              {recommendedChapter && recommendedState ? recommendedState.primaryAction : '创建第一章'}
-            </Button>
-          </Space>
+
+          {/* 只保留一个主动作：次要入口在顶部工具栏与下方「全部章节」里已有，重复放会分散注意力 */}
+          <Button
+            type="primary"
+            icon={recommendedState?.primaryIcon ?? <VideoCameraOutlined />}
+            onClick={handleRecommendedAction}
+          >
+            {recommendedActionLabel}
+          </Button>
         </div>
       </Card>
 
-      <Row gutter={[16, 16]}>
-        <Col xs={24} sm={12} lg={6}>
-          <Card size="small" className="h-full">
-            <Statistic title="未完成章节" value={incompleteCount} />
-          </Card>
-        </Col>
-        <Col xs={24} sm={12} lg={6}>
-          <Card size="small" className="h-full">
-            <Statistic
-              title="待确认分镜"
-              value={flowStats.pendingConfirmShots}
-              suffix={flowStats.totalShots ? `/ ${flowStats.totalShots}` : undefined}
-              loading={flowStatsLoading}
-            />
-          </Card>
-        </Col>
-        <Col xs={24} sm={12} lg={6}>
-          <Card size="small" className="h-full">
-            <Statistic
-              title="已就绪分镜"
-              value={flowStats.readyShots}
-              loading={flowStatsLoading}
-              prefix={<CheckCircleOutlined />}
-            />
-          </Card>
-        </Col>
-        <Col xs={24} sm={12} lg={6}>
-          <Card size="small" className="h-full">
-            <Statistic
-              title="生成中分镜"
-              value={flowStats.generatingShots}
-              loading={flowStatsLoading}
-              prefix={<ClockCircleOutlined />}
-            />
-            <Progress
-              percent={flowStats.totalShots ? Math.round((flowStats.readyShots / flowStats.totalShots) * 100) : project.progress}
-              showInfo={false}
-              size="small"
-              strokeColor={{ from: '#6366f1', to: '#a855f7' }}
-              className="mt-1"
-            />
-          </Card>
-        </Col>
-      </Row>
-
+      {/* 2. 流程走到哪：阶段是章节维度，镜头状态是镜头维度，两者分开但同屏 */}
       <Card
-        title="当前待办"
         size="small"
+        title="流程进度"
         extra={
-          <Button type="link" onClick={() => projectId && navigate(getProjectChaptersPath(projectId))}>
-            查看全部
+          <Button type="link" className="p-0" onClick={() => projectId && navigate(getProjectChaptersPath(projectId))}>
+            全部章节
           </Button>
         }
       >
-        <div className="flex gap-3 overflow-x-auto pb-2" style={{ minHeight: 140 }}>
-          {chapters.length === 0 ? (
-            <div className="flex-1 flex items-center justify-center text-gray-500 py-8">
-              还没有任何章节，
-              <Button type="link" className="p-0" onClick={() => onSelectTab('chapters')}>
-                立即创建第一章
-              </Button>
+        {chapters.length === 0 ? (
+          <div className="flex flex-col items-center gap-2 py-8 text-sm text-muted-foreground">
+            <span>还没有任何章节</span>
+            <Button type="primary" onClick={() => onSelectTab('chapters')}>
+              创建第一章
+            </Button>
+          </div>
+        ) : (
+          <>
+            <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+              {stages.map((stage, index) => {
+                const isNext = recommendedState?.key === stage.key
+                return (
+                  <button
+                    key={stage.key}
+                    type="button"
+                    onClick={() => jumpToStage(stage.key)}
+                    className={`rounded-lg border p-3 text-left transition-colors ${
+                      isNext
+                        ? 'border-primary bg-primary/10'
+                        : 'border-gray-200 bg-card hover:border-gray-300'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-gray-500">
+                        第 {index + 1} 步 · {stage.label}
+                      </span>
+                      {isNext ? (
+                        <span className="rounded bg-primary/15 px-1.5 py-0.5 text-[11px] text-primary">
+                          下一步
+                        </span>
+                      ) : null}
+                    </div>
+                    <div className="mt-1 text-2xl font-semibold">{stage.count}</div>
+                    <div className="mt-0.5 text-xs text-gray-500">{stage.hint}</div>
+                  </button>
+                )
+              })}
             </div>
-          ) : (
-            chapterTodoCards.map((item) => (
-              <Card
-                key={item.key}
-                size="small"
-                hoverable
-                className="shrink-0 cursor-pointer"
-                style={{ width: 280 }}
-                onClick={() => onSelectTab('chapters')}
-              >
-                <div className="flex items-center justify-between gap-3">
-                  <div className="font-medium truncate">{item.title}</div>
-                  <span className="text-gray-400">{item.icon}</span>
-                </div>
-                <div className="mt-1 text-2xl font-semibold">{item.count}</div>
-                <div className="text-xs text-gray-500 mt-1">
-                  {item.hint}
-                </div>
-              </Card>
-            ))
-          )}
-        </div>
+
+            <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-2 border-t border-gray-100 pt-3 text-sm">
+              <span className="text-gray-500">
+                镜头总数 <span className="font-medium text-gray-900">{flowStats.totalShots}</span>
+              </span>
+              <span className="inline-flex items-center gap-1.5 text-gray-600">
+                <span className="h-1.5 w-1.5 rounded-full bg-state-pending" />
+                待确认 {flowStats.pendingConfirmShots}
+              </span>
+              <span className="inline-flex items-center gap-1.5 text-gray-600">
+                <span className="h-1.5 w-1.5 rounded-full bg-state-ready" />
+                已就绪 {flowStats.readyShots}
+              </span>
+              <span className="inline-flex items-center gap-1.5 text-gray-600">
+                <span className="h-1.5 w-1.5 rounded-full bg-run-running" />
+                生成中 {flowStats.generatingShots}
+              </span>
+              {flowStatsLoading ? <span className="text-xs text-gray-400">统计更新中…</span> : null}
+            </div>
+          </>
+        )}
       </Card>
 
-      <Row gutter={[16, 16]}>
-        <Col xs={24} md={14}>
-          <Card title="动态摘要" size="small">
-            <div className="space-y-3 text-sm">
-              <div className="rounded-md border border-amber-100 bg-amber-50 px-3 py-2">
-                <div className="flex items-center gap-2 font-medium text-amber-800">
-                  <ClockCircleOutlined />
-                  待确认压力最大
-                </div>
-                <div className="mt-1 text-gray-700">
-                  {topPendingChapter && topPendingChapter.pendingConfirmShots > 0
-                    ? `第${topPendingChapter.chapterIndex ?? '-'}章还有 ${topPendingChapter.pendingConfirmShots} 条分镜待确认，建议优先处理。`
-                    : '当前没有待确认分镜积压。'}
-                </div>
-              </div>
-
-              <div className="rounded-md border border-blue-100 bg-blue-50 px-3 py-2">
-                <div className="flex items-center gap-2 font-medium text-blue-800">
-                  <VideoCameraOutlined />
-                  当前生成最活跃
-                </div>
-                <div className="mt-1 text-gray-700">
-                  {topGeneratingChapter && topGeneratingChapter.generatingShots > 0
-                    ? `第${topGeneratingChapter.chapterIndex ?? '-'}章有 ${topGeneratingChapter.generatingShots} 条分镜正在生成，可以继续关注结果。`
-                    : '当前没有分镜处于生成中。'}
-                </div>
-              </div>
-
-              <div className="rounded-md border border-emerald-100 bg-emerald-50 px-3 py-2">
-                <div className="flex items-center gap-2 font-medium text-emerald-800">
-                  <CheckCircleOutlined />
-                  最适合继续推进
-                </div>
-                <div className="mt-1 text-gray-700">
-                  {topReadyChapter && topReadyChapter.readyShots > 0
-                    ? `第${topReadyChapter.chapterIndex ?? '-'}章已有 ${topReadyChapter.readyShots} 条已就绪分镜，适合继续推进视频生成。`
-                    : '当前还没有明显可继续推进的视频生成批次。'}
-                </div>
+      {/* 3. 资产：只展示真实数量，不再用假进度条 */}
+      <Card
+        size="small"
+        title="项目资产"
+        extra={
+          <Button type="link" className="p-0" onClick={() => navigate('/assets')}>
+            管理资产
+          </Button>
+        }
+      >
+        <div className="grid grid-cols-3 gap-3">
+          {[
+            { label: '角色', count: project.stats.roles, icon: <FileSearchOutlined /> },
+            { label: '场景', count: project.stats.scenes, icon: <FileSearchOutlined /> },
+            { label: '道具', count: project.stats.props, icon: <FileSearchOutlined /> },
+          ].map((item) => (
+            <div key={item.label} className="rounded-lg border border-gray-200 px-3 py-2">
+              <div className="text-xs text-gray-500">{item.label}</div>
+              <div className="mt-1 flex items-baseline gap-1">
+                <span className="text-xl font-semibold">{item.count}</span>
+                <span className="text-xs text-gray-500">项</span>
               </div>
             </div>
-            <Button
-              type="link"
-              className="p-0 mt-3"
-              icon={<FileSearchOutlined />}
-              onClick={() => onSelectTab('chapters')}
-            >
-              去章节里继续推进
-            </Button>
-          </Card>
-        </Col>
-        <Col xs={24} md={10}>
-          <Card title="资产健康快照" size="small">
-            <div className="space-y-2">
-              <div className="flex justify-between text-sm">
-                <span>角色</span>
-                <span className="text-gray-500">{project.stats.roles} 项</span>
-              </div>
-              <Progress percent={80} size="small" showInfo={false} />
-              <div className="flex justify-between text-sm">
-                <span>场景</span>
-                <span className="text-gray-500">{project.stats.scenes} 项</span>
-              </div>
-              <Progress percent={60} size="small" showInfo={false} />
-              <div className="flex justify-between text-sm">
-                <span>道具</span>
-                <span className="text-gray-500">{project.stats.props} 项</span>
-              </div>
-              <Progress percent={75} size="small" showInfo={false} />
-            </div>
-            <Button type="link" className="p-0 mt-2" onClick={() => navigate('/assets')}>
-              管理资产
-            </Button>
-          </Card>
-        </Col>
-      </Row>
+          ))}
+        </div>
+        {totalAssets === 0 ? (
+          <div className="mt-3 flex items-center gap-2 text-xs text-gray-500">
+            <ClockCircleOutlined />
+            还没有资产，先在章节里提取分镜，系统会生成候选角色/场景/道具
+          </div>
+        ) : (
+          <div className="mt-3 flex items-center gap-2 text-xs text-gray-500">
+            <CheckCircleOutlined />
+            资产已建立，镜头准备阶段会引用这些资产
+          </div>
+        )}
+      </Card>
     </div>
   )
 }

@@ -163,6 +163,10 @@ body { @apply bg-background text-foreground antialiased; }
 | `/projects/:id/chapters/:cid/board` | `src/features/shots/ShotBoardPage.tsx` | 新增（原只有表格视图） |
 | 全局布局 | `src/app/shell/AppShell.tsx` | `src/layouts/MainLayout.tsx`（已删除） |
 
+项目工作台仪表盘的心智是「一屏只回答三个问题」：现在该做什么、流程走到哪、还剩什么没做。
+它删掉了三处重复入口与资产卡片里写死的 80/60/75 假进度条——
+装饰性数字会被误读成真实完成度，宁可只展示真实计数。
+
 项目列表页的设计要点：卡片上的「下一步」来自章节准备态，
 主按钮文案与点击后跳转的目标严格一致（显示「提取分镜」就跳到分镜页），
 不允许出现「文案说下一步、点进去却是首页」。
