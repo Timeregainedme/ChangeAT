@@ -53,13 +53,19 @@ _STATUS_MEANING = {
 
 
 async def _probe_one(
-    client: httpx.AsyncClient, *, base_url: str, api_key: str, model: str
+    client: httpx.AsyncClient,
+    *,
+    base_url: str,
+    api_key: str,
+    model: str,
+    extra_headers: dict[str, str] | None = None,
 ) -> tuple[str, int, str]:
     """对单个模型发一次最小 chat 请求，返回 (模型, 状态码, 说明)。"""
+    headers = {"Authorization": f"Bearer {api_key}", **(extra_headers or {})}
     try:
         resp = await client.post(
             f"{base_url.rstrip('/')}/chat/completions",
-            headers={"Authorization": f"Bearer {api_key}"},
+            headers=headers,
             json={
                 "model": model,
                 "messages": [{"role": "user", "content": "hi"}],
@@ -110,6 +116,14 @@ async def main() -> int:
     base_url = provider.base_url
     print(f"供应商：{provider.name}\nBase URL：{base_url}\n")
 
+    # 某些网关（OpenCode Zen /go 通道）要求额外的路由头，探测时必须一并带上，
+    # 否则会把「缺头 400」误判成「模型不可用」。
+    from app.services.llm.provider_registry import extra_headers_for_provider
+
+    extra_headers = extra_headers_for_provider(provider.name, base_url)
+    if extra_headers:
+        print(f"附加请求头：{sorted(extra_headers)}\n")
+
     async with httpx.AsyncClient() as client:
         listing = await client.get(
             f"{base_url.rstrip('/')}/models",
@@ -131,7 +145,11 @@ async def main() -> int:
         async def run(model: str) -> tuple[str, int, str]:
             async with semaphore:
                 return await _probe_one(
-                    client, base_url=base_url, api_key=api_key, model=model
+                    client,
+                    base_url=base_url,
+                    api_key=api_key,
+                    model=model,
+                    extra_headers=extra_headers,
                 )
 
         results = await asyncio.gather(*(run(m) for m in models))
