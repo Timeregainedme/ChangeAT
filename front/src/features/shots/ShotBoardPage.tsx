@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
-import { ArrowLeft, ArrowUpRight, CheckCheck, Clapperboard, Pencil, RefreshCw, Save, X } from 'lucide-react'
+import { ArrowLeft, ArrowUpRight, Boxes, CheckCheck, Clapperboard, Pencil, RefreshCw, Save, X } from 'lucide-react'
 import { Button } from '../../components/ui/button'
 import { Checkbox } from '../../components/ui/checkbox'
 import {
@@ -40,6 +40,7 @@ import {
 } from '../../pages/aiStudio/project/ProjectWorkbench/routes'
 import { getColumnOf, useChapterBoard, type BoardColumnKey, type BoardShot } from './useChapterBoard'
 import { ShotBatchConfirmDialog } from './ShotBatchConfirmDialog'
+import { ChapterAssetCreateDialog } from './ChapterAssetCreateDialog'
 
 /**
  * 镜头缩略图。
@@ -230,6 +231,8 @@ export function ShotBoardPage() {
   // 批量确认向导与执行结果提示
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [confirmResult, setConfirmResult] = useState<string | null>(null)
+  // 一键创建本章资产（章节级批量落库）
+  const [assetsOpen, setAssetsOpen] = useState(false)
 
   // 打开时的初值只在切换镜头时取一次：reload 后 shots 引用会变，
   // 若把 form 绑到 shots 上，会把用户正在输入的内容冲掉。
@@ -458,6 +461,9 @@ export function ShotBoardPage() {
     return () => window.clearInterval(timer)
   }, [runningCount, reload])
 
+  /** 本章所有镜头加起来还有多少资产候选待确认。 */
+  const pendingAssetTotal = shots.reduce((sum, shot) => sum + shot.extraction.pendingAssets, 0)
+
   const chapterLabel = chapter ? `第${chapter.index}章 · ${chapter.title}` : '章节'
 
   return (
@@ -480,6 +486,12 @@ export function ShotBoardPage() {
         </div>
 
         <div className="ml-auto flex items-center gap-2">
+          {pendingAssetTotal > 0 ? (
+            <Button variant="outline" size="sm" onClick={() => setAssetsOpen(true)}>
+              <Boxes className="h-3.5 w-3.5" />
+              一键创建资产（{pendingAssetTotal}）
+            </Button>
+          ) : null}
           <Button variant="outline" size="sm" onClick={() => void reload()} disabled={loading}>
             <RefreshCw className={cn('h-3.5 w-3.5', loading && 'animate-spin')} />
             刷新
@@ -622,6 +634,21 @@ export function ShotBoardPage() {
           })}
         </div>
       </div>
+
+      {projectId && chapterId ? (
+        <ChapterAssetCreateDialog
+          open={assetsOpen}
+          chapterId={chapterId}
+          pendingAssetCount={pendingAssetTotal}
+          onOpenChange={setAssetsOpen}
+          onDone={async (summary) => {
+            await reload()
+            const parts = [`新建 ${summary.created} 项`, `关联 ${summary.linked} 项`]
+            if (summary.skipped > 0) parts.push(`跳过 ${summary.skipped} 项`)
+            setConfirmResult(`资产处理完成：${parts.join('，')}`)
+          }}
+        />
+      ) : null}
 
       <ShotBatchConfirmDialog
         open={confirmOpen}

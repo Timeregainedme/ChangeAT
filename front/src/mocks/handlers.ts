@@ -687,6 +687,40 @@ export const handlers = [
   http.patch('/api/v1/studio/shots/extracted-dialogue-candidates/:candidate_id/accept', () => ok({})),
   http.patch('/api/v1/studio/shots/extracted-dialogue-candidates/:candidate_id/ignore', () => ok({})),
 
+  http.post('/api/v1/studio/shots/extracted-candidates/batch-create-assets', async ({ request }) => {
+    const body = (await request.json()) as { chapter_id?: string }
+    const chapterId = body.chapter_id ?? ''
+
+    // 模拟后端行为：把本章待确认候选标记为已关联，并重算镜头状态
+    const created: Array<Record<string, unknown>> = []
+    for (const shot of shotsList) {
+      if (shot.chapter_id !== chapterId || shot.status === 'ready') continue
+      const pending = assetCandidatesByShot[shot.id] ?? []
+      for (const candidate of pending) {
+        if (candidate.candidate_status !== 'pending') continue
+        candidate.candidate_status = 'linked'
+        created.push({
+          candidate_id: candidate.id,
+          type: candidate.candidate_type,
+          name: candidate.candidate_name,
+          entity_id: `mock-entity-${candidate.id}`,
+        })
+      }
+      // 资产处理后，若对白也已处理完则镜头进入 ready
+      const pendingDialogues = (dialogueCandidatesByShot[shot.id] ?? []).some(
+        (item) => item.candidate_status === 'pending',
+      )
+      shot.extraction = {
+        state: pendingDialogues ? 'extracted_pending' : 'extracted_resolved',
+        pending_asset_count: 0,
+        pending_dialogue_count: pendingDialogues ? 1 : 0,
+      }
+      if (!pendingDialogues) shot.status = 'ready'
+    }
+
+    return ok({ created, linked: [], skipped: [] })
+  }),
+
   http.get('/api/v1/studio/shots/:shot_id/assets-overview', ({ params }) => {
     const { shot_id } = params as { shot_id: string }
     const shot = shotsList.find((s) => s.id === shot_id)

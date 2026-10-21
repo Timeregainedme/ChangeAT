@@ -97,3 +97,19 @@ test('侧滑展示资产概览与待确认项', async ({ page }) => {
   await expect(sheet.getByText('欠条', { exact: true })).toBeVisible()
   await expect(sheet.getByText(/已关联 \d+/)).toBeVisible()
 })
+
+test('一键创建本章资产：确认后给出处理结果并刷新看板', async ({ page }) => {
+  await signIn(page)
+  await page.goto('/projects/p1/chapters/c1/board')
+  await expect(page.getByText(/镜头看板 · 共 \d+ 个镜头/)).toBeVisible()
+
+  const createBtn = page.getByRole('button', { name: /一键创建资产/ })
+  await expect(createBtn).toBeVisible()
+  await createBtn.click()
+
+  const dialog = page.getByRole('dialog')
+  await expect(dialog.getByText('一键创建本章资产？')).toBeVisible()
+  await dialog.getByRole('button', { name: '确认创建' }).click()
+
+  await expect(page.getByText(/资产处理完成：新建 \d+ 项/)).toBeVisible()
+})
