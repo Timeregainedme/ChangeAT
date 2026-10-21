@@ -19,6 +19,10 @@ export type ProjectStyleOptionCreate = {
      */
     description?: string;
     /**
+     * 提示词质感描述；留空则用内置风格包
+     */
+    prompt_pack?: string;
+    /**
      * 同组内排序；不传则排到末尾
      */
     sort_order?: (number | null);

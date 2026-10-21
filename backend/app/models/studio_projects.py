@@ -301,6 +301,12 @@ class ProjectStyleOption(Base, TimestampMixin):
     description: Mapped[str] = mapped_column(
         Text, nullable=False, default="", comment="面向用户的说明（会展示在管理页与新建弹窗）"
     )
+    prompt_pack: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+        default="",
+        comment="提示词质感描述；为空时回落到内置风格包",
+    )
     sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0, comment="同组内排序，越小越前")
 
     __table_args__ = (

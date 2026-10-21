@@ -8,6 +8,7 @@
 export type ProjectStyleOptionUpdate = {
     name?: (string | null);
     description?: (string | null);
+    prompt_pack?: (string | null);
     sort_order?: (number | null);
 };
 

@@ -170,6 +170,7 @@ class ProjectStyleOptionRead(BaseModel):
     visual_style: str = Field(..., description="所属画面表现形式（现实/动漫…）")
     name: str = Field(..., description="风格名称")
     description: str = Field("", description="面向用户的说明")
+    prompt_pack: str = Field("", description="提示词质感描述（注入到出图提示词）")
     sort_order: int = Field(0, description="同组内排序")
 
 
@@ -179,6 +180,7 @@ class ProjectStyleOptionCreate(BaseModel):
     visual_style: str = Field(..., description="所属画面表现形式")
     name: str = Field(..., description="风格名称")
     description: str = Field("", description="面向用户的说明")
+    prompt_pack: str = Field("", description="提示词质感描述；留空则用内置风格包")
     sort_order: int | None = Field(None, description="同组内排序；不传则排到末尾")
 
 
@@ -187,4 +189,5 @@ class ProjectStyleOptionUpdate(BaseModel):
 
     name: str | None = None
     description: str | None = None
+    prompt_pack: str | None = None
     sort_order: int | None = None

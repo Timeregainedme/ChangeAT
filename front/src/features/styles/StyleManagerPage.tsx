@@ -27,9 +27,16 @@ interface StyleFormState {
   visualStyle: string
   name: string
   description: string
+  /** 提示词质感描述：留空则回落到内置风格包 */
+  promptPack: string
 }
 
-const EMPTY_FORM: StyleFormState = { visualStyle: '现实', name: '', description: '' }
+const EMPTY_FORM: StyleFormState = {
+  visualStyle: '现实',
+  name: '',
+  description: '',
+  promptPack: '',
+}
 
 /**
  * 风格管理页。
@@ -100,6 +107,7 @@ export function StyleManagerPage() {
       visualStyle: item.visual_style,
       name: item.name,
       description: item.description ?? '',
+      promptPack: item.prompt_pack ?? '',
     })
     setFormError(null)
     setDialogOpen(true)
@@ -120,6 +128,7 @@ export function StyleManagerPage() {
           requestBody: {
             name: form.name.trim(),
             description: form.description.trim(),
+            prompt_pack: form.promptPack.trim(),
           },
         })
       } else {
@@ -128,6 +137,7 @@ export function StyleManagerPage() {
             visual_style: form.visualStyle,
             name: form.name.trim(),
             description: form.description.trim(),
+            prompt_pack: form.promptPack.trim(),
           },
         })
       }
@@ -302,6 +312,22 @@ export function StyleManagerPage() {
               />
               <p className="text-[11px] text-muted-foreground">
                 参考已有风格：只写画面可观察的要素（光线、材质、色调），不要写抽象评价词
+              </p>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="style-pack">提示词质感描述</Label>
+              <Textarea
+                id="style-pack"
+                rows={3}
+                placeholder="例如：霓虹与水墨叠加，冷紫主调，粒子特效与飞白笔触并存"
+                value={form.promptPack}
+                onChange={(event) =>
+                  setForm((prev) => ({ ...prev, promptPack: event.target.value }))
+                }
+              />
+              <p className="text-[11px] text-muted-foreground">
+                生成资产图/角色图时会拼进提示词，决定实际画风。留空则使用内置的「真人都市」质感描述。
               </p>
             </div>
 

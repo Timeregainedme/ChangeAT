@@ -17,6 +17,7 @@ from collections import OrderedDict
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.chains.prompts.style_pack import STYLE_PACKS
 from app.models.studio import ProjectStyle, ProjectStyleOption, ProjectVisualStyle
 from app.services.common import entity_not_found
 
@@ -47,6 +48,8 @@ def _builtin_options() -> list[ProjectStyleOption]:
                 visual_style=visual.value,
                 name=item.value,
                 description=_BUILTIN_DESCRIPTIONS.get(item.value, ""),
+                # 内置风格沿用原有质感描述，保证升级后出图效果不变
+                prompt_pack=STYLE_PACKS.get(item.value, ""),
                 sort_order=index,
             )
         )
@@ -102,6 +105,7 @@ async def create_style_option(
     visual_style: str,
     name: str,
     description: str = "",
+    prompt_pack: str = "",
     sort_order: int | None = None,
 ) -> ProjectStyleOption:
     """新增风格。
@@ -141,6 +145,7 @@ async def create_style_option(
         visual_style=visual,
         name=style_name,
         description=(description or "").strip(),
+        prompt_pack=(prompt_pack or "").strip(),
         sort_order=sort_order,
     )
     db.add(row)
@@ -154,6 +159,7 @@ async def update_style_option(
     style_id: str,
     name: str | None = None,
     description: str | None = None,
+    prompt_pack: str | None = None,
     sort_order: int | None = None,
 ) -> ProjectStyleOption:
     row = await get_style_option(db, style_id)
@@ -176,6 +182,8 @@ async def update_style_option(
 
     if description is not None:
         row.description = description.strip()
+    if prompt_pack is not None:
+        row.prompt_pack = prompt_pack.strip()
     if sort_order is not None:
         row.sort_order = sort_order
 
@@ -192,3 +200,23 @@ async def delete_style_option(db: AsyncSession, *, style_id: str) -> None:
     row = await get_style_option(db, style_id)
     await db.delete(row)
     await db.flush()
+
+
+async def resolve_style_motif(db: AsyncSession, *, style: str) -> str | None:
+    """按风格名取出提示词质感描述。
+
+    返回 None 表示「目录里没配」，调用方会回落到内置 `STYLE_PACKS`。
+    之所以返回 None 而不是直接给默认值：内置包的回落逻辑只有一处（style_pack），
+    在两层各写一份默认值迟早会不一致。
+    """
+    name = (style or "").strip()
+    if not name:
+        return None
+
+    row = await db.scalar(
+        select(ProjectStyleOption).where(ProjectStyleOption.name == name).limit(1)
+    )
+    if row is None:
+        return None
+    text = (row.prompt_pack or "").strip()
+    return text or None

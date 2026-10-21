@@ -128,13 +128,13 @@ const shotsList = shots.map((s) => ({
 
 /** 风格目录（可变）：与后端一样，首次用内置枚举种子化。 */
 let styleCatalog = [
-  { id: 'style-1', visual_style: '现实', name: '真人都市', description: '现代都市实拍', sort_order: 0 },
-  { id: 'style-2', visual_style: '现实', name: '真人科幻', description: '近未来实拍', sort_order: 1 },
-  { id: 'style-3', visual_style: '现实', name: '真人古装', description: '古装实拍', sort_order: 2 },
-  { id: 'style-4', visual_style: '动漫', name: '动漫科幻', description: '科幻动画', sort_order: 3 },
-  { id: 'style-5', visual_style: '动漫', name: '动漫3D', description: '三维渲染动画', sort_order: 4 },
-  { id: 'style-6', visual_style: '动漫', name: '国漫', description: '国风动画', sort_order: 5 },
-  { id: 'style-7', visual_style: '动漫', name: '水墨画', description: '水墨渲染', sort_order: 6 },
+  { id: 'style-1', visual_style: '现实', name: '真人都市', description: '现代都市实拍', prompt_pack: '现代都市实拍，冷暖对比色调', sort_order: 0 },
+  { id: 'style-2', visual_style: '现实', name: '真人科幻', description: '近未来实拍', prompt_pack: '近未来实拍，冷蓝青基调', sort_order: 1 },
+  { id: 'style-3', visual_style: '现实', name: '真人古装', description: '古装实拍', prompt_pack: '古装实拍，暖黄烛光', sort_order: 2 },
+  { id: 'style-4', visual_style: '动漫', name: '动漫科幻', description: '科幻动画', prompt_pack: '科幻动画，高饱和撞色', sort_order: 3 },
+  { id: 'style-5', visual_style: '动漫', name: '动漫3D', description: '三维渲染动画', prompt_pack: '三维渲染动画，柔和全局光照', sort_order: 4 },
+  { id: 'style-6', visual_style: '动漫', name: '国漫', description: '国风动画', prompt_pack: '国风动画，低饱和', sort_order: 5 },
+  { id: 'style-7', visual_style: '动漫', name: '水墨画', description: '水墨渲染', prompt_pack: '水墨渲染，宣纸质地', sort_order: 6 },
 ]
 
 /** 候选 mock：每个待确认镜头各一条资产候选与一条对白候选。 */
@@ -289,6 +289,7 @@ export const handlers = [
       visual_style: string
       name: string
       description?: string
+      prompt_pack?: string
       sort_order?: number
     }
     if (styleCatalog.some((s) => s.visual_style === body.visual_style && s.name === body.name)) {
@@ -303,6 +304,7 @@ export const handlers = [
       visual_style: body.visual_style,
       name: body.name,
       description: body.description ?? '',
+      prompt_pack: body.prompt_pack ?? '',
       sort_order: body.sort_order ?? styleCatalog.length,
     }
     styleCatalog = [...styleCatalog, row]
@@ -311,13 +313,14 @@ export const handlers = [
 
   http.patch('/api/v1/studio/styles/:style_id', async ({ params, request }) => {
     const { style_id } = params as { style_id: string }
-    const body = (await request.json()) as { name?: string; description?: string }
+    const body = (await request.json()) as { name?: string; description?: string; prompt_pack?: string }
     const idx = styleCatalog.findIndex((s) => s.id === style_id)
     if (idx === -1) return notFound('风格不存在')
     styleCatalog[idx] = {
       ...styleCatalog[idx],
       ...(body.name !== undefined ? { name: body.name } : {}),
       ...(body.description !== undefined ? { description: body.description } : {}),
+      ...(body.prompt_pack !== undefined ? { prompt_pack: body.prompt_pack } : {}),
     }
     return ok(styleCatalog[idx])
   }),

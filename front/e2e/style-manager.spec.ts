@@ -30,6 +30,7 @@ test('新增风格后，新建项目弹窗立即可选（不刷新页面）', as
   await dialog.getByLabel('画面表现形式').selectOption('动漫')
   await dialog.getByLabel('风格名称').fill('赛博国风')
   await dialog.getByLabel('说明').fill('霓虹与水墨叠加，冷紫主调')
+  await dialog.getByLabel('提示词质感描述').fill('霓虹与水墨叠加，冷紫主调，粒子与飞白结合')
   await dialog.getByRole('button', { name: '创建风格' }).click()
 
   await expect(page.getByText('赛博国风')).toBeVisible()

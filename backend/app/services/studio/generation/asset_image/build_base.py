@@ -6,6 +6,7 @@ from fastapi import HTTPException, status
 from pydantic import Field
 
 from app.chains.prompts.style_pack import negative_image_prompt, style_pack_line
+from app.services.studio.style_catalog import resolve_style_motif
 from app.models.studio import (
     Actor,
     ActorImage,
@@ -78,6 +79,8 @@ async def _build_asset_prompt(
         relation_type=relation_type,
         is_front_view=is_front_view(image_row.view_angle),
     )
+    # 自定义风格可能配了自己的质感描述；没配则回落到内置风格包
+    motif_override = await resolve_style_motif(db, style=_enum_value(style))
     return await build_prompt_with_template(
         db,
         category=category,
@@ -91,7 +94,9 @@ async def _build_asset_prompt(
             "quality_level": image_row.quality_level,
             "format": image_row.format,
             # C2：项目级风格包一处配置、全局注入
-            "style_pack": style_pack_line(visual_style=visual_style, style=style),
+            "style_pack": style_pack_line(
+                visual_style=visual_style, style=style, motif_override=motif_override
+            ),
             "negative_prompt": negative_image_prompt(visual_style=visual_style, style=style),
         },
         fallback_prompt=description,
@@ -242,6 +247,7 @@ async def build_character_image_base_draft(
     if character is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=entity_not_found("Character"))
     image_row = await validate_character_image(db, character_id=character_id, image_id=image_id)
+    character_motif = await resolve_style_motif(db, style=_enum_value(character.style))
     prompt = await build_prompt_with_template(
         db,
         category=PromptCategory.character_image_front,
@@ -255,7 +261,9 @@ async def build_character_image_base_draft(
             "format": image_row.format,
             # C2：项目级风格包一处配置、全局注入
             "style_pack": style_pack_line(
-                visual_style=character.visual_style, style=character.style
+                visual_style=character.visual_style,
+                style=character.style,
+                motif_override=character_motif,
             ),
             "negative_prompt": negative_image_prompt(
                 visual_style=character.visual_style, style=character.style

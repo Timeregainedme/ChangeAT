@@ -20,6 +20,10 @@ export type ProjectStyleOptionRead = {
      */
     description?: string;
     /**
+     * 提示词质感描述（注入到出图提示词）
+     */
+    prompt_pack?: string;
+    /**
      * 同组内排序
      */
     sort_order?: number;

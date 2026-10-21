@@ -53,6 +53,7 @@ async def create_style(
             visual_style=body.visual_style,
             name=body.name,
             description=body.description,
+            prompt_pack=body.prompt_pack,
             sort_order=body.sort_order,
         )
     except ValueError as exc:
@@ -78,6 +79,7 @@ async def update_style(
             style_id=style_id,
             name=body.name,
             description=body.description,
+            prompt_pack=body.prompt_pack,
             sort_order=body.sort_order,
         )
     except ValueError as exc:

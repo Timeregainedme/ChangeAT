@@ -62,9 +62,20 @@ def motif_pack_for(style: object) -> str:
     return STYLE_PACKS.get(_enum_text(style), DEFAULT_STYLE_PACK)
 
 
-def style_pack_line(*, visual_style: object = "", style: object = "") -> str:
-    """拼成可直接插进提示词的「风格与质感」段。永远返回非空字符串。"""
-    parts = [motif_pack_for(style), format_pack_for(visual_style)]
+def style_pack_line(
+    *,
+    visual_style: object = "",
+    style: object = "",
+    motif_override: str | None = None,
+) -> str:
+    """拼成可直接插进提示词的「风格与质感」段。永远返回非空字符串。
+
+    `motif_override` 用于「用户自定义风格」：风格目录里配了质感描述就用它，
+    没配才回落到内置 `STYLE_PACKS`。这样新增风格不需要改代码，
+    也不会让自定义风格偷偷套用「真人都市」的默认描述。
+    """
+    override = str(motif_override or "").strip()
+    parts = [override or motif_pack_for(style), format_pack_for(visual_style)]
     seen: list[str] = []
     for part in parts:
         text = str(part or "").strip()
