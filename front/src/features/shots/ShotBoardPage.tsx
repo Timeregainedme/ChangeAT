@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeft, ArrowUpRight, Clapperboard, Pencil, RefreshCw, Save } from 'lucide-react'
+import { ArrowLeft, ArrowUpRight, CheckCheck, Clapperboard, Pencil, RefreshCw, Save, X } from 'lucide-react'
 import { Button } from '../../components/ui/button'
 import { Checkbox } from '../../components/ui/checkbox'
 import {
@@ -34,6 +34,7 @@ import {
   getChapterStudioPath,
 } from '../../pages/aiStudio/project/ProjectWorkbench/routes'
 import { getColumnOf, useChapterBoard, type BoardColumnKey, type BoardShot } from './useChapterBoard'
+import { ShotBatchConfirmDialog } from './ShotBatchConfirmDialog'
 
 /** 三列的展示配置：颜色刻意来自三组不同 token，避免「一个颜色两种含义」。 */
 const COLUMNS: { key: BoardColumnKey; label: string; dot: string; hint: string }[] = [
@@ -182,6 +183,9 @@ export function ShotBoardPage() {
   const [batchOpen, setBatchOpen] = useState(false)
   const [batchSaving, setBatchSaving] = useState(false)
   const [batchError, setBatchError] = useState<string | null>(null)
+  // 批量确认向导与执行结果提示
+  const [confirmOpen, setConfirmOpen] = useState(false)
+  const [confirmResult, setConfirmResult] = useState<string | null>(null)
 
   // 打开时的初值只在切换镜头时取一次：reload 后 shots 引用会变，
   // 若把 form 绑到 shots 上，会把用户正在输入的内容冲掉。
@@ -265,6 +269,38 @@ export function ShotBoardPage() {
     } finally {
       setSaving(false)
     }
+  }
+
+  /** 当前选中的镜头对象（顺序与看板一致）。 */
+  const selectedShots = shots.filter((shot) => selectedIds.includes(shot.id))
+
+  /** 只有「待确认」列里的镜头才谈得上批量确认。 */
+  const pendingSelected = selectedShots.filter((shot) => getColumnOf(shot) === 'pending')
+
+  /**
+   * 批量确认结束后的收尾。
+   *
+   * 失败的、以及本次跳过的镜头继续保留选中：用户可以直接再点一次「批量确认」重试，
+   * 不需要重新框选。
+   */
+  const handleConfirmDone = async ({
+    failedIds,
+    skippedIds,
+    confirmedCount,
+  }: {
+    failedIds: string[]
+    skippedIds: string[]
+    confirmedCount: number
+  }) => {
+    setConfirmOpen(false)
+    setSelectedIds([...failedIds, ...skippedIds])
+    await reload()
+
+    const parts: string[] = []
+    if (confirmedCount > 0) parts.push(`已确认 ${confirmedCount} 个`)
+    if (skippedIds.length > 0) parts.push(`${skippedIds.length} 个仍待处理`)
+    if (failedIds.length > 0) parts.push(`${failedIds.length} 个失败，已保留选中`)
+    setConfirmResult(parts.join('，') || '没有需要处理的镜头')
   }
 
   /** 切换单个镜头的选中状态。 */
@@ -373,11 +409,37 @@ export function ShotBoardPage() {
         </div>
       ) : null}
 
+      {confirmResult ? (
+        <div className="flex shrink-0 items-center gap-2 border-b border-border bg-run-success/10 px-6 py-2 text-sm text-run-success">
+          <span>{confirmResult}</span>
+          <button
+            type="button"
+            aria-label="关闭提示"
+            className="ml-auto rounded bg-transparent p-0.5 hover:bg-accent"
+            onClick={() => setConfirmResult(null)}
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      ) : null}
+
       {selectedIds.length > 0 ? (
         <div className="flex shrink-0 items-center gap-3 border-b border-border bg-primary/5 px-6 py-2 text-sm">
           <span className="font-medium">已选 {selectedIds.length} 个镜头</span>
           <Button
             size="sm"
+            disabled={pendingSelected.length === 0}
+            onClick={() => {
+              setConfirmResult(null)
+              setConfirmOpen(true)
+            }}
+          >
+            <CheckCheck className="h-3.5 w-3.5" />
+            批量确认{pendingSelected.length > 0 ? `（${pendingSelected.length}）` : ''}
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
             onClick={() => {
               setBatchError(null)
               setBatchOpen(true)
@@ -459,6 +521,13 @@ export function ShotBoardPage() {
           })}
         </div>
       </div>
+
+      <ShotBatchConfirmDialog
+        open={confirmOpen}
+        shots={pendingSelected}
+        onOpenChange={(open) => setConfirmOpen(open)}
+        onDone={handleConfirmDone}
+      />
 
       <Dialog
         open={batchOpen}

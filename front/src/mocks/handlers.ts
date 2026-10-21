@@ -111,7 +111,42 @@ const shotsList = shots.map((s) => ({
   status: s.status,
   skip_extraction: false,
   script_excerpt: s.scriptExcerpt,
+  // 待确认镜头模拟「已提取、各剩 1 条待确认」，让批量确认向导有真实分组可展示
+  extraction:
+    s.status === 'ready'
+      ? { state: 'extracted_resolved', pending_asset_count: 0, pending_dialogue_count: 0 }
+      : { state: 'extracted_pending', pending_asset_count: 1, pending_dialogue_count: 1 },
 }))
+
+/** 候选 mock：每个待确认镜头各一条资产候选与一条对白候选。 */
+const assetCandidatesByShot: Record<string, Array<Record<string, unknown>>> = {}
+const dialogueCandidatesByShot: Record<string, Array<Record<string, unknown>>> = {}
+
+/** 按镜头懒生成候选：待确认镜头各一条，ready 镜头没有。 */
+function ensureCandidates() {
+  for (const shot of shotsList) {
+    if (shot.status === 'ready') continue
+    assetCandidatesByShot[shot.id] ??= [
+      {
+        id: Number(shot.id.replace(/\D/g, '')) * 10 + 1,
+        shot_id: shot.id,
+        candidate_type: 'character',
+        candidate_name: '候选角色',
+        candidate_status: 'pending',
+        source: 'mock',
+      },
+    ]
+    dialogueCandidatesByShot[shot.id] ??= [
+      {
+        id: Number(shot.id.replace(/\D/g, '')) * 10 + 2,
+        shot_id: shot.id,
+        candidate_status: 'pending',
+        text: '候选台词',
+      },
+    ]
+  }
+}
+ensureCandidates()
 
 export const handlers = [
   // ====== StudioProjectsService /api/v1/studio/projects ======
@@ -637,6 +672,20 @@ export const handlers = [
       ],
     })
   }),
+
+  http.get('/api/v1/studio/shots/:shot_id/extracted-candidates', ({ params }) => {
+    const { shot_id } = params as { shot_id: string }
+    return ok(assetCandidatesByShot[shot_id] ?? [])
+  }),
+
+  http.get('/api/v1/studio/shots/:shot_id/extracted-dialogue-candidates', ({ params }) => {
+    const { shot_id } = params as { shot_id: string }
+    return ok(dialogueCandidatesByShot[shot_id] ?? [])
+  }),
+
+  http.patch('/api/v1/studio/shots/extracted-candidates/:candidate_id/ignore', () => ok({})),
+  http.patch('/api/v1/studio/shots/extracted-dialogue-candidates/:candidate_id/accept', () => ok({})),
+  http.patch('/api/v1/studio/shots/extracted-dialogue-candidates/:candidate_id/ignore', () => ok({})),
 
   http.patch('/api/v1/studio/shots/:shot_id', async ({ params, request }) => {
     const { shot_id } = params as { shot_id: string }

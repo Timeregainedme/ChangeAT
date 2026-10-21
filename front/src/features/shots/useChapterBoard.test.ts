@@ -14,6 +14,7 @@ function makeShot(overrides: Partial<BoardShot>): BoardShot {
     skipExtraction: false,
     scriptExcerpt: '',
     runtime: { hasActiveTasks: false, activeTaskCount: 0 },
+    extraction: { state: 'extracted_empty', pendingAssets: 0, pendingDialogues: 0 },
     ...overrides,
   }
 }

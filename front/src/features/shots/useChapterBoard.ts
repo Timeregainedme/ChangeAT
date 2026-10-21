@@ -8,7 +8,15 @@ export interface ShotRuntimeState {
   activeTaskCount: number
 }
 
-/** 看板卡片用的镜头模型：业务字段 + 运行时状态。 */
+/** 提取确认进度：决定这一镜能不能批量确认，以及确认前还差什么。 */
+export interface ShotExtractionState {
+  /** not_extracted 未提取 / extracted_pending 有待确认 / extracted_empty 无候选 / extracted_resolved 已确认 / skipped 已跳过 */
+  state: 'not_extracted' | 'extracted_empty' | 'extracted_pending' | 'extracted_resolved' | 'skipped'
+  pendingAssets: number
+  pendingDialogues: number
+}
+
+/** 看板卡片用的镜头模型：业务字段 + 运行时状态 + 提取确认进度。 */
 export interface BoardShot {
   id: string
   index: number
@@ -18,6 +26,7 @@ export interface BoardShot {
   skipExtraction: boolean
   scriptExcerpt: string
   runtime: ShotRuntimeState
+  extraction: ShotExtractionState
 }
 
 /**
@@ -55,6 +64,12 @@ function toBoardShot(shot: ShotRead, runtime?: ShotRuntimeSummaryRead): BoardSho
     runtime: {
       hasActiveTasks: Boolean(runtime?.has_active_tasks),
       activeTaskCount: runtime?.active_task_count ?? 0,
+    },
+    extraction: {
+      // 后端在列表里直接给出提取摘要，批量确认的「差什么」不需要再逐镜查一遍
+      state: shot.extraction?.state ?? (shot.status === 'ready' ? 'extracted_resolved' : 'not_extracted'),
+      pendingAssets: shot.extraction?.pending_asset_count ?? 0,
+      pendingDialogues: shot.extraction?.pending_dialogue_count ?? 0,
     },
   }
 }
