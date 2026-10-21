@@ -118,3 +118,43 @@ func TestUnknownPathReturns404(t *testing.T) {
 		t.Fatalf("status = %d, want 404", rec.Code)
 	}
 }
+
+// TestNotFoundAndMethodNotAllowedUseEnvelope 锁定 404/405 的信封格式。
+//
+// chi 默认分别返回纯文本与空 body，前端按 {code,message} 解析会拿到 undefined。
+// Python 侧踩过同一个坑（只注册了 FastAPI 的子类异常，捕获不到 Starlette 的 404），
+// 这里两边都必须用同一套信封。
+func TestNotFoundAndMethodNotAllowedUseEnvelope(t *testing.T) {
+	router := newTestRouter()
+
+	t.Run("404", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/definitely-not-a-route", nil)
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusNotFound {
+			t.Fatalf("status = %d, want 404", rec.Code)
+		}
+		body := decodeEnvelope(t, rec.Body.Bytes())
+		if body["code"].(float64) != 404 {
+			t.Fatalf("code = %v, want 404", body["code"])
+		}
+		if body["data"] != nil {
+			t.Fatalf("data = %v, want null", body["data"])
+		}
+	})
+
+	t.Run("405", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodDelete, "/health", nil)
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusMethodNotAllowed {
+			t.Fatalf("status = %d, want 405", rec.Code)
+		}
+		body := decodeEnvelope(t, rec.Body.Bytes())
+		if body["code"].(float64) != 405 {
+			t.Fatalf("code = %v, want 405", body["code"])
+		}
+	})
+}

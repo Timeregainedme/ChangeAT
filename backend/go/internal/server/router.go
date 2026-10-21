@@ -11,6 +11,7 @@ import (
 	"github.com/timeregainedme/dyeingtime/backend/go/internal/handler"
 	"github.com/timeregainedme/dyeingtime/backend/go/internal/middleware"
 	"github.com/timeregainedme/dyeingtime/backend/go/internal/proxy"
+	"github.com/timeregainedme/dyeingtime/backend/go/internal/response"
 	"github.com/timeregainedme/dyeingtime/backend/go/internal/store"
 )
 
@@ -38,6 +39,19 @@ func NewRouter(deps Deps) http.Handler {
 	r.Use(middleware.Recover(deps.Logger))
 	r.Use(middleware.RequestID)
 	r.Use(middleware.AccessLog(deps.Logger))
+
+	// 404 / 405 也必须返回统一信封。
+	//
+	// chi 的默认处理器分别返回纯文本 "404 page not found" 与空 body，
+	// 与前端约定的 {code,message,data,meta} 不一致 —— 前端会把 message
+	// 读成 undefined，显示「未知错误」。Python 侧曾因同类问题（只注册了
+	// FastAPI 的子类异常）踩过一次，这里保持一致。
+	r.NotFound(func(w http.ResponseWriter, r *http.Request) {
+		response.WriteError(w, http.StatusNotFound, "Not Found")
+	})
+	r.MethodNotAllowed(func(w http.ResponseWriter, r *http.Request) {
+		response.WriteError(w, http.StatusMethodNotAllowed, "Method Not Allowed")
+	})
 
 	health := handler.NewHealth(deps.DB)
 

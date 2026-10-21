@@ -1,0 +1,228 @@
+# HTTP -> HTTPS redirect (80 -> 9443)
+server {
+    listen 80 default_server;
+    listen [::]:80 default_server;
+    server_name tim.run.place _;
+
+    location ^~ /.well-known/acme-challenge/ {
+        root /var/www/letsencrypt;
+        default_type "text/plain";
+    }
+
+    location / {
+        # 证书已换为 Let's Encrypt，跳到标准 443（不再带 9443）
+        return 301 https://$host$request_uri;
+    }
+
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+
+    access_log /var/log/nginx/dyeingtime-redirect.access.log;
+    error_log  /var/log/nginx/dyeingtime-redirect.error.log;
+}
+
+server {
+    # 标准 HTTPS 端口（Let's Encrypt，浏览器绿锁）
+    listen 443 ssl http2 default_server;
+    listen [::]:443 ssl http2 default_server;
+    # 保留 9443：旧书签/旧链接仍可用，平滑过渡
+    listen 9443 ssl http2;
+    listen [::]:9443 ssl http2;
+    server_name tim.run.place _;
+
+    # Let's Encrypt 证书（certbot 续期由 systemd timer 处理，
+    # 续期后 deploy-hook 会自动修权限并 reload nginx）
+    ssl_certificate     /etc/letsencrypt/live/tim.run.place/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/tim.run.place/privkey.pem;
+    ssl_dhparam         /etc/nginx/ssl/dhparam.pem;
+
+    # --- 说明：未启用 OCSP stapling ---
+    # Let's Encrypt 自 2025 年起停止提供 OCSP 响应（证书内已无 ocsp_uri），
+    # 改为发布 CRL。因此 ssl_stapling 对 LE 证书已无意义，配置了也不会有
+    # 任何响应下发（openssl s_client -status 显示 "no responses sent"）。
+    # 若将来换回仍支持 OCSP 的 CA，再取消下面注释：
+    #   ssl_stapling on;
+    #   ssl_stapling_verify on;
+    #   ssl_trusted_certificate /etc/letsencrypt/live/tim.run.place/chain.pem;
+    #   resolver 127.0.0.53 valid=300s ipv6=off;
+
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305:ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256;
+    ssl_prefer_server_ciphers on;
+    ssl_session_cache shared:SSL:10m;
+    ssl_session_timeout 1d;
+    ssl_session_tickets off;
+
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+
+    root /srv/dyeingtime/front/dist;
+    index index.html;
+
+# ---- 运行时环境注入 ----
+    # env.js 由前端构建产出（public/env.js），BACKEND_URL 默认为空=走相对路径。
+    # 这里用 sub_filter 注入公网基址，避免每次重新部署 dist 都要手工改文件。
+    # ---- 运行时环境注入（nginx 直接生成，不依赖 dist/env.js 文件内容）----
+    # 为什么用 return 200 而不是 alias + sub_filter：
+    #   sub_filter 依赖文件里的字面量，重新部署 dist 时 public/env.js 会覆盖
+    #   dist/env.js，导致注入失效、前端拿到 localhost:8000 后请求失败。
+    # BACKEND_URL 留空 = 前端使用相对路径，所有 /api/v1/* 请求经本 nginx 反代。
+    location = /env.js {
+        add_header Cache-Control "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0" always;
+        default_type application/javascript;
+        return 200 'window.__ENV = window.__ENV || {};\nwindow.__ENV.BACKEND_URL = "";\nwindow.__ENV.GOOGLE_CLIENT_ID = "110364971932-sa3mmor060sq6ahum6m96b2jsk2p2a2a.apps.googleusercontent.com";\n';
+    }
+
+    # ---- SPA 入口不缓存 ----
+    # dist 每次部署会换 bundle hash 且删除旧文件；入口 HTML 若被缓存，
+    # 用户会请求已不存在的旧 chunk，导致白屏/加载失败。
+    # 静态资源仍由 /assets/ 长缓存（7d），因为文件名带 hash。
+    location = /index.html {
+        # 不用 expires -1（它会生成一个独立的 Cache-Control: no-cache，
+        # 与下面的 add_header 重复），只用 add_header 统一控制。
+        add_header Cache-Control "no-cache, no-store, must-revalidate" always;
+    }
+
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+
+    # 素材下载：正则匹配优先于下面的 /api/v1/ 前缀匹配。
+    # 必须放在 /api/v1/ 之前，且不能用 ^~，否则正则不会参与匹配。
+    # 回滚：注释本块 → nginx -t → reload。
+    location ~ ^/api/v1/studio/files/([^/]+)/download$ {
+        proxy_pass http://127.0.0.1:8001;
+        include snippets/dyeingtime-proxy.conf;
+        # 下载走 302 到对象存储，正常应在毫秒级返回；60s 是为私有桶的流式兜底。
+        proxy_read_timeout 60s;
+        proxy_send_timeout 60s;
+    }
+
+    # 任务状态 / 结果查询：只匹配 status 与 result，不碰列表、创建、取消。
+    # 取消是写操作（且需要 revoke Celery 任务），仍在 Python；
+    # 列表接口带 relation 过滤与导航目标解析，逻辑更重，也留在 Python。
+    location ~ ^/api/v1/film/tasks/[^/]+/(status|result)$ {
+        proxy_pass http://127.0.0.1:8001;
+        include snippets/dyeingtime-proxy.conf;
+        # 轮询接口应毫秒级返回；10s 足够，过长会掩盖 Go 侧卡死。
+        proxy_read_timeout 10s;
+        proxy_send_timeout 10s;
+    }
+
+    # 项目 / 章节只读接口。
+    # 列表用精确匹配，单条用正则；正则的 [^/]+$ 保证只匹配单段 ID，
+    # 不会误吃 /projects/{id}/production-readiness 这类子路径。
+    location = /api/v1/studio/projects {
+        proxy_pass http://127.0.0.1:8001;
+        include snippets/dyeingtime-proxy.conf;
+        proxy_read_timeout 30s;
+    }
+    location = /api/v1/studio/chapters {
+        proxy_pass http://127.0.0.1:8001;
+        include snippets/dyeingtime-proxy.conf;
+        proxy_read_timeout 30s;
+    }
+    location ~ ^/api/v1/studio/(projects|chapters)/[^/]+$ {
+        proxy_pass http://127.0.0.1:8001;
+        include snippets/dyeingtime-proxy.conf;
+        proxy_read_timeout 30s;
+    }
+
+    # 任务中心全局列表。精确匹配，优先于下面的 status|result 正则。
+    location = /api/v1/film/tasks {
+        proxy_pass http://127.0.0.1:8001;
+        include snippets/dyeingtime-proxy.conf;
+        proxy_read_timeout 30s;
+    }
+
+    # 素材列表。精确匹配，不干扰下面的 /files/{id}/download 正则。
+    location = /api/v1/studio/files {
+        proxy_pass http://127.0.0.1:8001;
+        include snippets/dyeingtime-proxy.conf;
+        proxy_read_timeout 30s;
+    }
+
+    # 边缘层健康检查。
+    # 修复前 /health 落进 location / 的 SPA fallback，返回 200 + index.html，
+    # 导致外部探活永远「健康」——监控形同虚设。
+    # 指向 Go（Live 语义：只表示进程存活，不查库），与 /api/v1/ready 分工：
+    #   /health          → 边缘进程存活
+    #   /api/v1/ready    → 可接业务流量（查 DB）
+    #   /api/v1/health   → Python 应用存活
+    location = /health {
+        proxy_pass http://127.0.0.1:8001;
+        include snippets/dyeingtime-proxy.conf;
+        proxy_read_timeout 5s;
+    }
+
+    # ---- Go 控制面已接管路径（逐条切流开关）----
+    # 精确匹配（=）优先于下面的 /api/v1/ 前缀匹配，因此单条接管不需要改前缀规则。
+    # 回滚方式：注释或删除对应 location 块 → nginx -t → systemctl reload nginx，
+    # 无需停 Go 进程，也不影响其他路径。
+    # Go 独有的就绪探针（查 DB）。
+    # 不转发的话会落进 location /api/v1/ → Python，返回 {"detail":"Not Found"}，
+    # 让「就绪检查」变成一条永远失败的路径。
+    location = /api/v1/ready {
+        proxy_pass http://127.0.0.1:8001;
+        include snippets/dyeingtime-proxy.conf;
+        proxy_read_timeout 5s;
+    }
+
+    location = /api/v1/auth/me {
+        proxy_pass http://127.0.0.1:8001;
+        include snippets/dyeingtime-proxy.conf;
+        # 只读单行查询，30s 足够；比 Python 段的 300s 更短，避免异常连接长期占用。
+        proxy_read_timeout 30s;
+        proxy_send_timeout 30s;
+    }
+
+    location /api/v1/ {
+        proxy_pass http://127.0.0.1:8000;
+        include snippets/dyeingtime-proxy.conf;
+        proxy_read_timeout 300s;
+        proxy_send_timeout 300s;
+        client_max_body_size 100m;
+    }
+
+    location ~ ^/(docs|openapi|redoc)(\.json)?$ {
+        proxy_pass http://127.0.0.1:8000;
+        include snippets/dyeingtime-proxy.conf;
+    }
+
+
+    # ---- S3 素材反代（RustFS 9000）----
+    # 素材直链形如 https://18.225.232.63:9443/dyeingtime-assets/<key>
+    # 自建 S3 用 path 寻址，因此这里做 /dyeingtime-assets/ -> 根路径 的重写
+    location /dyeingtime-assets/ {
+        # 注意：proxy_pass 末尾不能带 '/'
+        # 带 '/' 时 nginx 会剥掉 location 前缀，导致 bucket 名丢失 → AccessDenied
+        proxy_pass http://127.0.0.1:9000;
+        proxy_http_version 1.1;
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        # 素材可能较大（视频），放宽超时与缓冲
+        proxy_read_timeout 600s;
+        proxy_send_timeout 600s;
+        proxy_buffering    off;
+        proxy_max_temp_file_size 0;
+        client_max_body_size 0;
+    }
+
+    # 静态资源目录：/static/（对应 vite build.assetsDir=static）
+    #
+    # 为什么不用默认的 /assets/：
+    #   前端有 /assets 路由（如 /assets/costumes/:id/edit），会被 nginx 的
+    #   location /assets/ 抢先匹配成静态文件请求而 404，永远走不到 SPA fallback。
+    #   改名后前端 /assets/* 全部交给 try_files 回落 index.html，彻底消除冲突。
+    #
+    # 文件名带内容 hash，可长缓存；替换部署时 hash 变化会自然失效。
+    location /static/ {
+        alias /srv/dyeingtime/front/dist/static/;
+        expires 7d;
+        access_log off;
+        try_files $uri =404;
+    }
+
+    access_log /var/log/nginx/dyeingtime.access.log;
+    error_log  /var/log/nginx/dyeingtime.error.log;
+}

@@ -46,3 +46,6 @@ jellyfish.db
 .docker/
 bin/
 scripts/dockerenv.sh
+
+# Nginx 部署备份（服务器上 dist.old-* 反复累积，每个约 2.5 MB）
+front/dist.old-*
