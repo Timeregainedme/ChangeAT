@@ -153,6 +153,31 @@ server {
         proxy_read_timeout 5s;
     }
 
+    # 镜头列表 / 帧图列表 / 镜头细节 / 任务关联。
+    # 注意：/studio/shots 只做精确匹配，不用正则 —— shots 下有
+    # runtime-summary、{id}/assets-overview、{id}/video-readiness 等大量子路径，
+    # 用 [^/]+$ 会把它们当成 shot_id 全转给 Go 而 404。
+    location = /api/v1/studio/shots {
+        proxy_pass http://127.0.0.1:8001;
+        include snippets/dyeingtime-proxy.conf;
+        proxy_read_timeout 30s;
+    }
+    location = /api/v1/studio/shot-frame-images {
+        proxy_pass http://127.0.0.1:8001;
+        include snippets/dyeingtime-proxy.conf;
+        proxy_read_timeout 30s;
+    }
+    location ~ ^/api/v1/studio/shot-details/[^/]+$ {
+        proxy_pass http://127.0.0.1:8001;
+        include snippets/dyeingtime-proxy.conf;
+        proxy_read_timeout 30s;
+    }
+    location = /api/v1/film/task-links {
+        proxy_pass http://127.0.0.1:8001;
+        include snippets/dyeingtime-proxy.conf;
+        proxy_read_timeout 30s;
+    }
+
     # ---- Go 控制面已接管路径（逐条切流开关）----
     # 精确匹配（=）优先于下面的 /api/v1/ 前缀匹配，因此单条接管不需要改前缀规则。
     # 回滚方式：注释或删除对应 location 块 → nginx -t → systemctl reload nginx，

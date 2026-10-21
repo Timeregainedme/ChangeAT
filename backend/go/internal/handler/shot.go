@@ -83,9 +83,7 @@ type shotDetailRead struct {
 	HasBGM             bool            `json:"has_bgm"`
 	VFXType            string          `json:"vfx_type"`
 	VFXNote            string          `json:"vfx_note"`
-	Description        string          `json:"description"`
 	ActionBeats        json.RawMessage `json:"action_beats"`
-	PromptTemplateID   *string         `json:"prompt_template_id"`
 	FirstFramePrompt   string          `json:"first_frame_prompt"`
 	LastFramePrompt    string          `json:"last_frame_prompt"`
 	KeyFramePrompt     string          `json:"key_frame_prompt"`
@@ -209,9 +207,7 @@ func (h *Shot) GetDetail(w http.ResponseWriter, r *http.Request) {
 		HasBGM:             item.HasBGM,
 		VFXType:            item.VFXType,
 		VFXNote:            item.VFXNote,
-		Description:        item.Description,
 		ActionBeats:        item.ActionBeats,
-		PromptTemplateID:   item.PromptTemplateID,
 		FirstFramePrompt:   item.FirstFramePrompt,
 		LastFramePrompt:    item.LastFramePrompt,
 		KeyFramePrompt:     item.KeyFramePrompt,
