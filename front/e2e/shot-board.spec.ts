@@ -72,3 +72,17 @@ test('待确认列可发起批量确认，向导展示分组统计', async ({ pa
   await dialog.getByRole('button', { name: '取消' }).click()
   await expect(dialog).toBeHidden()
 })
+
+test('从章节列表带 ?batch=confirm 进入时自动打开批量确认', async ({ page }) => {
+  await signIn(page)
+  await page.goto('/projects/p1/chapters/c1/board?batch=confirm')
+
+  const dialog = page.getByRole('dialog')
+  await expect(dialog.getByText(/批量确认 \d+ 个镜头/)).toBeVisible()
+
+  // 参数只消费一次：关掉后地址栏不应还留着 batch=confirm
+  await expect(page).not.toHaveURL(/batch=confirm/)
+
+  await dialog.getByRole('button', { name: '取消' }).click()
+  await expect(dialog).toBeHidden()
+})

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { ArrowLeft, ArrowUpRight, CheckCheck, Clapperboard, Pencil, RefreshCw, Save, X } from 'lucide-react'
 import { Button } from '../../components/ui/button'
 import { Checkbox } from '../../components/ui/checkbox'
@@ -162,6 +162,7 @@ function ShotCard({
 export function ShotBoardPage() {
   const { projectId, chapterId } = useParams<{ projectId: string; chapterId: string }>()
   const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
   const { grouped, chapter, loading, error, reload, shots } = useChapterBoard(projectId, chapterId)
 
   // 用 id 而不是对象持有当前镜头：保存后会 reload，
@@ -270,6 +271,32 @@ export function ShotBoardPage() {
       setSaving(false)
     }
   }
+
+  /**
+   * 支持从章节列表直达批量确认：`?batch=confirm`。
+   *
+   * 章节列表里「待确认 N」本身就是入口，点进来应该直接停在待确认这件事上，
+   * 而不是让用户再手动全选一次。参数用一次就清掉，避免刷新页面重复弹窗。
+   */
+  useEffect(() => {
+    if (searchParams.get('batch') !== 'confirm') return
+    if (loading) return
+
+    const pending = shots.filter((shot) => getColumnOf(shot) === 'pending')
+    if (pending.length > 0) {
+      setSelectedIds(pending.map((shot) => shot.id))
+      setConfirmResult(null)
+      setConfirmOpen(true)
+    } else {
+      setConfirmResult('本章没有待确认的镜头，不需要批量确认')
+    }
+
+    const next = new URLSearchParams(searchParams)
+    next.delete('batch')
+    setSearchParams(next, { replace: true })
+    // shots 只在数据变化时更新，依赖它会在确认后再次触发；这里只关心首次进入
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, searchParams, setSearchParams])
 
   /** 当前选中的镜头对象（顺序与看板一致）。 */
   const selectedShots = shots.filter((shot) => selectedIds.includes(shot.id))

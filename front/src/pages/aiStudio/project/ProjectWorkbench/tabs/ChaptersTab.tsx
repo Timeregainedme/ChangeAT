@@ -442,6 +442,12 @@ const { taskMap: chapterDivisionTaskMap, setTrackedTaskMap: setChapterDivisionTa
     const activeTask = chapterDivisionTaskMap[record.id]
     return [
       {
+        key: 'prepare',
+        label: '一键准备（拆分镜 → 建资产）',
+        icon: <ThunderboltOutlined />,
+        onClick: () => setPrepareChapter(record),
+      },
+      {
         key: 'shots',
         label: '查看分镜',
         icon: <ScissorOutlined />,
@@ -453,6 +459,15 @@ const { taskMap: chapterDivisionTaskMap, setTrackedTaskMap: setChapterDivisionTa
             label: '镜头看板（按状态分列）',
             icon: <AppstoreOutlined />,
             onClick: () => navigate(getChapterBoardPath(projectId, record.id)),
+          }
+        : null,
+      (chapterFlowMap[record.id]?.pendingConfirmShots ?? 0) > 0
+        ? {
+            key: 'batch-confirm',
+            label: `批量确认（${chapterFlowMap[record.id]?.pendingConfirmShots} 个待确认）`,
+            icon: <CheckSquareOutlined />,
+            onClick: () =>
+              navigate(`${getChapterBoardPath(projectId, record.id)}?batch=confirm`),
           }
         : null,
       (record.storyboardCount ?? 0) > 0
@@ -521,7 +536,7 @@ const { taskMap: chapterDivisionTaskMap, setTrackedTaskMap: setChapterDivisionTa
     {
       title: '准备状态',
       key: 'preparation',
-      width: 180,
+      width: 160,
       render: (_, record) => {
         const activeTask = chapterDivisionTaskMap[record.id]
         if (activeTask) {
@@ -548,14 +563,39 @@ const { taskMap: chapterDivisionTaskMap, setTrackedTaskMap: setChapterDivisionTa
     {
       title: '分镜流转',
       key: 'shotFlow',
-      width: 220,
+      width: 190,
       render: (_, record) => {
         const stats = chapterFlowMap[record.id]
+        const pendingCount = stats?.pendingConfirmShots ?? 0
         return (
           <div className="flex flex-wrap gap-1">
-            <Tag bordered={false} color="gold" className="mr-0">
-              待确认 {stats?.pendingConfirmShots ?? 0}
-            </Tag>
+            {/* 「待确认 N」本身就是入口：点它直达看板并自动打开批量确认 */}
+            {pendingCount > 0 ? (
+              <Tooltip title="打开镜头看板并批量确认这一章待确认的镜头">
+                <Tag
+                  bordered={false}
+                  color="gold"
+                  role="button"
+                  tabIndex={0}
+                  className="mr-0 cursor-pointer"
+                  onClick={() =>
+                    projectId && navigate(`${getChapterBoardPath(projectId, record.id)}?batch=confirm`)
+                  }
+                  onKeyDown={(event) => {
+                    if ((event.key === 'Enter' || event.key === ' ') && projectId) {
+                      event.preventDefault()
+                      navigate(`${getChapterBoardPath(projectId, record.id)}?batch=confirm`)
+                    }
+                  }}
+                >
+                  待确认 {pendingCount} →
+                </Tag>
+              </Tooltip>
+            ) : (
+              <Tag bordered={false} color="gold" className="mr-0">
+                待确认 0
+              </Tag>
+            )}
             <Tag bordered={false} color="green" className="mr-0">
               已就绪 {stats?.readyShots ?? 0}
             </Tag>
@@ -579,7 +619,7 @@ const { taskMap: chapterDivisionTaskMap, setTrackedTaskMap: setChapterDivisionTa
     {
       title: '操作',
       key: 'action',
-      width: 230,
+      width: 205,
       render: (_, record) => {
         const state = getChapterPreparationState(record)
         const activeTask = chapterDivisionTaskMap[record.id]
@@ -607,19 +647,14 @@ const { taskMap: chapterDivisionTaskMap, setTrackedTaskMap: setChapterDivisionTa
                 }
                 handlePrimaryAction(record)
               }}
-              style={{ minWidth: 132, justifyContent: 'center' }}
+              style={{ minWidth: 112, justifyContent: 'center' }}
               icon={primaryIcon}
               loading={primaryLoading}
             >
               {primaryText}
             </Button>
-            <Tooltip title="一键准备：拆分镜 → 提取 → 建资产 → 按类目生成资产图">
-              <Button
-                size="small"
-                icon={<ThunderboltOutlined />}
-                onClick={() => setPrepareChapter(record)}
-              />
-            </Tooltip>
+            {/* 一行只保留「主动作 + 看板 + 更多」：一键准备/检查流程/配音等低频操作收进菜单，
+                避免每行 5 个控件把表格挤到横向溢出 */}
             {(record.storyboardCount ?? 0) > 0 ? (
               <Tooltip title="镜头看板：按「待确认 / 生成中 / 已就绪」查看">
                 <Button
@@ -627,15 +662,6 @@ const { taskMap: chapterDivisionTaskMap, setTrackedTaskMap: setChapterDivisionTa
                   icon={<AppstoreOutlined />}
                   aria-label="镜头看板"
                   onClick={() => navigate(getChapterBoardPath(projectId!, record.id))}
-                />
-              </Tooltip>
-            ) : null}
-            {(record.storyboardCount ?? 0) > 0 ? (
-              <Tooltip title="检查流程：参考图 → 分镜 → 对话">
-                <Button
-                  size="small"
-                  icon={<CheckSquareOutlined />}
-                  onClick={() => navigate(getChapterReviewPath(projectId!, record.id))}
                 />
               </Tooltip>
             ) : null}
@@ -720,6 +746,7 @@ const { taskMap: chapterDivisionTaskMap, setTrackedTaskMap: setChapterDivisionTa
         dataSource={chapters}
         pagination={{ pageSize: 10 }}
         size="small"
+        scroll={{ x: 1150 }}
       />
 
       <ChapterRawTextEditorModal
