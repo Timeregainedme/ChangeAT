@@ -263,6 +263,11 @@ export function RolesTab() {
   const [pendingShotLinkChapterId, setPendingShotLinkChapterId] = useState<string | null>(null)
   const [createForm, setCreateForm] = useState<RoleFormValues>(EMPTY_ROLE_FORM)
 
+  /** 角色合并弹窗：解决同一角色被提取成多个名字（如「老张」与「张叔」）。
+   *  必须与其它 state 一起声明在提前 return 之前：写在 `if (!projectId) return null`
+   *  之后会违反 Hooks 调用顺序，projectId 变化时组件直接崩。
+   */
+  const [mergeOpen, setMergeOpen] = useState(false)
   const [editOpen, setEditOpen] = useState(false)
   const [saving, setSaving] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -637,9 +642,6 @@ export function RolesTab() {
     if (character.actor_id) return <Tag color="green">跨 {info.chapter_count} 集 · 已绑演员</Tag>
     return <Tag color="orange">跨 {info.chapter_count} 集 · 建议绑演员</Tag>
   }
-
-  /** 角色合并弹窗：解决同一角色被提取成多个名字（如「老张」与「张叔」）。 */
-  const [mergeOpen, setMergeOpen] = useState(false)
 
   /** 合并候选只取本项目角色（角色天然按项目隔离，无需跨项目搜索）。 */
   const loadMergeOptions = async (keyword: string): Promise<MergeOption[]> => {
