@@ -12,4 +12,6 @@ description: "记录当前正在推进的开发计划、改造方案与阶段性
 当前计划入口：
 
 - [开发规划](/docs/plans/development-plan/)
+- [提示词链路优化分析](/docs/plans/prompt-pipeline-optimization/)
+- [前端重写计划](/docs/plans/frontend-rewrite-plan/)
 - [任务异步化与取消方案](/docs/plans/task-async-cancellation-plan/)
