@@ -1,7 +1,9 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeft, ArrowUpRight, Clapperboard, Pencil, RefreshCw } from 'lucide-react'
+import { ArrowLeft, ArrowUpRight, Clapperboard, Pencil, RefreshCw, Save } from 'lucide-react'
 import { Button } from '../../components/ui/button'
+import { Input } from '../../components/ui/input'
+import { Label } from '../../components/ui/label'
 import { ScrollArea } from '../../components/ui/scroll-area'
 import { Separator } from '../../components/ui/separator'
 import {
@@ -12,9 +14,11 @@ import {
   SheetTitle,
 } from '../../components/ui/sheet'
 import { Skeleton } from '../../components/ui/skeleton'
+import { Switch } from '../../components/ui/switch'
+import { Textarea } from '../../components/ui/textarea'
 import { cn } from '../../lib/utils'
 import { StudioShotsService } from '../../services/generated'
-import type { ShotVideoReadinessRead } from '../../services/generated'
+import type { ShotUpdate, ShotVideoReadinessRead } from '../../services/generated'
 import {
   getChapterShotEditPath,
   getChapterShotsPath,
@@ -28,6 +32,21 @@ const COLUMNS: { key: BoardColumnKey; label: string; dot: string; hint: string }
   { key: 'running', label: '生成中', dot: 'bg-run-running', hint: '有任务正在跑，先等结果' },
   { key: 'ready', label: '已就绪', dot: 'bg-state-ready', hint: '信息已确认，可进入生成准备' },
 ]
+
+/** 侧滑里可编辑的三个字段。序号、状态、关联文件不在看板里改，避免误操作。 */
+interface ShotForm {
+  title: string
+  scriptExcerpt: string
+  skipExtraction: boolean
+}
+
+function toForm(shot: BoardShot): ShotForm {
+  return {
+    title: shot.title,
+    scriptExcerpt: shot.scriptExcerpt,
+    skipExtraction: shot.skipExtraction,
+  }
+}
 
 /**
  * 镜头卡片。
@@ -88,25 +107,55 @@ function ShotCard({ shot, onOpen }: { shot: BoardShot; onOpen: () => void }) {
  * 用三列替代表格，回答的是「这一章卡在哪」而不是「这一章有哪些字段」。
  * 拖动改状态暂不开放：状态推进依赖后端校验（提取、确认、生成条件），
  * 前端先做只读看板，避免用户拖出一个后端不认可的状态。
+ *
+ * 侧滑面板内可直接改标题、剧本摘录与「无需提取」开关：
+ * 这三个字段是最常需要手工修的内容，留在看板里改可以少一次整页跳转。
  */
 export function ShotBoardPage() {
   const { projectId, chapterId } = useParams<{ projectId: string; chapterId: string }>()
   const navigate = useNavigate()
   const { grouped, chapter, loading, error, reload, shots } = useChapterBoard(projectId, chapterId)
-  const [activeShot, setActiveShot] = useState<BoardShot | null>(null)
+
+  // 用 id 而不是对象持有当前镜头：保存后会 reload，
+  // 持对象会读到旧值，持 id 则能自动跟随最新数据。
+  const [openShotId, setOpenShotId] = useState<string | null>(null)
+  const activeShot = openShotId ? shots.find((shot) => shot.id === openShotId) ?? null : null
+
+  const [form, setForm] = useState<ShotForm | null>(null)
+  const [saving, setSaving] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
+  const [savedHint, setSavedHint] = useState(false)
+
   const [readiness, setReadiness] = useState<ShotVideoReadinessRead | null>(null)
   const [readinessLoading, setReadinessLoading] = useState(false)
 
-  // 打开侧滑时按需拉取生成准备度：只在需要看清楚「能不能生成」时才查，避免列表页打出 N 个请求
+  // 打开时的初值只在切换镜头时取一次：reload 后 shots 引用会变，
+  // 若把 form 绑到 shots 上，会把用户正在输入的内容冲掉。
+  const shotsRef = useRef(shots)
+  shotsRef.current = shots
+
   useEffect(() => {
-    if (!activeShot) {
+    setSaveError(null)
+    setSavedHint(false)
+    if (!openShotId) {
+      setForm(null)
+      return
+    }
+    const shot = shotsRef.current.find((item) => item.id === openShotId)
+    setForm(shot ? toForm(shot) : null)
+  }, [openShotId])
+
+  // 打开侧滑时按需拉取生成准备度：只在需要看清楚「能不能生成」时才查，
+  // 避免在列表层给每个镜头都打一次请求。
+  useEffect(() => {
+    if (!openShotId) {
       setReadiness(null)
       return
     }
     let cancelled = false
     setReadinessLoading(true)
     StudioShotsService.getShotVideoReadinessApiApiV1StudioShotsShotIdVideoReadinessGet({
-      shotId: activeShot.id,
+      shotId: openShotId,
     })
       .then((res) => {
         if (!cancelled) setReadiness(res.data ?? null)
@@ -120,7 +169,49 @@ export function ShotBoardPage() {
     return () => {
       cancelled = true
     }
-  }, [activeShot])
+  }, [openShotId])
+
+  const dirty =
+    !!activeShot &&
+    !!form &&
+    (form.title.trim() !== activeShot.title ||
+      form.scriptExcerpt !== activeShot.scriptExcerpt ||
+      form.skipExtraction !== activeShot.skipExtraction)
+
+  /**
+   * 保存当前镜头。
+   *
+   * 只提交真正变化的字段：PATCH 语义是局部更新，把未改字段一起发回去
+   * 会增加「另一个页面同时改了同一镜头」时的覆盖风险。
+   */
+  const saveShot = async () => {
+    if (!activeShot || !form || !dirty) return
+    if (!form.title.trim()) {
+      setSaveError('镜头标题不能为空')
+      return
+    }
+
+    const body: ShotUpdate = {}
+    if (form.title.trim() !== activeShot.title) body.title = form.title.trim()
+    if (form.scriptExcerpt !== activeShot.scriptExcerpt) body.script_excerpt = form.scriptExcerpt
+    if (form.skipExtraction !== activeShot.skipExtraction) body.skip_extraction = form.skipExtraction
+
+    setSaving(true)
+    setSaveError(null)
+    try {
+      await StudioShotsService.updateShotApiV1StudioShotsShotIdPatch({
+        shotId: activeShot.id,
+        requestBody: body,
+      })
+      await reload()
+      setSavedHint(true)
+      window.setTimeout(() => setSavedHint(false), 2000)
+    } catch {
+      setSaveError('保存失败，请稍后重试')
+    } finally {
+      setSaving(false)
+    }
+  }
 
   const chapterLabel = chapter ? `第${chapter.index}章 · ${chapter.title}` : '章节'
 
@@ -202,7 +293,7 @@ export function ShotBoardPage() {
                           </div>
                         ))
                       : items.map((shot) => (
-                          <ShotCard key={shot.id} shot={shot} onOpen={() => setActiveShot(shot)} />
+                          <ShotCard key={shot.id} shot={shot} onOpen={() => setOpenShotId(shot.id)} />
                         ))}
                     {!loading && items.length === 0 ? (
                       <p className="px-1 py-6 text-center text-xs text-muted-foreground">
@@ -217,9 +308,12 @@ export function ShotBoardPage() {
         </div>
       </div>
 
-      <Sheet open={activeShot !== null} onOpenChange={(open) => (open ? null : setActiveShot(null))}>
+      <Sheet
+        open={openShotId !== null}
+        onOpenChange={(open) => (open ? null : setOpenShotId(null))}
+      >
         <SheetContent className="flex w-full flex-col sm:max-w-lg">
-          {activeShot ? (
+          {activeShot && form ? (
             <>
               <SheetHeader>
                 <SheetTitle>
@@ -237,11 +331,45 @@ export function ShotBoardPage() {
                   </div>
                 ) : null}
 
-                <div>
-                  <p className="text-xs font-medium text-muted-foreground">剧本摘录</p>
-                  <p className="mt-1 text-sm leading-6">
-                    {activeShot.scriptExcerpt || '暂无剧本摘录'}
-                  </p>
+                <div className="space-y-1.5">
+                  <Label htmlFor="shot-title">镜头标题</Label>
+                  <Input
+                    id="shot-title"
+                    value={form.title}
+                    onChange={(event) =>
+                      setForm((prev) => (prev ? { ...prev, title: event.target.value } : prev))
+                    }
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label htmlFor="shot-script">剧本摘录</Label>
+                  <Textarea
+                    id="shot-script"
+                    rows={5}
+                    value={form.scriptExcerpt}
+                    placeholder="这一镜在剧本里的原句，决定后续分镜与提示词的依据"
+                    onChange={(event) =>
+                      setForm((prev) =>
+                        prev ? { ...prev, scriptExcerpt: event.target.value } : prev,
+                      )
+                    }
+                  />
+                </div>
+
+                <div className="flex items-center justify-between rounded-md border border-border px-3 py-2.5">
+                  <div>
+                    <p className="text-sm font-medium">无需信息提取</p>
+                    <p className="text-[11px] text-muted-foreground">
+                      开启后不再要求该镜头做资产/对白确认
+                    </p>
+                  </div>
+                  <Switch
+                    checked={form.skipExtraction}
+                    onCheckedChange={(checked) =>
+                      setForm((prev) => (prev ? { ...prev, skipExtraction: checked } : prev))
+                    }
+                  />
                 </div>
 
                 <Separator />
@@ -320,20 +448,33 @@ export function ShotBoardPage() {
                     ) : null}
                   </div>
                 </div>
+
+                {saveError ? (
+                  <p className="rounded-md bg-destructive/10 px-3 py-2 text-xs text-destructive">
+                    {saveError}
+                  </p>
+                ) : null}
               </div>
 
               <div className="mt-4 flex shrink-0 items-center gap-2 border-t border-border pt-3">
+                <Button onClick={saveShot} disabled={!dirty || saving} className="flex-1">
+                  <Save className="h-3.5 w-3.5" />
+                  {saving ? '保存中…' : savedHint ? '已保存' : '保存修改'}
+                </Button>
                 {projectId && chapterId ? (
                   <>
                     <Button
                       variant="outline"
-                      className="flex-1"
-                      onClick={() => navigate(getChapterShotEditPath(projectId, chapterId, activeShot.id))}
+                      size="icon"
+                      aria-label="打开完整编辑页"
+                      onClick={() =>
+                        navigate(getChapterShotEditPath(projectId, chapterId, activeShot.id))
+                      }
                     >
                       <Pencil className="h-3.5 w-3.5" />
-                      编辑信息
                     </Button>
                     <Button
+                      variant="outline"
                       className="flex-1"
                       onClick={() => navigate(getChapterStudioPath(projectId, chapterId))}
                     >

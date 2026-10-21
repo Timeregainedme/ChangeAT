@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 )
 
 // Project 对应 Python 的 `ProjectRead`。
@@ -29,6 +30,21 @@ type Project struct {
 	Stats                         json.RawMessage
 	WorkspaceID                   string
 	CreatedBy                     *int
+	UpdatedAt                     time.Time
+}
+
+// ProjectStats 是项目体量聚合，由实时查询得出而不是读 projects.stats 列。
+//
+// 为什么不用存量 JSON 列：那一列从建表起就没有任何写入方，全库都是 {}，
+// 前端拿到的统计永远是 0。聚合口径与页面语义对齐：
+//   - chapters：章节数
+//   - roles：角色数（characters，项目内唯一）
+//   - scenes/props：项目关联表里去重后的资产数（同一场景可被多镜头关联）
+type ProjectStats struct {
+	Chapters int `json:"chapters"`
+	Roles    int `json:"roles"`
+	Scenes   int `json:"scenes"`
+	Props    int `json:"props"`
 }
 
 // ProjectListParams 是列表查询参数。
@@ -66,7 +82,7 @@ func NewProjectStore(db *sql.DB) *ProjectStore {
 const projectColumns = `
 	id, name, description, style, visual_style, seed, unify_style, progress,
 	default_video_ratio, default_image_ratio, default_image_resolution_profile,
-	use_dialog_audio_as_reference, stats, workspace_id, created_by`
+	use_dialog_audio_as_reference, stats, workspace_id, created_by, updated_at`
 
 // scanProject 从一行扫描出 Project。
 func scanProject(scanner interface{ Scan(...any) error }) (*Project, error) {
@@ -76,7 +92,7 @@ func scanProject(scanner interface{ Scan(...any) error }) (*Project, error) {
 		&p.ID, &p.Name, &p.Description, &p.Style, &p.VisualStyle,
 		&p.Seed, &p.UnifyStyle, &p.Progress,
 		&p.DefaultVideoRatio, &p.DefaultImageRatio, &p.DefaultImageResolutionProfile,
-		&p.UseDialogAudioAsReference, &stats, &p.WorkspaceID, &p.CreatedBy,
+		&p.UseDialogAudioAsReference, &stats, &p.WorkspaceID, &p.CreatedBy, &p.UpdatedAt,
 	)
 	if err != nil {
 		return nil, err
@@ -157,4 +173,93 @@ func (s *ProjectStore) Get(ctx context.Context, id, workspaceID string) (*Projec
 		return nil, err
 	}
 	return item, nil
+}
+
+// inClause 生成 n 个占位符，用于 IN 查询。
+func inClause(n int) string {
+	parts := make([]string, n)
+	for i := range parts {
+		parts[i] = "?"
+	}
+	return strings.Join(parts, ",")
+}
+
+// countGroupedByProject 执行「按 project_id 分组计数」的查询，返回 project_id → 数量。
+func (s *ProjectStore) countGroupedByProject(ctx context.Context, query string, projectIDs []string) (map[string]int, error) {
+	args := make([]any, len(projectIDs))
+	for i, id := range projectIDs {
+		args[i] = id
+	}
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := make(map[string]int, len(projectIDs))
+	for rows.Next() {
+		var projectID string
+		var count int
+		if err := rows.Scan(&projectID, &count); err != nil {
+			return nil, err
+		}
+		out[projectID] = count
+	}
+	return out, rows.Err()
+}
+
+// LoadStats 批量加载项目体量统计。
+//
+// 四条查询并发发出而不是逐项目查：列表页 10 个项目如果逐个查就是 40 次往返，
+// 在 300ms 的国际链路上足以让页面明显变慢。
+//
+// 统计属于「锦上添花」：任一条查询失败就返回错误，由调用方决定降级
+// （当前是保留存量 stats，不阻断列表）。
+func (s *ProjectStore) LoadStats(ctx context.Context, projectIDs []string) (map[string]ProjectStats, error) {
+	out := make(map[string]ProjectStats, len(projectIDs))
+	if len(projectIDs) == 0 {
+		return out, nil
+	}
+
+	placeholders := inClause(len(projectIDs))
+
+	sources := map[string]string{
+		"chapters": "SELECT project_id, COUNT(*) FROM chapters WHERE project_id IN (" + placeholders + ") GROUP BY project_id",
+		"roles":    "SELECT project_id, COUNT(*) FROM characters WHERE project_id IN (" + placeholders + ") GROUP BY project_id",
+		"scenes":   "SELECT project_id, COUNT(DISTINCT scene_id) FROM project_scene_links WHERE project_id IN (" + placeholders + ") GROUP BY project_id",
+		"props":    "SELECT project_id, COUNT(DISTINCT prop_id) FROM project_prop_links WHERE project_id IN (" + placeholders + ") GROUP BY project_id",
+	}
+
+	type result struct {
+		key   string
+		count map[string]int
+		err   error
+	}
+	results := make(chan result, len(sources))
+
+	for key, query := range sources {
+		go func(key, query string) {
+			count, err := s.countGroupedByProject(ctx, query, projectIDs)
+			results <- result{key: key, count: count, err: err}
+		}(key, query)
+	}
+
+	collected := make(map[string]map[string]int, len(sources))
+	for range sources {
+		r := <-results
+		if r.err != nil {
+			return nil, r.err
+		}
+		collected[r.key] = r.count
+	}
+
+	for _, id := range projectIDs {
+		out[id] = ProjectStats{
+			Chapters: collected["chapters"][id],
+			Roles:    collected["roles"][id],
+			Scenes:   collected["scenes"][id],
+			Props:    collected["props"][id],
+		}
+	}
+	return out, nil
 }

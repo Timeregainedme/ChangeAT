@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
@@ -114,9 +115,17 @@ func (h *Project) List(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// 统计查询失败不影响列表本身：降级为「沿用存量 stats」，
+	// 不能让一次聚合超时把整个项目列表变成 500。
+	statsByProject := h.loadStats(r, items)
+
 	out := make([]projectRead, 0, len(items))
 	for _, item := range items {
-		out = append(out, toProjectRead(item))
+		var stats *store.ProjectStats
+		if computed, ok := statsByProject[item.ID]; ok {
+			stats = &computed
+		}
+		out = append(out, toProjectRead(item, stats))
 	}
 	response.WriteSuccess(w, newPaginated(out, page, pageSize, total))
 }
@@ -137,7 +146,11 @@ func (h *Project) Get(w http.ResponseWriter, r *http.Request) {
 		response.WriteError(w, http.StatusInternalServerError, "读取项目失败")
 		return
 	}
-	response.WriteSuccess(w, toProjectRead(item))
+	var stats *store.ProjectStats
+	if computed, ok := h.loadStats(r, []*store.Project{item})[item.ID]; ok {
+		stats = &computed
+	}
+	response.WriteSuccess(w, toProjectRead(item, stats))
 }
 
 // resolveWorkspace 解析并校验请求所属工作区。
@@ -159,12 +172,28 @@ func (h *Project) resolveWorkspace(w http.ResponseWriter, r *http.Request) (stri
 	return workspaceID, true
 }
 
-// toProjectRead 把 store 结构转成响应结构。
-func toProjectRead(p *store.Project) projectRead {
-	stats := p.Stats
-	if len(stats) == 0 {
-		stats = json.RawMessage("{}")
+// loadStats 取项目体量统计，失败时返回空 map（调用方据此降级）。
+func (h *Project) loadStats(r *http.Request, items []*store.Project) map[string]store.ProjectStats {
+	if len(items) == 0 {
+		return nil
 	}
+	ids := make([]string, 0, len(items))
+	for _, item := range items {
+		ids = append(ids, item.ID)
+	}
+	stats, err := h.projects.LoadStats(r.Context(), ids)
+	if err != nil {
+		return nil
+	}
+	return stats
+}
+
+// toProjectRead 把 store 结构转成响应结构。
+//
+// computed 为 nil 表示统计查询失败，此时沿用存量 JSON 里的 stats，
+// 而不是把统计字段清成 0 —— 0 会被前端当成「真的没有」。
+func toProjectRead(p *store.Project, computed *store.ProjectStats) projectRead {
+	stats := mergeStats(p.Stats, computed, p.UpdatedAt)
 	return projectRead{
 		ID:                            p.ID,
 		Name:                          p.Name,
@@ -182,4 +211,34 @@ func toProjectRead(p *store.Project) projectRead {
 		WorkspaceID:                   p.WorkspaceID,
 		CreatedBy:                     p.CreatedBy,
 	}
+}
+
+// mergeStats 把实时聚合合并进 stats JSON。
+//
+// 保留存量 JSON 的其余键：projects.stats 是开放结构，
+// Python 侧以后可能写入别的聚合值，这里只覆盖自己负责的四个键。
+func mergeStats(raw json.RawMessage, computed *store.ProjectStats, updatedAt time.Time) json.RawMessage {
+	merged := map[string]any{}
+	if len(raw) > 0 {
+		// 解析失败就当作空对象：stats 是展示用数据，不值得让整条记录读不出来
+		_ = json.Unmarshal(raw, &merged)
+	}
+
+	if computed != nil {
+		merged["chapters"] = computed.Chapters
+		merged["roles"] = computed.Roles
+		merged["scenes"] = computed.Scenes
+		merged["props"] = computed.Props
+	}
+
+	// updated_at 由 Python 侧以 UTC 存储；前端按本地时区展示。
+	if !updatedAt.IsZero() {
+		merged["updated_at"] = updatedAt.UTC().Format(time.RFC3339)
+	}
+
+	encoded, err := json.Marshal(merged)
+	if err != nil {
+		return json.RawMessage("{}")
+	}
+	return json.RawMessage(encoded)
 }

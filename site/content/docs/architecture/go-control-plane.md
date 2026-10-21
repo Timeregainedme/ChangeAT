@@ -134,6 +134,28 @@ JWT 校验固定 HS256（`WithValidMethods`）、强制 `exp`、30 秒 leeway �
 
 其余 `/api/v1/*` 全部仍由 Python 处理。
 
+## 项目统计（stats）
+
+`GET /api/v1/studio/projects` 与 `{id}` 返回的 `stats` 由 Go 侧**实时聚合**得出，
+而不是读 `projects.stats` 列。
+
+背景：`projects.stats` 这一列从建表起就没有写入方，全库都是 `{}`，
+前端拿到的章节/角色/场景/道具数量始终是 0。
+
+实现要点（`internal/store/project.go` 的 `LoadStats`）：
+
+| 键 | 口径 |
+|---|---|
+| `chapters` | `chapters` 表按 `project_id` 计数 |
+| `roles` | `characters` 表按 `project_id` 计数（角色是项目内实体） |
+| `scenes` | `project_scene_links` 按 `project_id` 去重计数 |
+| `props` | `project_prop_links` 按 `project_id` 去重计数 |
+
+- 四条查询**并发**发出，一次 `IN (...)` 覆盖整页项目，不逐项目查。
+- 结果与存量 JSON **合并**：只覆盖上面四个键，保留 Python 可能写入的其它键。
+- 同时补 `updated_at`（UTC RFC3339），前端按本地时区展示。
+- **统计失败不阻断列表**：查询出错时沿用存量 `stats`，不让一次聚合超时把列表变成 500。
+
 ## 切流方式
 
 Nginx 里逐条加 location，删掉即回滚：
