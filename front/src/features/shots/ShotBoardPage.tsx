@@ -27,7 +27,12 @@ import { Switch } from '../../components/ui/switch'
 import { Textarea } from '../../components/ui/textarea'
 import { cn } from '../../lib/utils'
 import { StudioShotsService } from '../../services/generated'
-import type { ShotUpdate, ShotVideoReadinessRead } from '../../services/generated'
+import type {
+  ShotAssetOverviewItem,
+  ShotAssetsOverviewRead,
+  ShotUpdate,
+  ShotVideoReadinessRead,
+} from '../../services/generated'
 import {
   getChapterShotEditPath,
   getChapterShotsPath,
@@ -35,6 +40,51 @@ import {
 } from '../../pages/aiStudio/project/ProjectWorkbench/routes'
 import { getColumnOf, useChapterBoard, type BoardColumnKey, type BoardShot } from './useChapterBoard'
 import { ShotBatchConfirmDialog } from './ShotBatchConfirmDialog'
+
+/**
+ * 镜头缩略图。
+ *
+ * 列表接口的 thumbnail 可能是失效路径（mock 或历史数据），
+ * 直接渲染会露出破图与 alt 文本。加载失败时整块收起，
+ * 让卡片退化成「无图」形态，而不是显示一个碎图标。
+ */
+function ShotThumb({
+  src,
+  alt,
+  className,
+}: {
+  src?: string
+  alt: string
+  className?: string
+}) {
+  const [failed, setFailed] = useState(false)
+
+  useEffect(() => {
+    setFailed(false)
+  }, [src])
+
+  if (!src || failed) return null
+
+  return (
+    <div className={cn('aspect-video w-full overflow-hidden bg-muted', className)}>
+      <img
+        src={src}
+        alt={alt}
+        loading="lazy"
+        className="h-full w-full object-cover"
+        onError={() => setFailed(true)}
+      />
+    </div>
+  )
+}
+
+/** 资产类型的中文短标签，避免在侧滑里露出英文枚举。 */
+const ASSET_TYPE_LABEL: Record<string, string> = {
+  character: '角色',
+  scene: '场景',
+  prop: '道具',
+  costume: '服装',
+}
 
 /** 三列的展示配置：颜色刻意来自三组不同 token，避免「一个颜色两种含义」。 */
 const COLUMNS: { key: BoardColumnKey; label: string; dot: string; hint: string }[] = [
@@ -110,16 +160,7 @@ function ShotCard({
         />
       </div>
 
-      {shot.thumbnail ? (
-        <div className="aspect-video w-full overflow-hidden bg-muted">
-          <img
-            src={shot.thumbnail}
-            alt={shot.title}
-            loading="lazy"
-            className="h-full w-full object-cover"
-          />
-        </div>
-      ) : null}
+      <ShotThumb src={shot.thumbnail} alt={shot.title} />
 
       <div className={cn('space-y-1.5 p-3', !shot.thumbnail && 'pl-8')}>
         <div className="flex items-center gap-1.5">
@@ -177,6 +218,8 @@ export function ShotBoardPage() {
 
   const [readiness, setReadiness] = useState<ShotVideoReadinessRead | null>(null)
   const [readinessLoading, setReadinessLoading] = useState(false)
+  // 资产概览：让用户在看板里就知道「还差哪些资产」，不用跳编辑页
+  const [assetsOverview, setAssetsOverview] = useState<ShotAssetsOverviewRead | null>(null)
 
   // 批量操作：目前只开放「标记无需提取」——这是用户可以自行判断、
   // 且不绕过任何后端校验的动作；状态推进仍必须走各自的确认流程。
@@ -209,9 +252,22 @@ export function ShotBoardPage() {
   useEffect(() => {
     if (!openShotId) {
       setReadiness(null)
+      setAssetsOverview(null)
       return
     }
     let cancelled = false
+
+    // 资产概览只影响补充信息，失败时不打扰用户（准备度那块已经会提示缺什么）
+    StudioShotsService.getShotAssetsOverviewApiApiV1StudioShotsShotIdAssetsOverviewGet({
+      shotId: openShotId,
+    })
+      .then((res) => {
+        if (!cancelled) setAssetsOverview(res.data ?? null)
+      })
+      .catch(() => {
+        if (!cancelled) setAssetsOverview(null)
+      })
+
     setReadinessLoading(true)
     StudioShotsService.getShotVideoReadinessApiApiV1StudioShotsShotIdVideoReadinessGet({
       shotId: openShotId,
@@ -621,11 +677,11 @@ export function ShotBoardPage() {
               </SheetHeader>
 
               <div className="mt-4 flex flex-1 flex-col gap-4 overflow-y-auto">
-                {activeShot.thumbnail ? (
-                  <div className="overflow-hidden rounded-lg border border-border">
-                    <img src={activeShot.thumbnail} alt={activeShot.title} className="w-full" />
-                  </div>
-                ) : null}
+                <ShotThumb
+                  src={activeShot.thumbnail}
+                  alt={activeShot.title}
+                  className="rounded-lg border border-border"
+                />
 
                 <div className="space-y-1.5">
                   <Label htmlFor="shot-title">镜头标题</Label>
@@ -666,6 +722,53 @@ export function ShotBoardPage() {
                       setForm((prev) => (prev ? { ...prev, skipExtraction: checked } : prev))
                     }
                   />
+                </div>
+
+                <Separator />
+
+                {/* 资产概览：回答「还差什么」，并把明细留在编辑页处理 */}
+                <div className="rounded-md border border-border p-3">
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-muted-foreground">资产</span>
+                    {assetsOverview ? (
+                      <span className="text-xs text-muted-foreground">
+                        已关联 {assetsOverview.summary.linked_count} · 待确认{' '}
+                        {assetsOverview.summary.pending_count}
+                      </span>
+                    ) : (
+                      <span className="text-xs text-muted-foreground">加载中…</span>
+                    )}
+                  </div>
+
+                  {assetsOverview && assetsOverview.summary.pending_count > 0 ? (
+                    <ul className="mt-2 space-y-1">
+                      {(assetsOverview.items ?? [])
+                        .filter(
+                          (item: ShotAssetOverviewItem) =>
+                            item.candidate_status === 'pending' && !item.is_linked,
+                        )
+                        .slice(0, 3)
+                        .map((item: ShotAssetOverviewItem) => (
+                          <li key={item.key} className="flex items-center gap-2 text-xs">
+                            <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                              {ASSET_TYPE_LABEL[item.type] ?? item.type}
+                            </span>
+                            <span className="min-w-0 flex-1 truncate">{item.name}</span>
+                            <span className="text-state-pending">待确认</span>
+                          </li>
+                        ))}
+                    </ul>
+                  ) : null}
+
+                  {assetsOverview && assetsOverview.summary.pending_count > 3 ? (
+                    <p className="mt-1 text-[11px] text-muted-foreground">
+                      还有 {assetsOverview.summary.pending_count - 3} 项，去编辑页处理
+                    </p>
+                  ) : null}
+
+                  {assetsOverview && assetsOverview.summary.pending_count === 0 ? (
+                    <p className="mt-2 text-xs text-muted-foreground">资产已全部确认</p>
+                  ) : null}
                 </div>
 
                 <Separator />

@@ -687,6 +687,56 @@ export const handlers = [
   http.patch('/api/v1/studio/shots/extracted-dialogue-candidates/:candidate_id/accept', () => ok({})),
   http.patch('/api/v1/studio/shots/extracted-dialogue-candidates/:candidate_id/ignore', () => ok({})),
 
+  http.get('/api/v1/studio/shots/:shot_id/assets-overview', ({ params }) => {
+    const { shot_id } = params as { shot_id: string }
+    const shot = shotsList.find((s) => s.id === shot_id)
+    const pending = shot?.status === 'ready' ? 0 : 1
+    return ok({
+      shot_id,
+      skip_extraction: Boolean(shot?.skip_extraction),
+      status: shot?.status ?? 'pending',
+      summary: {
+        linked_count: 2,
+        pending_count: pending,
+        ignored_count: 0,
+        total_count: 2 + pending,
+      },
+      items: [
+        {
+          key: 'character:小雨',
+          type: 'character',
+          name: '小雨',
+          source: 'linked',
+          is_linked: true,
+          candidate_status: null,
+          candidate_id: null,
+        },
+        {
+          key: 'scene:出租屋',
+          type: 'scene',
+          name: '出租屋',
+          source: 'linked',
+          is_linked: true,
+          candidate_status: null,
+          candidate_id: null,
+        },
+        ...(pending
+          ? [
+              {
+                key: 'prop:欠条',
+                type: 'prop',
+                name: '欠条',
+                source: 'candidate',
+                is_linked: false,
+                candidate_status: 'pending',
+                candidate_id: Number(shot_id.replace(/\D/g, '')) * 10 + 1,
+              },
+            ]
+          : []),
+      ],
+    })
+  }),
+
   http.get('/api/v1/studio/shots/:shot_id/preparation-state', ({ params }) => {
     const { shot_id } = params as { shot_id: string }
     const shot = shotsList.find((s) => s.id === shot_id)

@@ -86,3 +86,14 @@ test('从章节列表带 ?batch=confirm 进入时自动打开批量确认', asyn
   await dialog.getByRole('button', { name: '取消' }).click()
   await expect(dialog).toBeHidden()
 })
+
+test('侧滑展示资产概览与待确认项', async ({ page }) => {
+  await signIn(page)
+  await page.goto('/projects/p1/chapters/c1/board')
+
+  await page.getByText('中景：出租屋内静止的风扇').first().click()
+  const sheet = page.getByRole('dialog')
+  await expect(sheet.getByText('资产', { exact: true })).toBeVisible()
+  await expect(sheet.getByText('欠条', { exact: true })).toBeVisible()
+  await expect(sheet.getByText(/已关联 \d+/)).toBeVisible()
+})
