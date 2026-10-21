@@ -1,12 +1,15 @@
 package server
 
 import (
+	"database/sql"
 	"encoding/json"
 	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	_ "github.com/go-sql-driver/mysql"
 )
 
 // newTestRouter 构造一个不接数据库的路由，用于验证路由与响应信封。
@@ -157,4 +160,45 @@ func TestNotFoundAndMethodNotAllowedUseEnvelope(t *testing.T) {
 			t.Fatalf("code = %v, want 405", body["code"])
 		}
 	})
+}
+
+// TestMethodNotAllowedFallsBackToPython 锁定「写方法回落 Python」的行为。
+//
+// 背景：Nginx 的 `location = /api/v1/studio/projects` 只匹配路径、不区分方法，
+// 所以 POST 也会被转到 Go。而 Go 只接管了 GET —— 若不回落，用户点「创建项目」
+// 会直接收到 405。这条测试防止有人把 MethodNotAllowed 改回纯 405。
+func TestMethodNotAllowedFallsBackToPython(t *testing.T) {
+	// 起一个假的 Python 上游：任何请求都回 201 + 固定 body
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{"code":201,"message":"from-python","data":null,"meta":null}`))
+	}))
+	defer upstream.Close()
+
+	// 需要非 nil 的 *sql.DB 才会注册受保护路由；用懒连接的空库，
+	// 请求在 MethodNotAllowed 阶段就被拦截，不会真的查库。
+	stubDB, err := sql.Open("mysql", "u:p@tcp(127.0.0.1:1)/none")
+	if err != nil {
+		t.Fatalf("构造 stub DB 失败: %v", err)
+	}
+	defer stubDB.Close()
+
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	router := NewRouter(Deps{Logger: logger, DB: stubDB, JWTSecret: "test", PythonUpstream: upstream.URL})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/studio/projects", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want 201（应回落 Python，而不是 405）", rec.Code)
+	}
+	var body map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("响应不是 JSON: %v", err)
+	}
+	if body["message"] != "from-python" {
+		t.Fatalf("message = %v, want from-python（说明没有真正透传）", body["message"])
+	}
 }

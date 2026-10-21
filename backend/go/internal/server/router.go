@@ -40,16 +40,25 @@ func NewRouter(deps Deps) http.Handler {
 	r.Use(middleware.RequestID)
 	r.Use(middleware.AccessLog(deps.Logger))
 
-	// 404 / 405 也必须返回统一信封。
+	// 回落代理：当路径被切给 Go、但 Go 没有实现该方法时，透传给 Python。
 	//
-	// chi 的默认处理器分别返回纯文本 "404 page not found" 与空 body，
-	// 与前端约定的 {code,message,data,meta} 不一致 —— 前端会把 message
-	// 读成 undefined，显示「未知错误」。Python 侧曾因同类问题（只注册了
-	// FastAPI 的子类异常）踩过一次，这里保持一致。
+	// 这是切流机制的必要补充。Nginx 的 `location = /api/v1/studio/projects`
+	// 只匹配路径、**不区分 HTTP 方法**，所以 POST/PATCH/DELETE 也会被转到 Go。
+	// 而 Go 只接管了 GET —— 若直接返回 405，用户点「创建项目」就会失败。
+	//
+	// 我们不按方法在 Nginx 里再分流一次（那需要为每条路径复制一份配置，
+	// 漏一条就是一次线上故障），而是让 Go 在「方法未实现」时回落 Python：
+	// 行为与切流前一致，且将来 Go 实现了写方法后会自动接管，无需改 Nginx。
+	pythonFallback := proxy.ToPython(deps.PythonUpstream)
+
 	r.NotFound(func(w http.ResponseWriter, r *http.Request) {
 		response.WriteError(w, http.StatusNotFound, "Not Found")
 	})
 	r.MethodNotAllowed(func(w http.ResponseWriter, r *http.Request) {
+		if pythonFallback != nil {
+			pythonFallback.ServeHTTP(w, r)
+			return
+		}
 		response.WriteError(w, http.StatusMethodNotAllowed, "Method Not Allowed")
 	})
 
@@ -89,7 +98,7 @@ func NewRouter(deps Deps) http.Handler {
 			fileHandler := handler.NewFile(
 				store.NewFileStore(deps.DB),
 				store.NewWorkspaceStore(deps.DB),
-				proxy.ToPython(deps.PythonUpstream),
+				pythonFallback,
 			)
 
 			// 受保护路由：与 Python 的 `/auth/me` 同契约。
