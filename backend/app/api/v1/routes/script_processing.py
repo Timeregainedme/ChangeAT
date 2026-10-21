@@ -33,7 +33,14 @@ from app.chains.agents.script_processing_agents import (
     ScriptSimplificationResult,
     StudioScriptExtractionDraft,
 )
-from app.dependencies import get_db, get_llm, get_nothinking_llm
+from app.api.scoping import get_chapter_in_workspace, get_project_in_workspace
+from app.dependencies import (
+    WorkspaceContext,
+    get_db,
+    get_llm,
+    get_nothinking_llm,
+    get_workspace_context,
+)
 from app.schemas.common import ApiResponse, success_response
 from app.schemas.skills.character_portrait import CharacterPortraitAnalysisResult
 from app.schemas.skills.costume_info_analysis import CostumeInfoAnalysisResult
@@ -109,13 +116,22 @@ class ScriptDividerRequest(BaseModel):
 )
 async def divide_script_async(
     request: ScriptDividerRequest,
+    ctx: WorkspaceContext = Depends(get_workspace_context),
     db: AsyncSession = Depends(get_db),
 ) -> ApiResponse[AsyncTaskCreateRead]:
+    # 多租户校验：请求引用的章节/项目必须属于当前工作区，避免跨租户创建任务。
+    chapter_ref = getattr(request, "chapter_id", None)
+    project_ref = getattr(request, "project_id", None)
+    if chapter_ref:
+        await get_chapter_in_workspace(db, chapter_ref, ctx)
+    elif project_ref:
+        await get_project_in_workspace(db, project_ref, ctx)
     if not request.chapter_id:
         raise HTTPException(status_code=400, detail=required_field("chapter_id", when="divide-async"))
 
     task_info = await create_divide_task(
         db,
+        workspace_id=ctx.workspace_id,
         chapter_id=request.chapter_id,
         script_text=request.script_text,
         write_to_db=request.write_to_db,
@@ -223,14 +239,23 @@ class EntityMergerRequest(BaseModel):
 )
 async def merge_entities_async(
     request: EntityMergerRequest,
+    ctx: WorkspaceContext = Depends(get_workspace_context),
     db: AsyncSession = Depends(get_db),
 ) -> ApiResponse[AsyncTaskCreateRead]:
+    # 多租户校验：请求引用的章节/项目必须属于当前工作区，避免跨租户创建任务。
+    chapter_ref = getattr(request, "chapter_id", None)
+    project_ref = getattr(request, "project_id", None)
+    if chapter_ref:
+        await get_chapter_in_workspace(db, chapter_ref, ctx)
+    elif project_ref:
+        await get_project_in_workspace(db, project_ref, ctx)
     relation_entity_id = pick_merge_relation_entity_id(
         chapter_id=request.chapter_id,
         project_id=request.project_id,
     )
     task_info = await create_merge_task(
         db,
+        workspace_id=ctx.workspace_id,
         relation_entity_id=relation_entity_id,
         all_shot_extractions=request.all_shot_extractions,
         historical_library=request.historical_library,
@@ -332,14 +357,23 @@ class VariantAnalysisRequest(BaseModel):
 )
 async def analyze_variants_async(
     request: VariantAnalysisRequest,
+    ctx: WorkspaceContext = Depends(get_workspace_context),
     db: AsyncSession = Depends(get_db),
 ) -> ApiResponse[AsyncTaskCreateRead]:
+    # 多租户校验：请求引用的章节/项目必须属于当前工作区，避免跨租户创建任务。
+    chapter_ref = getattr(request, "chapter_id", None)
+    project_ref = getattr(request, "project_id", None)
+    if chapter_ref:
+        await get_chapter_in_workspace(db, chapter_ref, ctx)
+    elif project_ref:
+        await get_project_in_workspace(db, project_ref, ctx)
     relation_entity_id = pick_variant_relation_entity_id(
         chapter_id=request.chapter_id,
         project_id=request.project_id,
     )
     task_info = await create_variant_task(
         db,
+        workspace_id=ctx.workspace_id,
         relation_entity_id=relation_entity_id,
         merged_library=request.merged_library,
         all_shot_extractions=request.all_shot_extractions,
@@ -418,14 +452,23 @@ class ScriptConsistencyCheckRequest(BaseModel):
 )
 async def check_consistency_async(
     request: ScriptConsistencyCheckRequest,
+    ctx: WorkspaceContext = Depends(get_workspace_context),
     db: AsyncSession = Depends(get_db),
 ) -> ApiResponse[AsyncTaskCreateRead]:
+    # 多租户校验：请求引用的章节/项目必须属于当前工作区，避免跨租户创建任务。
+    chapter_ref = getattr(request, "chapter_id", None)
+    project_ref = getattr(request, "project_id", None)
+    if chapter_ref:
+        await get_chapter_in_workspace(db, chapter_ref, ctx)
+    elif project_ref:
+        await get_project_in_workspace(db, project_ref, ctx)
     relation_entity_id = pick_consistency_relation_entity_id(
         chapter_id=request.chapter_id,
         project_id=request.project_id,
     )
     task_info = await create_consistency_task(
         db,
+        workspace_id=ctx.workspace_id,
         relation_entity_id=relation_entity_id,
         script_text=request.script_text,
     )
@@ -500,8 +543,16 @@ class CharacterPortraitAnalysisRequest(BaseModel):
 )
 async def analyze_character_portrait_async(
     request: CharacterPortraitAnalysisRequest,
+    ctx: WorkspaceContext = Depends(get_workspace_context),
     db: AsyncSession = Depends(get_db),
 ) -> ApiResponse[AsyncTaskCreateRead]:
+    # 多租户校验：请求引用的章节/项目必须属于当前工作区，避免跨租户创建任务。
+    chapter_ref = getattr(request, "chapter_id", None)
+    project_ref = getattr(request, "project_id", None)
+    if chapter_ref:
+        await get_chapter_in_workspace(db, chapter_ref, ctx)
+    elif project_ref:
+        await get_project_in_workspace(db, project_ref, ctx)
     relation_entity_id = pick_analysis_relation_entity_id(
         relation_entity_id=request.relation_entity_id,
         chapter_id=request.chapter_id,
@@ -510,6 +561,7 @@ async def analyze_character_portrait_async(
     )
     task_info = await create_character_portrait_task(
         db,
+        workspace_id=ctx.workspace_id,
         relation_entity_id=relation_entity_id,
         character_context=request.character_context,
         character_description=request.character_description,
@@ -577,8 +629,16 @@ class PropInfoAnalysisRequest(BaseModel):
 )
 async def analyze_prop_info_async(
     request: PropInfoAnalysisRequest,
+    ctx: WorkspaceContext = Depends(get_workspace_context),
     db: AsyncSession = Depends(get_db),
 ) -> ApiResponse[AsyncTaskCreateRead]:
+    # 多租户校验：请求引用的章节/项目必须属于当前工作区，避免跨租户创建任务。
+    chapter_ref = getattr(request, "chapter_id", None)
+    project_ref = getattr(request, "project_id", None)
+    if chapter_ref:
+        await get_chapter_in_workspace(db, chapter_ref, ctx)
+    elif project_ref:
+        await get_project_in_workspace(db, project_ref, ctx)
     relation_entity_id = pick_analysis_relation_entity_id(
         relation_entity_id=request.relation_entity_id,
         chapter_id=request.chapter_id,
@@ -587,6 +647,7 @@ async def analyze_prop_info_async(
     )
     task_info = await create_prop_info_task(
         db,
+        workspace_id=ctx.workspace_id,
         relation_entity_id=relation_entity_id,
         prop_context=request.prop_context,
         prop_description=request.prop_description,
@@ -654,8 +715,16 @@ class SceneInfoAnalysisRequest(BaseModel):
 )
 async def analyze_scene_info_async(
     request: SceneInfoAnalysisRequest,
+    ctx: WorkspaceContext = Depends(get_workspace_context),
     db: AsyncSession = Depends(get_db),
 ) -> ApiResponse[AsyncTaskCreateRead]:
+    # 多租户校验：请求引用的章节/项目必须属于当前工作区，避免跨租户创建任务。
+    chapter_ref = getattr(request, "chapter_id", None)
+    project_ref = getattr(request, "project_id", None)
+    if chapter_ref:
+        await get_chapter_in_workspace(db, chapter_ref, ctx)
+    elif project_ref:
+        await get_project_in_workspace(db, project_ref, ctx)
     relation_entity_id = pick_analysis_relation_entity_id(
         relation_entity_id=request.relation_entity_id,
         chapter_id=request.chapter_id,
@@ -664,6 +733,7 @@ async def analyze_scene_info_async(
     )
     task_info = await create_scene_info_task(
         db,
+        workspace_id=ctx.workspace_id,
         relation_entity_id=relation_entity_id,
         scene_context=request.scene_context,
         scene_description=request.scene_description,
@@ -731,8 +801,16 @@ class CostumeInfoAnalysisRequest(BaseModel):
 )
 async def analyze_costume_info_async(
     request: CostumeInfoAnalysisRequest,
+    ctx: WorkspaceContext = Depends(get_workspace_context),
     db: AsyncSession = Depends(get_db),
 ) -> ApiResponse[AsyncTaskCreateRead]:
+    # 多租户校验：请求引用的章节/项目必须属于当前工作区，避免跨租户创建任务。
+    chapter_ref = getattr(request, "chapter_id", None)
+    project_ref = getattr(request, "project_id", None)
+    if chapter_ref:
+        await get_chapter_in_workspace(db, chapter_ref, ctx)
+    elif project_ref:
+        await get_project_in_workspace(db, project_ref, ctx)
     relation_entity_id = pick_analysis_relation_entity_id(
         relation_entity_id=request.relation_entity_id,
         chapter_id=request.chapter_id,
@@ -741,6 +819,7 @@ async def analyze_costume_info_async(
     )
     task_info = await create_costume_info_task(
         db,
+        workspace_id=ctx.workspace_id,
         relation_entity_id=relation_entity_id,
         costume_context=request.costume_context,
         costume_description=request.costume_description,
@@ -812,8 +891,16 @@ class ScriptSimplifyRequest(BaseModel):
 )
 async def optimize_script_async(
     request: ScriptOptimizeRequest,
+    ctx: WorkspaceContext = Depends(get_workspace_context),
     db: AsyncSession = Depends(get_db),
 ) -> ApiResponse[AsyncTaskCreateRead]:
+    # 多租户校验：请求引用的章节/项目必须属于当前工作区，避免跨租户创建任务。
+    chapter_ref = getattr(request, "chapter_id", None)
+    project_ref = getattr(request, "project_id", None)
+    if chapter_ref:
+        await get_chapter_in_workspace(db, chapter_ref, ctx)
+    elif project_ref:
+        await get_project_in_workspace(db, project_ref, ctx)
     relation_entity_id = pick_analysis_relation_entity_id(
         chapter_id=request.chapter_id,
         project_id=request.project_id,
@@ -821,6 +908,7 @@ async def optimize_script_async(
     )
     task_info = await create_script_optimization_task(
         db,
+        workspace_id=ctx.workspace_id,
         relation_entity_id=relation_entity_id,
         script_text=request.script_text,
         consistency=request.consistency,
@@ -898,8 +986,16 @@ async def simplify_script(
 )
 async def simplify_script_async(
     request: ScriptSimplifyRequest,
+    ctx: WorkspaceContext = Depends(get_workspace_context),
     db: AsyncSession = Depends(get_db),
 ) -> ApiResponse[AsyncTaskCreateRead]:
+    # 多租户校验：请求引用的章节/项目必须属于当前工作区，避免跨租户创建任务。
+    chapter_ref = getattr(request, "chapter_id", None)
+    project_ref = getattr(request, "project_id", None)
+    if chapter_ref:
+        await get_chapter_in_workspace(db, chapter_ref, ctx)
+    elif project_ref:
+        await get_project_in_workspace(db, project_ref, ctx)
     relation_entity_id = pick_analysis_relation_entity_id(
         chapter_id=request.chapter_id,
         project_id=request.project_id,
@@ -907,6 +1003,7 @@ async def simplify_script_async(
     )
     task_info = await create_script_simplification_task(
         db,
+        workspace_id=ctx.workspace_id,
         relation_entity_id=relation_entity_id,
         script_text=request.script_text,
     )
@@ -945,10 +1042,19 @@ class ScriptExtractRequest(BaseModel):
 )
 async def extract_script_async(
     request: ScriptExtractRequest,
+    ctx: WorkspaceContext = Depends(get_workspace_context),
     db: AsyncSession = Depends(get_db),
 ) -> ApiResponse[AsyncTaskCreateRead]:
+    # 多租户校验：请求引用的章节/项目必须属于当前工作区，避免跨租户创建任务。
+    chapter_ref = getattr(request, "chapter_id", None)
+    project_ref = getattr(request, "project_id", None)
+    if chapter_ref:
+        await get_chapter_in_workspace(db, chapter_ref, ctx)
+    elif project_ref:
+        await get_project_in_workspace(db, project_ref, ctx)
     task_info = await create_extract_task(
         db,
+        workspace_id=ctx.workspace_id,
         project_id=request.project_id,
         chapter_id=request.chapter_id,
         script_division=request.script_division,

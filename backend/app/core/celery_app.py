@@ -30,7 +30,20 @@ celery_app.conf.update(
 
 
 @worker_process_init.connect
-def _reset_async_db_runtime(**_: object) -> None:
-    """Celery prefork 子进程启动后，重建 async DB 运行时。"""
+def _init_worker_process(**_: object) -> None:
+    """Celery prefork 子进程启动后，重建 DB 运行时并注册内置能力。
+
+    为什么必须在这里做 provider bootstrap：
+    - 供应商注册表（provider key/alias → 能力）与任务适配器注册表都是进程内状态；
+    - web 进程在 `app.main` 启动时已调用 `bootstrap_all_registries()`，
+      但 Celery worker 是独立进程，从未执行过这段逻辑；
+    - 结果是 worker 里解析供应商名一律失败（`Unsupported provider name: ...`）。
+
+    两个注册入口都是幂等的，prefork 每个子进程各执行一次是安全的。
+    """
 
     reset_db_runtime()
+
+    from app.bootstrap import bootstrap_all_registries
+
+    bootstrap_all_registries()
