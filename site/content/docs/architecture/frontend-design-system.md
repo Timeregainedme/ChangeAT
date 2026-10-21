@@ -193,6 +193,17 @@ body { @apply bg-background text-foreground antialiased; }
 - 分页与「一键出图」的计数都按资产数，而不是关联行数；
 - 「取消关联」会删除该资产在本项目下的**全部**关联行——否则点一次卡片还在。
 
+## 9.5 风格目录
+
+风格（真人都市 / 动漫3D / 水墨画 …）原先写在后端枚举里，加一个风格要改代码发版。
+现在落在 `project_styles` 表：
+
+- `/styles` 提供增删改：表现形式 + 名称 + 说明，同组内名称唯一；
+- 新建项目的「剧集风格」下拉直接读取该目录（`/studio/projects/style-options`）；
+- 后端首次访问会用内置枚举种子化，升级后行为与枚举时代一致；
+- 删除只影响以后新建项目，已有项目里的字符串值不受影响；
+- Go 控制面也改为读表（该路径已切流），表为空时回落内置列表。
+
 ## 10. 已迁移页面
 
 | 路由 | 新实现 | 旧实现 |
@@ -200,6 +211,7 @@ body { @apply bg-background text-foreground antialiased; }
 | `/projects` | `src/features/projects/ProjectListPage.tsx` | `pages/aiStudio/project/ProjectLobby.tsx`（已删除） |
 | `/projects/:id/chapters/:cid/board` | `src/features/shots/ShotBoardPage.tsx` | 新增（原只有表格视图） |
 | `/files` | `src/features/files/FileManagerPage.tsx` | 新增（原来工作台里的「前往文件管理」指向不存在的路由，点了 404） |
+| `/styles` | `src/features/styles/StyleManagerPage.tsx` | 新增（风格由枚举升级为可维护目录） |
 | 全局布局 | `src/app/shell/AppShell.tsx` | `src/layouts/MainLayout.tsx`（已删除） |
 
 项目工作台仪表盘的心智是「一屏只回答三个问题」：现在该做什么、流程走到哪、还剩什么没做。

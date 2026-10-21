@@ -159,3 +159,32 @@ class ProjectCharacterRecurrenceRead(BaseModel):
     project_id: str = Field(..., description="项目 ID")
     min_chapters: int = Field(..., description="判定为主角级所需的最少章节数")
     items: list[CharacterRecurrenceRead] = Field(default_factory=list, description="角色明细")
+
+
+class ProjectStyleOptionRead(BaseModel):
+    """风格目录项。"""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    visual_style: str = Field(..., description="所属画面表现形式（现实/动漫…）")
+    name: str = Field(..., description="风格名称")
+    description: str = Field("", description="面向用户的说明")
+    sort_order: int = Field(0, description="同组内排序")
+
+
+class ProjectStyleOptionCreate(BaseModel):
+    """新增风格。"""
+
+    visual_style: str = Field(..., description="所属画面表现形式")
+    name: str = Field(..., description="风格名称")
+    description: str = Field("", description="面向用户的说明")
+    sort_order: int | None = Field(None, description="同组内排序；不传则排到末尾")
+
+
+class ProjectStyleOptionUpdate(BaseModel):
+    """修改风格（只改传入的字段）。"""
+
+    name: str | None = None
+    description: str | None = None
+    sort_order: int | None = None

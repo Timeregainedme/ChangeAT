@@ -1,4 +1,4 @@
-import { Cpu, Files, FolderKanban, Images, Mic, Settings2, SlidersHorizontal, Sparkles } from 'lucide-react'
+import { Cpu, Files, FolderKanban, Images, Mic, Palette, Settings2, SlidersHorizontal, Sparkles } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 
 /**
@@ -39,6 +39,7 @@ export const NAV_ENTRIES: NavEntry[] = [
     icon: Settings2,
     children: [
       { key: 'prompts', labelKey: 'nav.prompts', to: '/prompts', icon: Sparkles },
+      { key: 'styles', labelKey: 'nav.styles', to: '/styles', icon: Palette },
       { key: 'models', labelKey: 'nav.models', to: '/models', icon: Cpu },
       { key: 'voices', labelKey: 'nav.voices', to: '/voices', icon: Mic },
       { key: 'settings', labelKey: 'nav.settings', to: '/settings', icon: SlidersHorizontal },

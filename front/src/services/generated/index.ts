@@ -22,6 +22,7 @@ export type { ApiResponse_FileDetailRead_ } from './models/ApiResponse_FileDetai
 export type { ApiResponse_FileRead_ } from './models/ApiResponse_FileRead_';
 export type { ApiResponse_GenerationTaskLinkRead_ } from './models/ApiResponse_GenerationTaskLinkRead_';
 export type { ApiResponse_ImageGenerationOptionsRead_ } from './models/ApiResponse_ImageGenerationOptionsRead_';
+export type { ApiResponse_list_ProjectStyleOptionRead__ } from './models/ApiResponse_list_ProjectStyleOptionRead__';
 export type { ApiResponse_list_PromptCategoryOptionRead__ } from './models/ApiResponse_list_PromptCategoryOptionRead__';
 export type { ApiResponse_list_ProviderSupportedRead__ } from './models/ApiResponse_list_ProviderSupportedRead__';
 export type { ApiResponse_list_ShotCharacterLinkRead__ } from './models/ApiResponse_list_ShotCharacterLinkRead__';
@@ -55,6 +56,7 @@ export type { ApiResponse_ProjectProductionReadinessRead_ } from './models/ApiRe
 export type { ApiResponse_ProjectPropLinkRead_ } from './models/ApiResponse_ProjectPropLinkRead_';
 export type { ApiResponse_ProjectRead_ } from './models/ApiResponse_ProjectRead_';
 export type { ApiResponse_ProjectSceneLinkRead_ } from './models/ApiResponse_ProjectSceneLinkRead_';
+export type { ApiResponse_ProjectStyleOptionRead_ } from './models/ApiResponse_ProjectStyleOptionRead_';
 export type { ApiResponse_ProjectStyleOptionsRead_ } from './models/ApiResponse_ProjectStyleOptionsRead_';
 export type { ApiResponse_ProjectTimelineRead_ } from './models/ApiResponse_ProjectTimelineRead_';
 export type { ApiResponse_PromptTemplateRead_ } from './models/ApiResponse_PromptTemplateRead_';
@@ -168,7 +170,10 @@ export type { ProjectPropLinkRead } from './models/ProjectPropLinkRead';
 export type { ProjectRead } from './models/ProjectRead';
 export type { ProjectSceneLinkRead } from './models/ProjectSceneLinkRead';
 export type { ProjectStyle } from './models/ProjectStyle';
+export type { ProjectStyleOptionCreate } from './models/ProjectStyleOptionCreate';
+export type { ProjectStyleOptionRead } from './models/ProjectStyleOptionRead';
 export type { ProjectStyleOptionsRead } from './models/ProjectStyleOptionsRead';
+export type { ProjectStyleOptionUpdate } from './models/ProjectStyleOptionUpdate';
 export type { ProjectTimelineRead } from './models/ProjectTimelineRead';
 export type { ProjectUpdate } from './models/ProjectUpdate';
 export type { ProjectVisualStyle } from './models/ProjectVisualStyle';
@@ -300,4 +305,5 @@ export { StudioShotDialogLinesService } from './services/StudioShotDialogLinesSe
 export { StudioShotFrameImagesService } from './services/StudioShotFrameImagesService';
 export { StudioShotLinksService } from './services/StudioShotLinksService';
 export { StudioShotsService } from './services/StudioShotsService';
+export { StudioStylesService } from './services/StudioStylesService';
 export { StudioTimelineService } from './services/StudioTimelineService';

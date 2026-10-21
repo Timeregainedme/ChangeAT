@@ -24,6 +24,7 @@ from app.models.studio_projects import (
     ProjectCostumeLink,
     ProjectPropLink,
     ProjectSceneLink,
+    ProjectStyleOption,
 )
 from app.models.studio_shots import (
     Shot,
@@ -79,6 +80,7 @@ __all__ = [
     "PromptCategory",
     # Models
     "Project",
+    "ProjectStyleOption",
     "Chapter",
     "Scene",
     "Prop",

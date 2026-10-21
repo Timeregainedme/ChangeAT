@@ -281,8 +281,36 @@ class ProjectCostumeLink(Base, TimestampMixin):
     )
 
 
+class ProjectStyleOption(Base, TimestampMixin):
+    """风格目录（可由用户自行维护）。
+
+    为什么单独建表而不是继续用枚举：枚举无法在运行时新增，
+    而「真人都市」「水墨画」这类风格在业务上会持续扩展（新题材、新画风），
+    每次加风格都改代码发版不现实。枚举保留为内置种子的来源，表才是运行时事实。
+
+    约束：同一个画面表现形式下风格名唯一——项目创建时的校验依赖这一点。
+    """
+
+    __tablename__ = "project_styles"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, comment="风格 ID")
+    visual_style: Mapped[str] = mapped_column(
+        String(16), nullable=False, index=True, comment="所属画面表现形式（现实/动漫…）"
+    )
+    name: Mapped[str] = mapped_column(String(64), nullable=False, comment="风格名称（如 真人都市）")
+    description: Mapped[str] = mapped_column(
+        Text, nullable=False, default="", comment="面向用户的说明（会展示在管理页与新建弹窗）"
+    )
+    sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0, comment="同组内排序，越小越前")
+
+    __table_args__ = (
+        UniqueConstraint("visual_style", "name", name="uq_project_styles_visual_name"),
+    )
+
+
 __all__ = [
     "Project",
+    "ProjectStyleOption",
     "Chapter",
     "ProjectActorLink",
     "ProjectSceneLink",

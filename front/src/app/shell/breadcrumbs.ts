@@ -23,6 +23,7 @@ const SEGMENT_LABEL_KEYS: Record<string, string> = {
   props: 'breadcrumb.props',
   costumes: 'breadcrumb.costumes',
   prompts: 'breadcrumb.prompts',
+  styles: 'breadcrumb.styles',
   models: 'breadcrumb.models',
   voices: 'breadcrumb.voices',
   settings: 'breadcrumb.settings',

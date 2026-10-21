@@ -265,3 +265,35 @@ func (s *ProjectStore) LoadStats(ctx context.Context, projectIDs []string) (map[
 	}
 	return out, nil
 }
+
+// StyleRow 是风格目录的一行（只取展示需要的字段）。
+type StyleRow struct {
+	VisualStyle string
+	Name        string
+	SortOrder   int
+}
+
+// ListStyleOptions 读取风格目录。
+//
+// 目录表由 Python 侧维护（首次访问会用内置枚举种子化），这里只读。
+// 查询失败时调用方按「内置静态列表」降级，保证前端下拉永远不会空。
+func (s *ProjectStore) ListStyleOptions(ctx context.Context) ([]StyleRow, error) {
+	rows, err := s.db.QueryContext(
+		ctx,
+		"SELECT visual_style, name, sort_order FROM project_styles ORDER BY sort_order ASC, name ASC",
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	items := make([]StyleRow, 0, 16)
+	for rows.Next() {
+		var row StyleRow
+		if err := rows.Scan(&row.VisualStyle, &row.Name, &row.SortOrder); err != nil {
+			return nil, err
+		}
+		items = append(items, row)
+	}
+	return items, rows.Err()
+}

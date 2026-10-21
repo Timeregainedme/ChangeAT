@@ -35,6 +35,7 @@ from app.schemas.studio.projects import (
     StyleOption,
 )
 from app.services.studio.character_recurrence import get_project_character_recurrence
+from app.services.studio.style_catalog import group_style_options, list_style_options
 from app.services.studio.project_production_readiness import get_project_production_readiness
 
 router = APIRouter()
@@ -42,30 +43,36 @@ router = APIRouter()
 PROJECT_ORDER_FIELDS = {"name", "created_at", "updated_at", "progress"}
 
 
-def _build_project_style_options() -> tuple[dict[ProjectVisualStyle, list[ProjectStyle]], dict[ProjectVisualStyle, ProjectStyle]]:
-    mapping: dict[ProjectVisualStyle, list[ProjectStyle]] = {key: [] for key in ProjectVisualStyle}
-    for item in ProjectStyle:
-        if item.name.startswith("real_people_"):
-            mapping[ProjectVisualStyle.live_action].append(item)
-            continue
-        if item.name.startswith("anime_") or item.name in {"guoman", "ink_wash"}:
-            mapping[ProjectVisualStyle.anime].append(item)
-            continue
-    defaults: dict[ProjectVisualStyle, ProjectStyle] = {
-        visual: styles[0]
-        for visual, styles in mapping.items()
-        if styles
-    }
-    return mapping, defaults
+async def _load_style_catalog(
+    db: AsyncSession,
+) -> tuple[list[str], dict[str, list[str]], dict[str, str]]:
+    """读取风格目录：表现形式列表、每组风格名、每组默认风格。
+
+    目录来自 `project_styles` 表（可增删改），首次访问会用内置枚举做种子，
+    因此升级后行为与「枚举时代」一致；用户新增的风格也会出现在这里。
+    """
+    rows = await list_style_options(db)
+    grouped = group_style_options(rows)
+
+    visuals = list(grouped.keys())
+    if not visuals:
+        visuals = [ProjectVisualStyle.live_action.value, ProjectVisualStyle.anime.value]
+
+    styles_by_visual = {visual: [row.name for row in items] for visual, items in grouped.items()}
+    defaults = {visual: items[0].name for visual, items in grouped.items() if items}
+    return visuals, styles_by_visual, defaults
 
 
-def _validate_project_style_combo(*, visual_style: ProjectVisualStyle, style: ProjectStyle) -> None:
-    mapping, _defaults = _build_project_style_options()
-    allowed = mapping.get(visual_style, [])
+async def _validate_project_style_combo(
+    db: AsyncSession, *, visual_style: str, style: str
+) -> None:
+    """校验「表现形式 + 风格」是目录里的合法组合。"""
+    _visuals, styles_by_visual, _defaults = await _load_style_catalog(db)
+    allowed = styles_by_visual.get(visual_style, [])
     if style not in allowed:
         raise ValueError(
-            f"style is not allowed for visual_style: visual_style={visual_style.value}, "
-            f"style={style.value}, allowed={[item.value for item in allowed]}"
+            f"style is not allowed for visual_style: visual_style={visual_style}, "
+            f"style={style}, allowed={allowed}"
         )
 
 
@@ -75,15 +82,17 @@ def _validate_project_style_combo(*, visual_style: ProjectVisualStyle, style: Pr
     summary="获取项目风格候选项",
 )
 async def get_project_style_options(
+    db: AsyncSession = Depends(get_db),
 ) -> ApiResponse[ProjectStyleOptionsRead]:
-    mapping, defaults = _build_project_style_options()
+    visuals, styles_by_visual, defaults = await _load_style_catalog(db)
+    await db.commit()
     data = ProjectStyleOptionsRead(
-        visual_styles=[StyleOption(value=x.value, label=x.value) for x in ProjectVisualStyle],
+        visual_styles=[StyleOption(value=value, label=value) for value in visuals],
         styles_by_visual_style={
-            visual.value: [StyleOption(value=style.value, label=style.value) for style in styles]
-            for visual, styles in mapping.items()
+            visual: [StyleOption(value=name, label=name) for name in names]
+            for visual, names in styles_by_visual.items()
         },
-        default_style_by_visual_style={visual.value: style.value for visual, style in defaults.items()},
+        default_style_by_visual_style=defaults,
     )
     return success_response(data)
 
@@ -128,7 +137,7 @@ async def create_project(
         detail=entity_already_exists("Project"),
     )
     try:
-        _validate_project_style_combo(visual_style=body.visual_style, style=body.style)
+        await _validate_project_style_combo(db, visual_style=body.visual_style, style=body.style)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     # workspace_id 与 created_by 一律由服务端注入，不接受客户端指定：
@@ -215,7 +224,7 @@ async def update_project(
     style = update_data.get("style", obj.style)
     if visual_style is not None and style is not None:
         try:
-            _validate_project_style_combo(visual_style=visual_style, style=style)
+            await _validate_project_style_combo(db, visual_style=visual_style, style=style)
         except ValueError as exc:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     patch_model(obj, update_data)
